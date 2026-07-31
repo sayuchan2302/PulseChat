@@ -20,10 +20,9 @@ Implemented now:
 - Spring Boot app bootstrap
 - JPA entities for users, messages, and chat rooms
 - CORS and STOMP endpoint config
+- Auth controllers, services, repository, JWT filter, and `/users/me`
 
 Still planned:
-- Auth controllers/services/repositories
-- JWT security filter and authenticated REST APIs
 - Message persistence APIs
 - WebSocket message controller
 - Group chat, presence, read receipts, tests, migrations, and production setup
