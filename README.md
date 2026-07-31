@@ -1,40 +1,52 @@
-# 💬 Chat App
+# Chat App
 
-Real-time messaging application built with React, Spring Boot, PostgreSQL, and WebSocket.
+Real-time chat application built with React, Spring Boot, PostgreSQL, and STOMP WebSocket.
 
 ## Tech Stack
 
-**Frontend:** React 18 + TypeScript + Vite + Axios + WebSocket  
+**Frontend:** React 19 + TypeScript + Vite + Axios + STOMP/SockJS
 **Backend:** Spring Boot 3.2 + Spring Security + Spring WebSocket + JPA  
 **Database:** PostgreSQL  
 **Auth:** JWT
 
-## Features
+## Current Status
 
-- User authentication (Register/Login)
-- Real-time one-to-one messaging
-- Group chat rooms
-- Online/Offline status
-- Message read receipts
-- User profiles with avatars
+The project is in the implementation roadmap stage.
+
+Implemented now:
+- React auth page and chat page shell
+- Axios API client with Bearer token interceptor
+- STOMP/SockJS client service
+- Spring Boot app bootstrap
+- JPA entities for users, messages, and chat rooms
+- CORS and STOMP endpoint config
+
+Still planned:
+- Auth controllers/services/repositories
+- JWT security filter and authenticated REST APIs
+- Message persistence APIs
+- WebSocket message controller
+- Group chat, presence, read receipts, tests, migrations, and production setup
+
+See [implementation-phases.md](implementation-phases.md) for the phase-by-phase implementation plan.
 
 ## Project Structure
 
-```
+```text
 chat-app/
-├── frontend/          # React + TypeScript
+├── frontend/
 │   └── src/
-│       ├── components/
+│       ├── config/
+│       ├── context/
 │       ├── pages/
 │       ├── services/
 │       └── types/
-└── backend/           # Spring Boot
-    └── src/main/java/com/chatapp/
-        ├── controller/
-        ├── service/
-        ├── repository/
-        ├── model/
-        └── config/
+└── backend/
+    └── src/main/
+        ├── java/com/chatapp/
+        │   ├── config/
+        │   └── model/
+        └── resources/
 ```
 
 ## Quick Start
@@ -48,19 +60,22 @@ chat-app/
 ### Setup
 
 1. **Database**
+
 ```sql
-CREATE DATABASE chat-app;
+CREATE DATABASE "chat-app";
 ```
 
 2. **Backend**
+
 ```bash
 cd backend
 cp .env.example .env
-# Update .env with your database credentials
+# Update .env with your local database and JWT values
 mvn spring-boot:run
 ```
 
 3. **Frontend**
+
 ```bash
 cd frontend
 cp .env.example .env
@@ -68,11 +83,12 @@ npm install
 npm run dev
 ```
 
-**URLs:**
+URLs:
 - Frontend: http://localhost:5173
-- Backend: http://localhost:8080/api
+- Backend REST base: http://localhost:8080/api
+- Backend SockJS endpoint: http://localhost:8080/api/ws
 
-## API Endpoints
+## Planned API Contract
 
 ### Authentication
 - `POST /api/auth/register` - Register user
@@ -80,23 +96,41 @@ npm run dev
 
 ### Users
 - `GET /api/users/me` - Get current user
-- `GET /api/users` - List all users
+- `GET /api/users` - List users
 
 ### Messages
-- `GET /api/messages` - Get message history
-- `POST /api/messages` - Send message
+- `GET /api/messages/{userId}` - Get 1-1 conversation history
+- `POST /api/messages` - Send 1-1 message
 
 ### WebSocket
-- `CONNECT /ws` - WebSocket connection
-- `SUBSCRIBE /topic/public` - Public messages
-- `SEND /app/chat.send` - Send message
+- `CONNECT /api/ws` - SockJS/STOMP connection
+- `SUBSCRIBE /user/queue/messages` - Private messages
+- `SUBSCRIBE /topic/public` - Public events
+- `SEND /app/chat.send` - Send message event
 
-## Security
+## Validation
 
-- JWT authentication with secure token
-- BCrypt password hashing
-- CORS configuration
-- SQL injection protection via JPA
+Frontend:
+
+```bash
+cd frontend
+npm run build
+npm run lint
+```
+
+Backend:
+
+```bash
+cd backend
+mvn test
+```
+
+## Security Notes
+
+- Keep real database credentials and JWT secrets in `.env`.
+- Do not commit `.env` files.
+- `application.yml` intentionally avoids sensitive defaults.
+- Use DTOs for API responses so password hashes and lazy JPA graphs are never serialized directly.
 
 ## License
 
