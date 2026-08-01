@@ -1,8 +1,31 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { User, Message } from '../types';
 import { apiClient } from '../services/api';
+import { wsService } from '../services/websocket';
 import './ChatPage.css';
+
+const PRIVATE_MESSAGE_DESTINATION = '/app/chat.send';
+
+function appendUniqueMessage(messages: Message[], incomingMessage: Message) {
+  const alreadyExists = messages.some((message) => message.id === incomingMessage.id);
+  return alreadyExists ? messages : [...messages, incomingMessage];
+}
+
+function isConversationMessage(
+  message: Message,
+  currentUserId: number | null,
+  selectedUserId: number | null
+) {
+  if (currentUserId === null || selectedUserId === null) {
+    return false;
+  }
+
+  return (
+    (message.senderId === currentUserId && message.receiverId === selectedUserId) ||
+    (message.senderId === selectedUserId && message.receiverId === currentUserId)
+  );
+}
 
 export default function ChatPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -10,7 +33,27 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageInput, setMessageInput] = useState('');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const currentUserIdRef = useRef<number | null>(null);
+  const selectedUserIdRef = useRef<number | null>(null);
   const navigate = useNavigate();
+
+  const loadUsers = useCallback(async () => {
+    try {
+      const response = await apiClient.get<User[]>('/users');
+      setUsers(response.data);
+    } catch (error) {
+      console.error('Failed to load users:', error);
+    }
+  }, []);
+
+  const loadMessages = useCallback(async (userId: number) => {
+    try {
+      const response = await apiClient.get<Message[]>(`/messages/${userId}`);
+      setMessages(response.data);
+    } catch (error) {
+      console.error('Failed to load messages:', error);
+    }
+  }, []);
 
   useEffect(() => {
     const user = localStorage.getItem('user');
@@ -18,50 +61,89 @@ export default function ChatPage() {
       navigate('/');
       return;
     }
-    setCurrentUser(JSON.parse(user));
-    loadUsers();
-  }, [navigate]);
 
-  const loadUsers = async () => {
     try {
-      const response = await apiClient.get('/users');
-      setUsers(response.data);
+      const parsedUser = JSON.parse(user) as User;
+      setCurrentUser(parsedUser);
+      currentUserIdRef.current = parsedUser.id;
+      void loadUsers();
     } catch (error) {
-      console.error('Failed to load users:', error);
+      console.error('Failed to read current user:', error);
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      navigate('/');
     }
-  };
+  }, [loadUsers, navigate]);
 
-  const loadMessages = async (userId: string) => {
-    try {
-      const response = await apiClient.get(`/messages/${userId}`);
-      setMessages(response.data);
-    } catch (error) {
-      console.error('Failed to load messages:', error);
+  useEffect(() => {
+    if (!currentUser?.id) {
+      return;
     }
-  };
+
+    currentUserIdRef.current = currentUser.id;
+    let active = true;
+
+    wsService
+      .connect((incomingMessage) => {
+        if (!active) {
+          return;
+        }
+
+        setMessages((currentMessages) => {
+          if (
+            !isConversationMessage(
+              incomingMessage,
+              currentUserIdRef.current,
+              selectedUserIdRef.current
+            )
+          ) {
+            return currentMessages;
+          }
+
+          return appendUniqueMessage(currentMessages, incomingMessage);
+        });
+      })
+      .catch((error) => {
+        console.error('Failed to connect WebSocket:', error);
+      });
+
+    return () => {
+      active = false;
+      wsService.disconnect();
+    };
+  }, [currentUser?.id]);
 
   const handleUserSelect = (user: User) => {
     setSelectedUser(user);
-    loadMessages(user.id);
+    selectedUserIdRef.current = user.id;
+    void loadMessages(user.id);
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageInput.trim() || !selectedUser) return;
+    const content = messageInput.trim();
+    if (!content || !selectedUser) return;
 
     try {
-      await apiClient.post('/messages', {
+      const payload = {
         receiverId: selectedUser.id,
-        content: messageInput,
-      });
+        content,
+      };
+
+      const sentRealtime = wsService.sendMessage(PRIVATE_MESSAGE_DESTINATION, payload);
+      if (!sentRealtime) {
+        const response = await apiClient.post<Message>('/messages', payload);
+        setMessages((currentMessages) => appendUniqueMessage(currentMessages, response.data));
+      }
+
       setMessageInput('');
-      loadMessages(selectedUser.id);
     } catch (error) {
       console.error('Failed to send message:', error);
     }
   };
 
   const handleLogout = () => {
+    wsService.disconnect();
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/');

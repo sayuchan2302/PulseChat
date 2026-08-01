@@ -1,5 +1,5 @@
 export interface User {
-  id: string;
+  id: number;
   username: string;
   email: string;
   avatar?: string;
@@ -8,17 +8,17 @@ export interface User {
 }
 
 export interface Message {
-  id: string;
+  id: number;
   content: string;
-  senderId: string;
-  receiverId: string;
-  chatRoomId?: string;
+  senderId: number;
+  receiverId: number;
+  chatRoomId?: number;
   timestamp: string;
   read: boolean;
 }
 
 export interface ChatRoom {
-  id: string;
+  id: number;
   name: string;
   type: 'private' | 'group';
   participants: User[];
