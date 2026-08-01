@@ -1,18 +1,28 @@
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { WS_BASE_URL } from '../config/constants';
-import type { Message } from '../types';
+import type { Message, PresenceEvent, TypingEvent } from '../types';
 
 type MessageHandler = (message: Message) => void;
+type PresenceHandler = (presence: PresenceEvent) => void;
+type TypingHandler = (typing: TypingEvent) => void;
 
 export class WebSocketService {
   private client: Client | null = null;
   private connected = false;
   private connectingPromise: Promise<void> | null = null;
   private onMessageReceived: MessageHandler | null = null;
+  private onPresenceReceived: PresenceHandler | null = null;
+  private onTypingReceived: TypingHandler | null = null;
 
-  connect(onMessageReceived: MessageHandler): Promise<void> {
+  connect(
+    onMessageReceived: MessageHandler,
+    onPresenceReceived?: PresenceHandler,
+    onTypingReceived?: TypingHandler
+  ): Promise<void> {
     this.onMessageReceived = onMessageReceived;
+    this.onPresenceReceived = onPresenceReceived ?? null;
+    this.onTypingReceived = onTypingReceived ?? null;
 
     if (this.connected) {
       return Promise.resolve();
@@ -48,6 +58,14 @@ export class WebSocketService {
 
         this.client?.subscribe('/user/queue/messages', (message) => {
           this.handleIncomingMessage(message.body);
+        });
+
+        this.client?.subscribe('/topic/presence', (message) => {
+          this.handleIncomingPresence(message.body);
+        });
+
+        this.client?.subscribe('/user/queue/typing', (message) => {
+          this.handleIncomingTyping(message.body);
         });
 
         resolve();
@@ -98,6 +116,8 @@ export class WebSocketService {
     this.connected = false;
     this.connectingPromise = null;
     this.onMessageReceived = null;
+    this.onPresenceReceived = null;
+    this.onTypingReceived = null;
   }
 
   isConnected(): boolean {
@@ -110,6 +130,24 @@ export class WebSocketService {
       this.onMessageReceived?.(message);
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);
+    }
+  }
+
+  private handleIncomingPresence(body: string) {
+    try {
+      const presence = JSON.parse(body) as PresenceEvent;
+      this.onPresenceReceived?.(presence);
+    } catch (error) {
+      console.error('Failed to parse WebSocket presence event:', error);
+    }
+  }
+
+  private handleIncomingTyping(body: string) {
+    try {
+      const typing = JSON.parse(body) as TypingEvent;
+      this.onTypingReceived?.(typing);
+    } catch (error) {
+      console.error('Failed to parse WebSocket typing event:', error);
     }
   }
 }

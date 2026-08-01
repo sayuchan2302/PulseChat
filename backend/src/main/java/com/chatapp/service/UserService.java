@@ -1,5 +1,6 @@
 package com.chatapp.service;
 
+import com.chatapp.dto.response.PresenceResponse;
 import com.chatapp.dto.response.UserResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
@@ -34,5 +35,23 @@ public class UserService {
     public User findById(Long id) {
         return userRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+    }
+
+    @Transactional
+    public PresenceResponse updateOnlineStatus(String username, boolean online) {
+        User user = findByUsername(username);
+        user.setOnline(online);
+
+        return new PresenceResponse(
+                user.getId(),
+                user.getUsername(),
+                user.getOnline()
+        );
+    }
+
+    @Transactional
+    public void resetOnlineStatuses() {
+        userRepository.findAll()
+                .forEach(user -> user.setOnline(false));
     }
 }

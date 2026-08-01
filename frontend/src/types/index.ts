@@ -17,6 +17,18 @@ export interface Message {
   read: boolean;
 }
 
+export interface PresenceEvent {
+  userId: number;
+  username: string;
+  online: boolean;
+}
+
+export interface TypingEvent {
+  senderId: number;
+  username: string;
+  typing: boolean;
+}
+
 export interface ChatRoom {
   id: number;
   name: string;

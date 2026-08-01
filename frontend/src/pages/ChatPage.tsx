@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { User, Message } from '../types';
+import type { User, Message, PresenceEvent, TypingEvent } from '../types';
 import { apiClient } from '../services/api';
 import { wsService } from '../services/websocket';
 import './ChatPage.css';
 
 const PRIVATE_MESSAGE_DESTINATION = '/app/chat.send';
+const TYPING_DESTINATION = '/app/chat.typing';
+const STOP_TYPING_DELAY_MS = 1500;
+const REMOTE_TYPING_VISIBLE_MS = 2500;
 
 function appendUniqueMessage(messages: Message[], incomingMessage: Message) {
   const alreadyExists = messages.some((message) => message.id === incomingMessage.id);
@@ -27,14 +30,25 @@ function isConversationMessage(
   );
 }
 
+function applyPresenceToUser(user: User, presence: PresenceEvent) {
+  return user.id === presence.userId ? { ...user, online: presence.online } : user;
+}
+
+function isTypingFromSelectedUser(typing: TypingEvent, selectedUserId: number | null) {
+  return selectedUserId !== null && typing.senderId === selectedUserId;
+}
+
 export default function ChatPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageInput, setMessageInput] = useState('');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [typingUserId, setTypingUserId] = useState<number | null>(null);
   const currentUserIdRef = useRef<number | null>(null);
   const selectedUserIdRef = useRef<number | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const remoteTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
 
   const loadUsers = useCallback(async () => {
@@ -84,39 +98,130 @@ export default function ChatPage() {
     let active = true;
 
     wsService
-      .connect((incomingMessage) => {
-        if (!active) {
-          return;
-        }
-
-        setMessages((currentMessages) => {
-          if (
-            !isConversationMessage(
-              incomingMessage,
-              currentUserIdRef.current,
-              selectedUserIdRef.current
-            )
-          ) {
-            return currentMessages;
+      .connect(
+        (incomingMessage) => {
+          if (!active) {
+            return;
           }
 
-          return appendUniqueMessage(currentMessages, incomingMessage);
-        });
-      })
+          setMessages((currentMessages) => {
+            if (
+              !isConversationMessage(
+                incomingMessage,
+                currentUserIdRef.current,
+                selectedUserIdRef.current
+              )
+            ) {
+              return currentMessages;
+            }
+
+            return appendUniqueMessage(currentMessages, incomingMessage);
+          });
+        },
+        (presence) => {
+          if (!active) {
+            return;
+          }
+
+          setUsers((currentUsers) =>
+            currentUsers.map((user) => applyPresenceToUser(user, presence))
+          );
+          setSelectedUser((currentSelectedUser) =>
+            currentSelectedUser ? applyPresenceToUser(currentSelectedUser, presence) : null
+          );
+        },
+        (typing) => {
+          if (!active || !isTypingFromSelectedUser(typing, selectedUserIdRef.current)) {
+            return;
+          }
+
+          if (typing.typing) {
+            showRemoteTyping(typing.senderId);
+          } else {
+            hideRemoteTyping();
+          }
+        }
+      )
       .catch((error) => {
         console.error('Failed to connect WebSocket:', error);
       });
 
     return () => {
       active = false;
+      clearTypingTimeout();
+      clearRemoteTypingTimeout();
       wsService.disconnect();
     };
   }, [currentUser?.id]);
 
+  const clearTypingTimeout = () => {
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+  };
+
+  const clearRemoteTypingTimeout = () => {
+    if (remoteTypingTimeoutRef.current) {
+      clearTimeout(remoteTypingTimeoutRef.current);
+      remoteTypingTimeoutRef.current = null;
+    }
+  };
+
+  const showRemoteTyping = (senderId: number) => {
+    setTypingUserId(senderId);
+    clearRemoteTypingTimeout();
+    remoteTypingTimeoutRef.current = setTimeout(() => {
+      setTypingUserId(null);
+      remoteTypingTimeoutRef.current = null;
+    }, REMOTE_TYPING_VISIBLE_MS);
+  };
+
+  const hideRemoteTyping = () => {
+    clearRemoteTypingTimeout();
+    setTypingUserId(null);
+  };
+
+  const publishTyping = (receiverId: number, typing: boolean) => {
+    wsService.sendMessage(TYPING_DESTINATION, {
+      receiverId,
+      typing,
+    });
+  };
+
+  const stopTyping = (receiverId: number) => {
+    clearTypingTimeout();
+    publishTyping(receiverId, false);
+  };
+
   const handleUserSelect = (user: User) => {
+    if (selectedUserIdRef.current !== null) {
+      stopTyping(selectedUserIdRef.current);
+    }
+
     setSelectedUser(user);
     selectedUserIdRef.current = user.id;
+    hideRemoteTyping();
     void loadMessages(user.id);
+  };
+
+  const handleMessageInputChange = (value: string) => {
+    setMessageInput(value);
+    if (!selectedUser) {
+      return;
+    }
+
+    if (!value.trim()) {
+      stopTyping(selectedUser.id);
+      return;
+    }
+
+    publishTyping(selectedUser.id, true);
+    clearTypingTimeout();
+    typingTimeoutRef.current = setTimeout(() => {
+      publishTyping(selectedUser.id, false);
+      typingTimeoutRef.current = null;
+    }, STOP_TYPING_DELAY_MS);
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -130,6 +235,7 @@ export default function ChatPage() {
         content,
       };
 
+      stopTyping(selectedUser.id);
       const sentRealtime = wsService.sendMessage(PRIVATE_MESSAGE_DESTINATION, payload);
       if (!sentRealtime) {
         const response = await apiClient.post<Message>('/messages', payload);
@@ -143,6 +249,10 @@ export default function ChatPage() {
   };
 
   const handleLogout = () => {
+    if (selectedUserIdRef.current !== null) {
+      stopTyping(selectedUserIdRef.current);
+    }
+
     wsService.disconnect();
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -216,13 +326,18 @@ export default function ChatPage() {
                     </div>
                   </div>
                 ))}
+                {typingUserId === selectedUser.id && (
+                  <div className="typing-indicator">
+                    {selectedUser.username} is typing...
+                  </div>
+                )}
               </div>
 
               <form onSubmit={handleSendMessage} className="message-input-form">
                 <input
                   type="text"
                   value={messageInput}
-                  onChange={(e) => setMessageInput(e.target.value)}
+                  onChange={(e) => handleMessageInputChange(e.target.value)}
                   placeholder="Type a message..."
                   className="message-input"
                 />

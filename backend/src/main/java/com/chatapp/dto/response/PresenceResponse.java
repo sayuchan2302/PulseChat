@@ -1,4 +1,8 @@
 package com.chatapp.dto.response;
 
-public class PresenceResponse {
+public record PresenceResponse(
+        Long userId,
+        String username,
+        boolean online
+) {
 }

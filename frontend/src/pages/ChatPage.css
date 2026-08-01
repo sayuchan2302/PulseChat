@@ -220,6 +220,14 @@
   text-align: right;
 }
 
+.typing-indicator {
+  align-self: flex-start;
+  color: var(--gray-500);
+  font-size: 13px;
+  font-style: italic;
+  padding: 4px 8px;
+}
+
 .message-input-form {
   display: flex;
   gap: 12px;

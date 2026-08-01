@@ -1,7 +1,9 @@
 package com.chatapp.controller;
 
 import com.chatapp.dto.request.SendMessageRequest;
+import com.chatapp.dto.request.TypingRequest;
 import com.chatapp.dto.response.MessageResponse;
+import com.chatapp.dto.response.TypingResponse;
 import com.chatapp.model.User;
 import com.chatapp.service.MessageService;
 import com.chatapp.service.UserService;
@@ -19,6 +21,7 @@ import java.security.Principal;
 @RequiredArgsConstructor
 public class ChatWebSocketController {
     private static final String PRIVATE_MESSAGE_QUEUE = "/queue/messages";
+    private static final String TYPING_QUEUE = "/queue/typing";
 
     private final MessageService messageService;
     private final UserService userService;
@@ -26,11 +29,9 @@ public class ChatWebSocketController {
 
     @MessageMapping("/chat.send")
     public void sendMessage(@Valid @Payload SendMessageRequest request, Principal principal) {
-        if (principal == null) {
-            throw new AuthenticationCredentialsNotFoundException("Authentication is required");
-        }
+        Principal authenticatedPrincipal = requireAuthenticatedPrincipal(principal);
 
-        MessageResponse savedMessage = messageService.sendMessage(principal.getName(), request);
+        MessageResponse savedMessage = messageService.sendMessage(authenticatedPrincipal.getName(), request);
         User receiver = userService.findById(request.receiverId());
 
         messagingTemplate.convertAndSendToUser(
@@ -39,9 +40,36 @@ public class ChatWebSocketController {
                 savedMessage
         );
         messagingTemplate.convertAndSendToUser(
-                principal.getName(),
+                authenticatedPrincipal.getName(),
                 PRIVATE_MESSAGE_QUEUE,
                 savedMessage
         );
+    }
+
+    @MessageMapping("/chat.typing")
+    public void sendTyping(@Valid @Payload TypingRequest request, Principal principal) {
+        Principal authenticatedPrincipal = requireAuthenticatedPrincipal(principal);
+        User sender = userService.findByUsername(authenticatedPrincipal.getName());
+        User receiver = userService.findById(request.receiverId());
+
+        TypingResponse response = new TypingResponse(
+                sender.getId(),
+                sender.getUsername(),
+                request.typing()
+        );
+
+        messagingTemplate.convertAndSendToUser(
+                receiver.getUsername(),
+                TYPING_QUEUE,
+                response
+        );
+    }
+
+    private Principal requireAuthenticatedPrincipal(Principal principal) {
+        if (principal == null) {
+            throw new AuthenticationCredentialsNotFoundException("Authentication is required");
+        }
+
+        return principal;
     }
 }
