@@ -1,3 +1,12 @@
+export type UserFriendshipStatus =
+  | 'none'
+  | 'pending_incoming'
+  | 'pending_outgoing'
+  | 'accepted'
+  | 'declined';
+
+export type FriendshipStatus = 'pending' | 'accepted' | 'declined';
+
 export interface User {
   id: number;
   username: string;
@@ -6,6 +15,11 @@ export interface User {
   avatar?: string;
   online: boolean;
   unreadCount?: number;
+  friendshipStatus?: UserFriendshipStatus;
+  friendshipId?: number;
+  lastMessageContent?: string;
+  lastMessageAt?: string;
+  lastMessageSenderId?: number;
   createdAt: string;
 }
 
@@ -43,6 +57,20 @@ export interface ReadReceiptEvent {
   readerId: number;
   senderId: number;
   readCount: number;
+}
+
+export interface Friendship {
+  id: number;
+  requester: User;
+  receiver: User;
+  status: FriendshipStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FriendshipSummary {
+  incomingCount: number;
+  outgoingCount: number;
 }
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline';

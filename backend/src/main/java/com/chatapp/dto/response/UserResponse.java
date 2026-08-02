@@ -1,9 +1,11 @@
 package com.chatapp.dto.response;
 
 import com.chatapp.model.User;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.time.LocalDateTime;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record UserResponse(
         Long id,
         String username,
@@ -11,9 +13,33 @@ public record UserResponse(
         String email,
         String avatar,
         Boolean online,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        String friendshipStatus,
+        Long friendshipId,
+        String lastMessageContent,
+        LocalDateTime lastMessageAt,
+        Long lastMessageSenderId
 ) {
     public static UserResponse from(User user) {
+        return from(user, null, null, null, null, null);
+    }
+
+    public static UserResponse from(User user, String friendshipStatus) {
+        return from(user, friendshipStatus, null, null, null, null);
+    }
+
+    public static UserResponse from(User user, String friendshipStatus, Long friendshipId) {
+        return from(user, friendshipStatus, friendshipId, null, null, null);
+    }
+
+    public static UserResponse from(
+            User user,
+            String friendshipStatus,
+            Long friendshipId,
+            String lastMessageContent,
+            LocalDateTime lastMessageAt,
+            Long lastMessageSenderId
+    ) {
         return new UserResponse(
                 user.getId(),
                 user.getUsername(),
@@ -21,7 +47,12 @@ public record UserResponse(
                 user.getEmail(),
                 user.getAvatar(),
                 user.getOnline(),
-                user.getCreatedAt()
+                user.getCreatedAt(),
+                friendshipStatus,
+                friendshipId,
+                lastMessageContent,
+                lastMessageAt,
+                lastMessageSenderId
         );
     }
 

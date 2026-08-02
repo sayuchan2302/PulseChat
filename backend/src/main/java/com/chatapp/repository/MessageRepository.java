@@ -28,6 +28,29 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     );
 
     @Query("""
+            select m from Message m
+            join fetch m.sender
+            left join fetch m.receiver
+            where m.id in (
+                select max(latest.id)
+                from Message latest
+                where latest.chatRoom is null
+                  and (
+                      (latest.sender.id = :currentUserId and latest.receiver.id in :friendIds)
+                      or (latest.receiver.id = :currentUserId and latest.sender.id in :friendIds)
+                  )
+                group by case
+                    when latest.sender.id = :currentUserId then latest.receiver.id
+                    else latest.sender.id
+                end
+            )
+            """)
+    List<Message> findLatestMessagesForPrivateConversations(
+            @Param("currentUserId") Long currentUserId,
+            @Param("friendIds") List<Long> friendIds
+    );
+
+    @Query("""
             select m.sender.id as userId, count(m) as unreadCount
             from Message m
             where m.receiver.id = :receiverId

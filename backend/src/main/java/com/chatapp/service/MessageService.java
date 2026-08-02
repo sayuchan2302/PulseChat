@@ -24,6 +24,7 @@ public class MessageService {
     private final MessageRepository messageRepository;
     private final UserService userService;
     private final ChatRoomService chatRoomService;
+    private final FriendshipService friendshipService;
 
     @Transactional(readOnly = true)
     public List<MessageResponse> getConversation(String currentUsername, Long otherUserId) {
@@ -33,6 +34,8 @@ public class MessageService {
         if (currentUser.getId().equals(otherUser.getId())) {
             throw new AppException(ErrorCode.SELF_CONVERSATION_NOT_ALLOWED);
         }
+
+        validateFriends(currentUser, otherUser);
 
         return messageRepository.findConversation(currentUser.getId(), otherUser.getId())
                 .stream()
@@ -69,6 +72,8 @@ public class MessageService {
         if (sender.getId().equals(receiver.getId())) {
             throw new AppException(ErrorCode.SELF_MESSAGE_NOT_ALLOWED);
         }
+
+        validateFriends(sender, receiver);
 
         if (clientId != null) {
             return messageRepository.findBySenderIdAndClientId(sender.getId(), clientId)
@@ -128,6 +133,12 @@ public class MessageService {
         }
 
         return clientId.trim();
+    }
+
+    private void validateFriends(User firstUser, User secondUser) {
+        if (!friendshipService.areFriends(firstUser, secondUser)) {
+            throw new AppException(ErrorCode.FRIENDSHIP_REQUIRED);
+        }
     }
 
     @Transactional

@@ -4,6 +4,7 @@ import { WS_BASE_URL } from '../config/constants';
 import type {
   ChatRoom,
   ConnectionStatus,
+  Friendship,
   Message,
   PresenceEvent,
   ReadReceiptEvent,
@@ -16,6 +17,7 @@ type TypingHandler = (typing: TypingEvent) => void;
 type ReadReceiptHandler = (receipt: ReadReceiptEvent) => void;
 type ConnectionStatusHandler = (status: ConnectionStatus) => void;
 type RoomHandler = (room: ChatRoom) => void;
+type FriendRequestHandler = (friendship: Friendship) => void;
 
 export class WebSocketService {
   private client: Client | null = null;
@@ -29,6 +31,7 @@ export class WebSocketService {
   private onReadReceiptReceived: ReadReceiptHandler | null = null;
   private onConnectionStatusChanged: ConnectionStatusHandler | null = null;
   private onRoomReceived: RoomHandler | null = null;
+  private onFriendRequestReceived: FriendRequestHandler | null = null;
 
   connect(
     onMessageReceived: MessageHandler,
@@ -36,7 +39,8 @@ export class WebSocketService {
     onTypingReceived?: TypingHandler,
     onReadReceiptReceived?: ReadReceiptHandler,
     onConnectionStatusChanged?: ConnectionStatusHandler,
-    onRoomReceived?: RoomHandler
+    onRoomReceived?: RoomHandler,
+    onFriendRequestReceived?: FriendRequestHandler
   ): Promise<void> {
     this.onMessageReceived = onMessageReceived;
     this.onPresenceReceived = onPresenceReceived ?? null;
@@ -44,6 +48,7 @@ export class WebSocketService {
     this.onReadReceiptReceived = onReadReceiptReceived ?? null;
     this.onConnectionStatusChanged = onConnectionStatusChanged ?? null;
     this.onRoomReceived = onRoomReceived ?? null;
+    this.onFriendRequestReceived = onFriendRequestReceived ?? null;
 
     if (this.connected) {
       this.updateStatus('connected');
@@ -102,6 +107,10 @@ export class WebSocketService {
 
         this.client?.subscribe('/user/queue/rooms', (message) => {
           this.handleIncomingRoom(message.body);
+        });
+
+        this.client?.subscribe('/user/queue/friend-requests', (message) => {
+          this.handleIncomingFriendRequest(message.body);
         });
 
         resolve();
@@ -173,6 +182,7 @@ export class WebSocketService {
     this.onReadReceiptReceived = null;
     this.onConnectionStatusChanged = null;
     this.onRoomReceived = null;
+    this.onFriendRequestReceived = null;
   }
 
   isConnected(): boolean {
@@ -239,6 +249,15 @@ export class WebSocketService {
       this.onRoomReceived?.(room);
     } catch (error) {
       console.error('Failed to parse WebSocket room event:', error);
+    }
+  }
+
+  private handleIncomingFriendRequest(body: string) {
+    try {
+      const friendship = JSON.parse(body) as Friendship;
+      this.onFriendRequestReceived?.(friendship);
+    } catch (error) {
+      console.error('Failed to parse WebSocket friend request event:', error);
     }
   }
 }

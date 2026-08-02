@@ -4,6 +4,12 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  color-scheme: light;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
@@ -44,8 +50,12 @@ button {
   border: none;
   outline: none;
   font-family: inherit;
+  color-scheme: light;
 }
 
-input {
+input,
+textarea,
+select {
   font-family: inherit;
+  color-scheme: light;
 }

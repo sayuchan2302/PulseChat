@@ -18,6 +18,9 @@ import java.util.Set;
 @Service
 @RequiredArgsConstructor
 public class ChatRoomService {
+    private static final int MIN_GROUP_MEMBERS = 3;
+    private static final int MIN_INVITED_PARTICIPANTS = MIN_GROUP_MEMBERS - 1;
+
     private final ChatRoomRepository chatRoomRepository;
     private final UserService userService;
 
@@ -27,8 +30,8 @@ public class ChatRoomService {
         Set<Long> participantIds = new LinkedHashSet<>(request.participantIds());
         participantIds.remove(creator.getId());
 
-        if (participantIds.isEmpty()) {
-            throw new AppException(ErrorCode.GROUP_REQUIRES_PARTICIPANTS);
+        if (participantIds.size() < MIN_INVITED_PARTICIPANTS) {
+            throw new AppException(ErrorCode.GROUP_REQUIRES_MINIMUM_MEMBERS);
         }
 
         ChatRoom room = new ChatRoom();

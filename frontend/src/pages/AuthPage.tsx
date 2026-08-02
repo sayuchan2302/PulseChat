@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../services/api';
+import { ROUTES } from '../config/constants';
 import './AuthPage.css';
 
 type AuthMode = 'login' | 'register';
@@ -33,7 +34,7 @@ export default function AuthPage() {
       if (response.data.token) {
         localStorage.setItem('token', response.data.token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
-        navigate('/chat');
+        navigate(ROUTES.CHAT, { replace: true });
       }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Authentication failed. Please check your details.');

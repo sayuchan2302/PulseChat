@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ROUTES } from '../config/constants';
 import type {
   ChatRoom,
   ConnectionStatus,
+  Friendship,
+  FriendshipSummary,
   Message,
   PresenceEvent,
   ReadReceiptEvent,
@@ -22,6 +25,8 @@ const STOP_TYPING_DELAY_MS = 1500;
 const USER_SEARCH_DEBOUNCE_MS = 300;
 const REMOTE_TYPING_VISIBLE_MS = 2500;
 const OPTIMISTIC_SEND_TIMEOUT_MS = 10000;
+const MIN_GROUP_MEMBERS = 3;
+const MIN_GROUP_INVITED_MEMBERS = MIN_GROUP_MEMBERS - 1;
 const USER_SKELETON_KEYS = ['user-skeleton-1', 'user-skeleton-2', 'user-skeleton-3'];
 const MESSAGE_SKELETON_KEYS = [
   'message-skeleton-1',
@@ -52,7 +57,115 @@ type LoadOptions = {
   search?: string;
 };
 
-type SidebarTab = 'users' | 'groups';
+type MainView = 'chat' | 'friends' | 'requests';
+
+type HeaderIconProps = {
+  className?: string;
+};
+
+function FriendsIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
+function FriendRequestIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M15 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="8.5" cy="7" r="4" />
+      <path d="M19 8v6" />
+      <path d="M22 11h-6" />
+    </svg>
+  );
+}
+
+function RefreshIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M21 12a9 9 0 0 1-15.5 6.25" />
+      <path d="M3 12A9 9 0 0 1 18.5 5.75" />
+      <path d="M18 3v4h4" />
+      <path d="M6 21v-4H2" />
+    </svg>
+  );
+}
+
+function GroupPlusIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M20 8v6" />
+      <path d="M23 11h-6" />
+    </svg>
+  );
+}
+
+function ProfileIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="10" r="3" />
+      <path d="M7 18a5.5 5.5 0 0 1 10 0" />
+    </svg>
+  );
+}
 
 function toDeliveredMessage(message: Message): ChatMessage {
   return {
@@ -271,8 +384,8 @@ function getUserDisplayName(user: User | null) {
   return user?.fullName?.trim() || user?.username || '';
 }
 
-function getUserInitial(user: User) {
-  return getUserDisplayName(user).charAt(0).toUpperCase();
+function getUserInitial(user: User | null) {
+  return getUserDisplayName(user).charAt(0).toUpperCase() || '?';
 }
 
 function shouldShowUsername(user: User) {
@@ -306,8 +419,132 @@ function getMessageSenderName(message: ChatMessage, selectedRoom: ChatRoom | nul
   return participant ? getUserDisplayName(participant) : message.senderUsername ?? 'Unknown';
 }
 
+function canChatWithUser(user: User) {
+  return user.friendshipStatus === 'accepted';
+}
+
+function getFriendshipStatusLabel(user: User) {
+  switch (user.friendshipStatus) {
+    case 'pending_incoming':
+      return 'Request received';
+    case 'pending_outgoing':
+      return 'Pending';
+    case 'declined':
+    case 'none':
+      return 'Not friends';
+    case 'accepted':
+    default:
+      return user.online ? 'Online' : 'Offline';
+  }
+}
+
+function getUserStatusClass(user: User) {
+  return canChatWithUser(user) ? (user.online ? 'online' : 'offline') : 'relationship';
+}
+
+function getPrivateConversationUserId(message: Message, currentUserId: number | null) {
+  if (currentUserId === null || message.chatRoomId) {
+    return null;
+  }
+
+  if (message.senderId === currentUserId) {
+    return message.receiverId ?? null;
+  }
+
+  return message.receiverId === currentUserId ? message.senderId : null;
+}
+
+function getTimestampValue(timestamp?: string) {
+  if (!timestamp) {
+    return 0;
+  }
+
+  const value = Date.parse(timestamp);
+  return Number.isNaN(value) ? 0 : value;
+}
+
+function shouldUseMessageAsPreview(user: User, message: Message) {
+  return getTimestampValue(message.timestamp) >= getTimestampValue(user.lastMessageAt);
+}
+
+function applyConversationPreviewToUser(user: User, message: Message, currentUserId: number | null) {
+  const conversationUserId = getPrivateConversationUserId(message, currentUserId);
+  if (conversationUserId !== user.id || !shouldUseMessageAsPreview(user, message)) {
+    return user;
+  }
+
+  return {
+    ...user,
+    lastMessageContent: message.content,
+    lastMessageAt: message.timestamp,
+    lastMessageSenderId: message.senderId,
+  };
+}
+
+function compareUsersByChatActivity(firstUser: User, secondUser: User) {
+  const activityDifference =
+    getTimestampValue(secondUser.lastMessageAt) - getTimestampValue(firstUser.lastMessageAt);
+  if (activityDifference !== 0) {
+    return activityDifference;
+  }
+
+  return getUserDisplayName(firstUser).localeCompare(getUserDisplayName(secondUser));
+}
+
+function applyConversationPreviewToUsers(
+  users: User[],
+  message: Message,
+  currentUserId: number | null,
+  moveUpdatedUserToTop: boolean
+) {
+  const conversationUserId = getPrivateConversationUserId(message, currentUserId);
+  if (conversationUserId === null) {
+    return users;
+  }
+
+  let didUpdate = false;
+  const nextUsers = users.map((user) => {
+    const nextUser = applyConversationPreviewToUser(user, message, currentUserId);
+    didUpdate ||= nextUser !== user;
+    return nextUser;
+  });
+
+  if (!didUpdate) {
+    return users;
+  }
+
+  return moveUpdatedUserToTop ? [...nextUsers].sort(compareUsersByChatActivity) : nextUsers;
+}
+
+function formatSidebarTime(timestamp?: string) {
+  if (!timestamp) {
+    return '';
+  }
+
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function getConversationPreviewText(user: User, currentUserId: number | null) {
+  const content = user.lastMessageContent?.trim();
+  if (content) {
+    return user.lastMessageSenderId === currentUserId ? `You: ${content}` : content;
+  }
+
+  const username = shouldShowUsername(user) ? ` @${user.username}` : '';
+  return `${getFriendshipStatusLabel(user)}${username}`;
+}
+
 export default function ChatPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [friends, setFriends] = useState<User[]>([]);
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
@@ -320,10 +557,19 @@ export default function ChatPage() {
   const [usersError, setUsersError] = useState('');
   const [roomsError, setRoomsError] = useState('');
   const [messagesError, setMessagesError] = useState('');
+  const [friendRequestsError, setFriendRequestsError] = useState('');
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [roomsLoading, setRoomsLoading] = useState(true);
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('users');
+  const [friendRequestsLoading, setFriendRequestsLoading] = useState(true);
+  const [mainView, setMainView] = useState<MainView>('chat');
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [incomingFriendRequests, setIncomingFriendRequests] = useState<Friendship[]>([]);
+  const [friendSummary, setFriendSummary] = useState<FriendshipSummary>({
+    incomingCount: 0,
+    outgoingCount: 0,
+  });
+  const [friendActionKeys, setFriendActionKeys] = useState<string[]>([]);
   const [groupName, setGroupName] = useState('');
   const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<number[]>([]);
   const [groupCreating, setGroupCreating] = useState(false);
@@ -358,6 +604,7 @@ export default function ChatPage() {
   const loadUsers = useCallback(async (options: LoadOptions = {}) => {
     const search = (options.search ?? userSearchQueryRef.current).trim();
     const isCurrentSearch = () => userSearchQueryRef.current.trim() === search;
+    const usersEndpoint = search ? '/friends/search' : '/friends';
 
     if (!options.silent) {
       setUsersLoading(true);
@@ -366,7 +613,7 @@ export default function ChatPage() {
 
     try {
       const [usersResponse, unreadCountsResponse] = await Promise.all([
-        apiClient.get<User[]>('/users', {
+        apiClient.get<User[]>(usersEndpoint, {
           params: search ? { username: search } : undefined,
         }),
         apiClient.get<UnreadCount[]>('/messages/unread-counts'),
@@ -377,19 +624,63 @@ export default function ChatPage() {
 
       const nextUsers = mergeUnreadCounts(usersResponse.data, unreadCountsResponse.data);
       setUsers(nextUsers);
-      setSelectedUser((currentSelectedUser) =>
-        currentSelectedUser
-          ? nextUsers.find((user) => user.id === currentSelectedUser.id) ?? currentSelectedUser
-          : null
-      );
+      if (!search) {
+        setFriends(nextUsers);
+      }
+
+      const selectedUserIdForUpdate = selectedUserIdRef.current;
+      if (selectedUserIdForUpdate !== null) {
+        const updatedSelectedUser = nextUsers.find((user) => user.id === selectedUserIdForUpdate);
+        if (updatedSelectedUser && canChatWithUser(updatedSelectedUser)) {
+          setSelectedUser(updatedSelectedUser);
+        } else if (!search || updatedSelectedUser) {
+          selectedUserIdRef.current = null;
+          setSelectedUser(null);
+          setMessages([]);
+          setMessageInput('');
+        }
+      }
     } catch (error) {
       console.error('Failed to load users:', error);
       if (!options.silent && isCurrentSearch()) {
-        setUsersError('Unable to load users.');
+        setUsersError('Unable to load friends.');
       }
     } finally {
       if (!options.silent && isCurrentSearch()) {
         setUsersLoading(false);
+      }
+    }
+  }, []);
+
+  const loadIncomingFriendRequests = useCallback(async (options: LoadOptions = {}) => {
+    if (!options.silent) {
+      setFriendRequestsLoading(true);
+    }
+    setFriendRequestsError('');
+
+    try {
+      const response = await apiClient.get<Friendship[]>('/friend-requests/incoming');
+      setIncomingFriendRequests(response.data);
+    } catch (error) {
+      console.error('Failed to load friend requests:', error);
+      if (!options.silent) {
+        setFriendRequestsError('Unable to load requests.');
+      }
+    } finally {
+      if (!options.silent) {
+        setFriendRequestsLoading(false);
+      }
+    }
+  }, []);
+
+  const loadFriendSummary = useCallback(async (options: LoadOptions = {}) => {
+    try {
+      const response = await apiClient.get<FriendshipSummary>('/friend-requests/summary');
+      setFriendSummary(response.data);
+    } catch (error) {
+      console.error('Failed to load friend request summary:', error);
+      if (!options.silent) {
+        setFriendSummary({ incomingCount: 0, outgoingCount: 0 });
       }
     }
   }, []);
@@ -475,7 +766,7 @@ export default function ChatPage() {
   useEffect(() => {
     const user = localStorage.getItem('user');
     if (!user) {
-      navigate('/');
+      navigate(ROUTES.HOME, { replace: true });
       return;
     }
 
@@ -487,7 +778,7 @@ export default function ChatPage() {
       console.error('Failed to read current user:', error);
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      navigate('/');
+      navigate(ROUTES.HOME, { replace: true });
     }
   }, [navigate]);
 
@@ -513,6 +804,15 @@ export default function ChatPage() {
 
     void loadRooms();
   }, [currentUser?.id, loadRooms]);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      return;
+    }
+
+    void loadIncomingFriendRequests();
+    void loadFriendSummary();
+  }, [currentUser?.id, loadFriendSummary, loadIncomingFriendRequests]);
 
   useEffect(() => {
     if (!currentUser?.id) {
@@ -552,6 +852,32 @@ export default function ChatPage() {
             return;
           }
 
+          setUsers((currentUsers) =>
+            applyConversationPreviewToUsers(
+              currentUsers,
+              incomingMessage,
+              currentUserIdRef.current,
+              !userSearchQueryRef.current.trim()
+            )
+          );
+          setFriends((currentFriends) =>
+            applyConversationPreviewToUsers(
+              currentFriends,
+              incomingMessage,
+              currentUserIdRef.current,
+              true
+            )
+          );
+          setSelectedUser((currentSelectedUser) =>
+            currentSelectedUser
+              ? applyConversationPreviewToUser(
+                  currentSelectedUser,
+                  incomingMessage,
+                  currentUserIdRef.current
+                )
+              : null
+          );
+
           if (
             incomingMessage.senderId !== currentUserIdRef.current &&
             incomingMessage.senderId === selectedUserIdRef.current
@@ -562,6 +888,7 @@ export default function ChatPage() {
 
           if (incomingMessage.senderId !== currentUserIdRef.current) {
             setUsers((currentUsers) => incrementUnreadCount(currentUsers, incomingMessage.senderId));
+            setFriends((currentFriends) => incrementUnreadCount(currentFriends, incomingMessage.senderId));
           }
         },
         (presence) => {
@@ -571,6 +898,9 @@ export default function ChatPage() {
 
           setUsers((currentUsers) =>
             currentUsers.map((user) => applyPresenceToUser(user, presence))
+          );
+          setFriends((currentFriends) =>
+            currentFriends.map((user) => applyPresenceToUser(user, presence))
           );
           setSelectedUser((currentSelectedUser) =>
             currentSelectedUser ? applyPresenceToUser(currentSelectedUser, presence) : null
@@ -600,6 +930,7 @@ export default function ChatPage() {
           setMessages((currentMessages) => applyReadReceipt(currentMessages, receipt));
           if (receipt.readerId === currentUserIdRef.current) {
             setUsers((currentUsers) => resetUnreadCount(currentUsers, receipt.senderId));
+            setFriends((currentFriends) => resetUnreadCount(currentFriends, receipt.senderId));
           }
         },
         (status) => {
@@ -627,6 +958,8 @@ export default function ChatPage() {
           Promise.all([
             loadUsers({ silent: true }),
             loadRooms({ silent: true }),
+            loadIncomingFriendRequests({ silent: true }),
+            loadFriendSummary({ silent: true }),
             selectedUserIdForResync !== null
               ? loadMessages(selectedUserIdForResync, { silent: true })
             : selectedRoomIdForResync !== null
@@ -654,6 +987,17 @@ export default function ChatPage() {
           setSelectedRoom((currentSelectedRoom) =>
             currentSelectedRoom?.id === room.id ? room : currentSelectedRoom
           );
+        },
+        () => {
+          if (!active) {
+            return;
+          }
+
+          void Promise.all([
+            loadUsers({ silent: true }),
+            loadIncomingFriendRequests({ silent: true }),
+            loadFriendSummary({ silent: true }),
+          ]);
         }
       )
       .catch((error) => {
@@ -668,7 +1012,15 @@ export default function ChatPage() {
       clearOptimisticSendTimeouts();
       wsService.disconnect();
     };
-  }, [currentUser?.id, loadMessages, loadRoomMessages, loadRooms, loadUsers]);
+  }, [
+    currentUser?.id,
+    loadFriendSummary,
+    loadIncomingFriendRequests,
+    loadMessages,
+    loadRoomMessages,
+    loadRooms,
+    loadUsers,
+  ]);
 
   useEffect(() => {
     if ((selectedUserId === null && selectedRoomId === null) || messagesLoading) {
@@ -762,6 +1114,22 @@ export default function ChatPage() {
       const response = await apiClient.post<Message>('/messages', payload);
       clearOptimisticSendTimeout(payload.clientId);
       setMessages((currentMessages) => appendOrReconcileMessage(currentMessages, response.data));
+      setUsers((currentUsers) =>
+        applyConversationPreviewToUsers(
+          currentUsers,
+          response.data,
+          currentUserIdRef.current,
+          !userSearchQueryRef.current.trim()
+        )
+      );
+      setFriends((currentFriends) =>
+        applyConversationPreviewToUsers(currentFriends, response.data, currentUserIdRef.current, true)
+      );
+      setSelectedUser((currentSelectedUser) =>
+        currentSelectedUser
+          ? applyConversationPreviewToUser(currentSelectedUser, response.data, currentUserIdRef.current)
+          : null
+      );
     } catch (error) {
       console.error('Failed to send message:', error);
       clearOptimisticSendTimeout(payload.clientId);
@@ -792,6 +1160,7 @@ export default function ChatPage() {
 
   const markConversationAsRead = async (senderId: number) => {
     setUsers((currentUsers) => resetUnreadCount(currentUsers, senderId));
+    setFriends((currentFriends) => resetUnreadCount(currentFriends, senderId));
 
     const sentRealtime = wsService.sendMessage(READ_RECEIPT_DESTINATION, {
       senderId,
@@ -807,7 +1176,104 @@ export default function ChatPage() {
     }
   };
 
+  const setFriendActionPending = (key: string, pending: boolean) => {
+    setFriendActionKeys((currentKeys) =>
+      pending
+        ? [...new Set([...currentKeys, key])]
+        : currentKeys.filter((currentKey) => currentKey !== key)
+    );
+  };
+
+  const refreshFriendshipState = async () => {
+    await Promise.all([
+      loadUsers({ silent: true }),
+      loadIncomingFriendRequests({ silent: true }),
+      loadFriendSummary({ silent: true }),
+    ]);
+  };
+
+  const handleOpenRequestsPanel = () => {
+    setMainView('requests');
+    setProfileMenuOpen(false);
+    void Promise.all([
+      loadIncomingFriendRequests({ silent: incomingFriendRequests.length > 0 }),
+      loadFriendSummary({ silent: true }),
+    ]);
+  };
+
+  const handleSendFriendRequest = async (user: User) => {
+    const actionKey = `send-${user.id}`;
+    setFriendActionPending(actionKey, true);
+    setUsersError('');
+
+    try {
+      await apiClient.post<Friendship>('/friend-requests', {
+        receiverId: user.id,
+      });
+      await refreshFriendshipState();
+    } catch (error) {
+      console.error('Failed to send friend request:', error);
+      setUsersError('Unable to send friend request.');
+    } finally {
+      setFriendActionPending(actionKey, false);
+    }
+  };
+
+  const handleAcceptFriendRequest = async (requestId: number, actionKey: string) => {
+    setFriendActionPending(actionKey, true);
+    setFriendRequestsError('');
+
+    try {
+      await apiClient.patch<Friendship>(`/friend-requests/${requestId}/accept`);
+      await refreshFriendshipState();
+    } catch (error) {
+      console.error('Failed to accept friend request:', error);
+      setFriendRequestsError('Unable to accept request.');
+    } finally {
+      setFriendActionPending(actionKey, false);
+    }
+  };
+
+  const handleDeclineFriendRequest = async (requestId: number, actionKey: string) => {
+    setFriendActionPending(actionKey, true);
+    setFriendRequestsError('');
+
+    try {
+      await apiClient.patch<Friendship>(`/friend-requests/${requestId}/decline`);
+      await refreshFriendshipState();
+    } catch (error) {
+      console.error('Failed to decline friend request:', error);
+      setFriendRequestsError('Unable to decline request.');
+    } finally {
+      setFriendActionPending(actionKey, false);
+    }
+  };
+
+  const handleCancelFriendRequest = async (user: User) => {
+    if (!user.friendshipId) {
+      return;
+    }
+
+    const actionKey = `cancel-${user.id}`;
+    setFriendActionPending(actionKey, true);
+    setUsersError('');
+
+    try {
+      await apiClient.delete(`/friend-requests/${user.friendshipId}`);
+      await refreshFriendshipState();
+    } catch (error) {
+      console.error('Failed to cancel friend request:', error);
+      setUsersError('Unable to cancel friend request.');
+    } finally {
+      setFriendActionPending(actionKey, false);
+    }
+  };
+
   const handleUserSelect = (user: User) => {
+    if (!canChatWithUser(user)) {
+      return;
+    }
+
     if (selectedUserIdRef.current !== null) {
       stopTyping(selectedUserIdRef.current);
     }
@@ -816,6 +1282,8 @@ export default function ChatPage() {
     selectedRoomIdRef.current = null;
     setSelectedUser(user);
     selectedUserIdRef.current = user.id;
+    setMainView('chat');
+    setProfileMenuOpen(false);
     hideRemoteTyping();
     void loadMessages(user.id);
     void markConversationAsRead(user.id);
@@ -830,6 +1298,8 @@ export default function ChatPage() {
     selectedUserIdRef.current = null;
     setSelectedRoom(room);
     selectedRoomIdRef.current = room.id;
+    setMainView('chat');
+    setProfileMenuOpen(false);
     hideRemoteTyping();
     void loadRoomMessages(room.id);
   };
@@ -846,8 +1316,24 @@ export default function ChatPage() {
     setUsersError('');
   };
 
+  const handleOpenFriendsPanel = () => {
+    setMainView('friends');
+    setProfileMenuOpen(false);
+
+    if (userSearchQueryRef.current) {
+      handleClearUserSearch();
+    }
+
+    void loadUsers({ silent: true, search: '' });
+  };
+
+  const handleToggleProfileMenu = () => {
+    setProfileMenuOpen((currentOpen) => !currentOpen);
+  };
+
   const handleOpenCreateGroup = () => {
-    setSidebarTab('groups');
+    setMainView('chat');
+    setProfileMenuOpen(false);
     setCreateGroupOpen(true);
     setGroupError('');
   };
@@ -864,6 +1350,7 @@ export default function ChatPage() {
   };
 
   const handleToggleGroupMember = (userId: number) => {
+    setGroupError('');
     setSelectedGroupMemberIds((currentIds) =>
       currentIds.includes(userId)
         ? currentIds.filter((currentId) => currentId !== userId)
@@ -874,7 +1361,12 @@ export default function ChatPage() {
   const handleCreateGroup = async (event: React.FormEvent) => {
     event.preventDefault();
     const name = groupName.trim();
-    if (!name || selectedGroupMemberIds.length === 0) {
+    if (!name) {
+      return;
+    }
+
+    if (selectedGroupMemberIds.length < MIN_GROUP_INVITED_MEMBERS) {
+      setGroupError(`Select at least ${MIN_GROUP_INVITED_MEMBERS} friends to create a group.`);
       return;
     }
 
@@ -961,6 +1453,22 @@ export default function ChatPage() {
 
       stopTyping(selectedUser.id);
       setMessages((currentMessages) => appendOptimisticMessage(currentMessages, optimisticMessage));
+      setUsers((currentUsers) =>
+        applyConversationPreviewToUsers(
+          currentUsers,
+          optimisticMessage,
+          currentUser.id,
+          !userSearchQueryRef.current.trim()
+        )
+      );
+      setFriends((currentFriends) =>
+        applyConversationPreviewToUsers(currentFriends, optimisticMessage, currentUser.id, true)
+      );
+      setSelectedUser((currentSelectedUser) =>
+        currentSelectedUser
+          ? applyConversationPreviewToUser(currentSelectedUser, optimisticMessage, currentUser.id)
+          : null
+      );
       void sendOptimisticMessage(payload);
       return;
     }
@@ -1022,43 +1530,542 @@ export default function ChatPage() {
     wsService.disconnect();
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/');
+    navigate(ROUTES.HOME, { replace: true });
   };
 
-  const currentUserDisplayName = getUserDisplayName(currentUser);
+  const currentUserDisplayName = getUserDisplayName(currentUser) || 'Profile';
   const currentUserOnline = Boolean(currentUser?.online);
   const normalizedUserSearchQuery = userSearchQuery.trim();
+  const hasUserSearch = Boolean(normalizedUserSearchQuery);
+  const friendRequestBadgeCount = friendSummary.incomingCount;
   const usersEmptyMessage = normalizedUserSearchQuery
     ? `No username matches "${normalizedUserSearchQuery}".`
-    : 'No users available.';
+    : 'No friends yet. Search username to add friends.';
   const selectedConversationName = selectedRoom
     ? selectedRoom.name
     : selectedUser
       ? getUserDisplayName(selectedUser)
       : '';
   const selectedConversationOpen = Boolean(selectedUser || selectedRoom);
-  const canCreateGroup = Boolean(groupName.trim()) && selectedGroupMemberIds.length > 0 && !groupCreating;
+  const selectedInvitedMemberCount = selectedGroupMemberIds.length;
+  const hasMinimumInvitedMembers = selectedInvitedMemberCount >= MIN_GROUP_INVITED_MEMBERS;
+  const groupMemberRequirementText = hasMinimumInvitedMembers
+    ? `${selectedInvitedMemberCount + 1} members total`
+    : `${selectedInvitedMemberCount} of ${MIN_GROUP_INVITED_MEMBERS} friends selected`;
+  const canCreateGroup = Boolean(groupName.trim()) && hasMinimumInvitedMembers && !groupCreating;
+  const sidebarBusy = hasUserSearch ? usersLoading : usersLoading || roomsLoading;
+
+  const renderFriendshipAction = (user: User) => {
+    if (!hasUserSearch) {
+      return null;
+    }
+
+    switch (user.friendshipStatus) {
+      case 'pending_incoming': {
+        const requestId = user.friendshipId;
+        return requestId ? (
+          <button
+            type="button"
+            className="friend-action-btn"
+            disabled={friendActionKeys.includes(`accept-user-${user.id}`)}
+            onClick={() => void handleAcceptFriendRequest(requestId, `accept-user-${user.id}`)}
+          >
+            Accept
+          </button>
+        ) : null;
+      }
+      case 'pending_outgoing':
+        return (
+          <div className="friend-actions">
+            <span className="friend-status-pill">Pending</span>
+            <button
+              type="button"
+              className="friend-action-btn secondary"
+              disabled={!user.friendshipId || friendActionKeys.includes(`cancel-${user.id}`)}
+              onClick={() => void handleCancelFriendRequest(user)}
+            >
+              Cancel
+            </button>
+          </div>
+        );
+      case 'none':
+      case 'declined':
+      case undefined:
+        return (
+          <button
+            type="button"
+            className="friend-action-btn"
+            disabled={friendActionKeys.includes(`send-${user.id}`)}
+            onClick={() => void handleSendFriendRequest(user)}
+          >
+            Add
+          </button>
+        );
+      case 'accepted':
+      default:
+        return <span className="friend-status-pill accepted">Friend</span>;
+    }
+  };
+
+  const renderUserIdentity = (user: User, showConversationPreview = false) => {
+    const sidebarTime = showConversationPreview ? formatSidebarTime(user.lastMessageAt) : '';
+
+    return (
+      <>
+        <div className="user-avatar">
+          {getUserInitial(user)}
+        </div>
+        <div className="user-info">
+          <div className="user-title-row">
+            <div className="user-name">{getUserDisplayName(user)}</div>
+            {sidebarTime ? <span className="user-time">{sidebarTime}</span> : null}
+          </div>
+          {showConversationPreview ? (
+            <div className="user-preview-row">
+              <span className="user-preview">
+                {getConversationPreviewText(user, currentUser?.id ?? null)}
+              </span>
+            </div>
+          ) : (
+            <div className="user-meta">
+              <span className={`user-status ${getUserStatusClass(user)}`}>
+                {getFriendshipStatusLabel(user)}
+              </span>
+              {shouldShowUsername(user) ? (
+                <span className="user-username">@{user.username}</span>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </>
+    );
+  };
+
+  const renderUserItem = (user: User) => {
+    const unreadCount = user.unreadCount ?? 0;
+    const showConversationPreview = !hasUserSearch && canChatWithUser(user);
+
+    if (canChatWithUser(user)) {
+      return (
+        <button
+          type="button"
+          key={user.id}
+          className={`user-item ${selectedUser?.id === user.id ? 'active' : ''} ${unreadCount > 0 ? 'unread' : ''}`}
+          onClick={() => handleUserSelect(user)}
+        >
+          {renderUserIdentity(user, showConversationPreview)}
+          {hasUserSearch ? renderFriendshipAction(user) : null}
+          {unreadCount > 0 ? (
+            <div className="unread-badge">{unreadCount}</div>
+          ) : null}
+        </button>
+      );
+    }
+
+    return (
+      <div key={user.id} className="user-item relationship-item">
+        {renderUserIdentity(user)}
+        {renderFriendshipAction(user)}
+      </div>
+    );
+  };
+
+  const renderRoomItem = (room: ChatRoom) => (
+    <button
+      type="button"
+      key={`room-${room.id}`}
+      className={`user-item room-item ${selectedRoom?.id === room.id ? 'active' : ''}`}
+      onClick={() => handleRoomSelect(room)}
+    >
+      <div className="user-avatar room-avatar">
+        {getRoomInitial(room)}
+      </div>
+      <div className="user-info">
+        <div className="user-name">{room.name}</div>
+        <div className="user-meta">
+          <span className="user-status">{room.participants.length} members</span>
+          <span className="user-username">
+            {getRoomMemberSummary(room, currentUser?.id)}
+          </span>
+        </div>
+      </div>
+    </button>
+  );
+
+  const renderSidebarSkeletons = () =>
+    USER_SKELETON_KEYS.map((key) => (
+      <div key={key} className="user-item user-item-skeleton" aria-hidden="true">
+        <div className="skeleton-avatar" />
+        <div className="skeleton-user-info">
+          <div className="skeleton-line name" />
+          <div className="skeleton-line status" />
+        </div>
+      </div>
+    ));
+
+  const renderSidebarSearchList = () => {
+    if (usersLoading) {
+      return renderSidebarSkeletons();
+    }
+
+    if (usersError) {
+      return (
+        <div className="list-state error-state">
+          <span>{usersError}</span>
+          <button
+            type="button"
+            className="retry-btn"
+            onClick={() => void loadUsers({ search: userSearchQuery })}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+
+    if (users.length === 0) {
+      return <div className="list-state">{usersEmptyMessage}</div>;
+    }
+
+    return users.map(renderUserItem);
+  };
+
+  const renderSidebarChatList = () => {
+    const hasAnyConversation = users.length > 0 || rooms.length > 0;
+
+    if (sidebarBusy && !hasAnyConversation) {
+      return renderSidebarSkeletons();
+    }
+
+    if (!sidebarBusy && !usersError && !roomsError && !hasAnyConversation) {
+      return (
+        <div className="list-state empty-groups-state">
+          <span>No chats yet. Search username to add friends or create a group.</span>
+          <button type="button" className="retry-btn" onClick={handleOpenCreateGroup}>
+            Create group
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        {usersError && users.length === 0 ? (
+          <div className="list-state error-state">
+            <span>{usersError}</span>
+            <button type="button" className="retry-btn" onClick={() => void loadUsers({ search: '' })}>
+              Retry
+            </button>
+          </div>
+        ) : (
+          users.map(renderUserItem)
+        )}
+        {roomsError && rooms.length === 0 ? (
+          <div className="list-state error-state">
+            <span>{roomsError}</span>
+            <button type="button" className="retry-btn" onClick={() => void loadRooms()}>
+              Retry
+            </button>
+          </div>
+        ) : (
+          rooms.map(renderRoomItem)
+        )}
+      </>
+    );
+  };
+
+  const renderMainFriendItem = (user: User) => (
+    <button
+      type="button"
+      key={user.id}
+      className="main-list-item friend-main-item"
+      onClick={() => handleUserSelect(user)}
+    >
+      <div className="main-list-avatar-wrap">
+        <div className="user-avatar">
+          {getUserInitial(user)}
+        </div>
+        <span
+          className={`main-list-presence-dot ${user.online ? 'online' : 'offline'}`}
+          aria-hidden="true"
+        />
+      </div>
+      <div className="main-list-copy">
+        <strong>{getUserDisplayName(user)}</strong>
+        <span>
+          {user.lastMessageContent
+            ? getConversationPreviewText(user, currentUser?.id ?? null)
+            : shouldShowUsername(user)
+              ? `@${user.username}`
+              : 'Friend'}
+        </span>
+      </div>
+      <span className={`main-status-pill ${user.online ? 'online' : 'offline'}`}>
+        {user.online ? 'Online' : 'Offline'}
+      </span>
+    </button>
+  );
+
+  const renderMainPanelSkeletons = () => (
+    <div className="main-list" aria-hidden="true">
+      {USER_SKELETON_KEYS.map((key) => (
+        <div key={key} className="main-list-item main-list-item-skeleton">
+          <div className="skeleton-avatar" />
+          <div className="skeleton-user-info">
+            <div className="skeleton-line name" />
+            <div className="skeleton-line status" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderFriendsPanel = () => {
+    const onlineFriendCount = friends.filter((friend) => friend.online).length;
+
+    return (
+      <section className="main-panel people-panel" aria-labelledby="friends-panel-title">
+        <div className="main-panel-header">
+          <div className="main-panel-heading">
+            <span className="panel-heading-icon">
+              <FriendsIcon className="panel-heading-svg" />
+            </span>
+            <div>
+              <span className="main-panel-eyebrow">Friends</span>
+              <h3 id="friends-panel-title">Friend list</h3>
+              <p>
+                {friends.length} friends - {onlineFriendCount} online
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="panel-icon-action"
+            onClick={() => void loadUsers({ search: '', silent: true })}
+            aria-label="Refresh friend list"
+            title="Refresh"
+          >
+            <RefreshIcon className="panel-action-icon" />
+          </button>
+        </div>
+
+        {usersLoading && friends.length === 0 ? (
+          renderMainPanelSkeletons()
+        ) : usersError && friends.length === 0 ? (
+          <div className="main-panel-state error-state">
+            <span>{usersError}</span>
+            <button
+              type="button"
+              className="retry-btn"
+              onClick={() => void loadUsers({ search: '' })}
+            >
+              Retry
+            </button>
+          </div>
+        ) : friends.length === 0 ? (
+          <div className="main-panel-state panel-empty-state">
+            <span className="panel-empty-icon">
+              <FriendsIcon className="panel-heading-svg" />
+            </span>
+            <strong>No friends yet</strong>
+            <span>Search username in the sidebar to add friends.</span>
+          </div>
+        ) : (
+          <div className="main-list">
+            {friends.map(renderMainFriendItem)}
+          </div>
+        )}
+      </section>
+    );
+  };
+
+  const renderRequestItem = (friendship: Friendship) => {
+    const requesterName = getUserDisplayName(friendship.requester);
+
+    return (
+      <div key={friendship.id} className="main-list-item request-main-item">
+        <div className="main-list-avatar-wrap">
+          <div className="user-avatar">
+            {getUserInitial(friendship.requester)}
+          </div>
+        </div>
+        <div className="main-list-copy">
+          <strong>{requesterName}</strong>
+          {shouldShowUsername(friendship.requester) ? (
+            <span>@{friendship.requester.username}</span>
+          ) : (
+            <span>Incoming friend request</span>
+          )}
+          <small>Waiting for your response</small>
+        </div>
+        <div className="request-actions">
+          <button
+            type="button"
+            className="friend-action-btn"
+            disabled={friendActionKeys.includes(`accept-request-${friendship.id}`)}
+            onClick={() =>
+              void handleAcceptFriendRequest(friendship.id, `accept-request-${friendship.id}`)
+            }
+            aria-label={`Accept friend request from ${requesterName}`}
+          >
+            Accept
+          </button>
+          <button
+            type="button"
+            className="friend-action-btn secondary"
+            disabled={friendActionKeys.includes(`decline-request-${friendship.id}`)}
+            onClick={() =>
+              void handleDeclineFriendRequest(friendship.id, `decline-request-${friendship.id}`)
+            }
+            aria-label={`Decline friend request from ${requesterName}`}
+          >
+            Decline
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderRequestsPanel = () => (
+    <section className="main-panel people-panel" aria-labelledby="requests-panel-title">
+      <div className="main-panel-header">
+        <div className="main-panel-heading">
+          <span className="panel-heading-icon">
+            <FriendRequestIcon className="panel-heading-svg" />
+          </span>
+          <div>
+            <span className="main-panel-eyebrow">Requests</span>
+            <h3 id="requests-panel-title">Friend requests</h3>
+            <p>{friendRequestBadgeCount} pending requests</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="panel-icon-action"
+          onClick={() =>
+            void Promise.all([
+              loadIncomingFriendRequests(),
+              loadFriendSummary({ silent: true }),
+            ])
+          }
+          aria-label="Refresh friend requests"
+          title="Refresh"
+        >
+          <RefreshIcon className="panel-action-icon" />
+        </button>
+      </div>
+
+      {friendRequestsLoading ? (
+        renderMainPanelSkeletons()
+      ) : friendRequestsError ? (
+        <div className="main-panel-state error-state">
+          <span>{friendRequestsError}</span>
+          <button
+            type="button"
+            className="retry-btn"
+            onClick={() => void loadIncomingFriendRequests()}
+          >
+            Retry
+          </button>
+        </div>
+      ) : incomingFriendRequests.length === 0 ? (
+        <div className="main-panel-state panel-empty-state">
+          <span className="panel-empty-icon">
+            <FriendRequestIcon className="panel-heading-svg" />
+          </span>
+          <strong>No pending requests</strong>
+          <span>New requests will appear here.</span>
+        </div>
+      ) : (
+        <div className="main-list">
+          {incomingFriendRequests.map(renderRequestItem)}
+        </div>
+      )}
+    </section>
+  );
 
   return (
     <div className="chat-page">
       <header className="chat-header">
         <div className="header-left">
-          <h2>💬 Chat App</h2>
+          <h2>Chat App</h2>
         </div>
-        <div className="header-right">
-          <span
-            className={`account-status ${currentUserOnline ? 'online' : 'offline'}`}
-            aria-live="polite"
-            title={currentUserOnline ? 'Online' : 'Offline'}
+        <nav className="header-right" aria-label="Account navigation">
+          <button
+            type="button"
+            className={`header-icon-btn ${mainView === 'friends' ? 'active' : ''}`}
+            onClick={handleOpenFriendsPanel}
+            aria-pressed={mainView === 'friends'}
+            aria-label="Friends list"
+            title="Friends list"
           >
-            <span className="account-status-dot" aria-hidden="true" />
-            {currentUserOnline ? 'Online' : 'Offline'}
-          </span>
-          <span className="account-name" title={currentUser?.username}>
-            {currentUserDisplayName}
-          </span>
-          <button onClick={handleLogout} className="logout-btn">Logout</button>
-        </div>
+            <FriendsIcon className="header-icon" />
+          </button>
+
+          <div className="friend-request-menu">
+            <button
+              type="button"
+              className={`header-icon-btn ${mainView === 'requests' ? 'active' : ''}`}
+              onClick={handleOpenRequestsPanel}
+              aria-pressed={mainView === 'requests'}
+              aria-label={`Friend requests, ${friendRequestBadgeCount} pending`}
+              title="Friend requests"
+            >
+              <FriendRequestIcon className="header-icon" />
+              {friendRequestBadgeCount > 0 ? (
+                <span className="request-badge">{friendRequestBadgeCount}</span>
+              ) : null}
+            </button>
+          </div>
+
+          <div className="profile-menu">
+            <button
+              type="button"
+              className={`header-icon-btn profile-icon-btn ${profileMenuOpen ? 'active' : ''}`}
+              onClick={handleToggleProfileMenu}
+              aria-expanded={profileMenuOpen}
+              aria-haspopup="menu"
+              aria-label={`Profile menu for ${currentUserDisplayName}`}
+              title="Profile"
+            >
+              <ProfileIcon className="header-icon" />
+              <span
+                className={`profile-presence-dot ${currentUserOnline ? 'online' : 'offline'}`}
+                aria-hidden="true"
+              />
+            </button>
+
+            {profileMenuOpen ? (
+              <div className="profile-dropdown" role="menu">
+                <div className="profile-summary">
+                  <div className="user-avatar small-avatar">
+                    {getUserInitial(currentUser)}
+                  </div>
+                  <div className="profile-copy">
+                    <strong>{currentUserDisplayName}</strong>
+                    {currentUser?.username ? <span>@{currentUser.username}</span> : null}
+                  </div>
+                </div>
+                <span
+                  className={`account-status ${currentUserOnline ? 'online' : 'offline'}`}
+                  aria-live="polite"
+                  title={currentUserOnline ? 'Online' : 'Offline'}
+                >
+                  <span className="account-status-dot" aria-hidden="true" />
+                  {currentUserOnline ? 'Online' : 'Offline'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="profile-logout-btn"
+                  role="menuitem"
+                >
+                  Logout
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </nav>
       </header>
 
       <div className="chat-container">
@@ -1066,160 +2073,50 @@ export default function ChatPage() {
           <div className="sidebar-header">
             <div className="sidebar-title-row">
               <h3>Chats</h3>
-              <button type="button" className="new-group-btn" onClick={handleOpenCreateGroup}>
-                New group
-              </button>
-            </div>
-            <div className="sidebar-tabs" role="tablist" aria-label="Chat sections">
               <button
                 type="button"
-                className={`sidebar-tab ${sidebarTab === 'users' ? 'active' : ''}`}
-                onClick={() => setSidebarTab('users')}
-                role="tab"
-                aria-selected={sidebarTab === 'users'}
+                className="new-group-btn"
+                onClick={handleOpenCreateGroup}
+                aria-label="Create group"
+                title="Create group"
               >
-                Users
-              </button>
-              <button
-                type="button"
-                className={`sidebar-tab ${sidebarTab === 'groups' ? 'active' : ''}`}
-                onClick={() => setSidebarTab('groups')}
-                role="tab"
-                aria-selected={sidebarTab === 'groups'}
-              >
-                Groups
+                <GroupPlusIcon className="new-group-icon" />
               </button>
             </div>
-            {sidebarTab === 'users' ? (
-              <div className="user-search" role="search">
-                <input
-                  type="search"
-                  value={userSearchQuery}
-                  onChange={(event) => handleUserSearchChange(event.target.value)}
-                  className="user-search-input"
-                  placeholder="Search username"
-                  aria-label="Search users by username"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                {userSearchQuery ? (
-                  <button
-                    type="button"
-                    className="user-search-clear"
-                    onClick={handleClearUserSearch}
-                    aria-label="Clear user search"
-                  >
-                    ×
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-          <div className="user-list" aria-busy={sidebarTab === 'users' ? usersLoading : roomsLoading}>
-            {sidebarTab === 'users' ? (
-              usersLoading ? (
-                USER_SKELETON_KEYS.map((key) => (
-                  <div key={key} className="user-item user-item-skeleton" aria-hidden="true">
-                    <div className="skeleton-avatar" />
-                    <div className="skeleton-user-info">
-                      <div className="skeleton-line name" />
-                      <div className="skeleton-line status" />
-                    </div>
-                  </div>
-                ))
-              ) : usersError ? (
-                <div className="list-state error-state">
-                  <span>{usersError}</span>
-                  <button
-                    type="button"
-                    className="retry-btn"
-                    onClick={() => void loadUsers({ search: userSearchQuery })}
-                  >
-                    Retry
-                  </button>
-                </div>
-              ) : users.length === 0 ? (
-                <div className="list-state">{usersEmptyMessage}</div>
-              ) : (
-                users.map((user) => (
-                  <button
-                    type="button"
-                    key={user.id}
-                    className={`user-item ${selectedUser?.id === user.id ? 'active' : ''}`}
-                    onClick={() => handleUserSelect(user)}
-                  >
-                    <div className="user-avatar">
-                      {getUserInitial(user)}
-                    </div>
-                    <div className="user-info">
-                      <div className="user-name">{getUserDisplayName(user)}</div>
-                      <div className="user-meta">
-                        <span className={`user-status ${user.online ? 'online' : 'offline'}`}>
-                          {user.online ? 'Online' : 'Offline'}
-                        </span>
-                        {shouldShowUsername(user) ? (
-                          <span className="user-username">@{user.username}</span>
-                        ) : null}
-                      </div>
-                    </div>
-                    {(user.unreadCount ?? 0) > 0 ? (
-                      <div className="unread-badge">{user.unreadCount}</div>
-                    ) : null}
-                  </button>
-                ))
-              )
-            ) : roomsLoading ? (
-              USER_SKELETON_KEYS.map((key) => (
-                <div key={key} className="user-item user-item-skeleton" aria-hidden="true">
-                  <div className="skeleton-avatar" />
-                  <div className="skeleton-user-info">
-                    <div className="skeleton-line name" />
-                    <div className="skeleton-line status" />
-                  </div>
-                </div>
-              ))
-            ) : roomsError ? (
-              <div className="list-state error-state">
-                <span>{roomsError}</span>
-                <button type="button" className="retry-btn" onClick={() => void loadRooms()}>
-                  Retry
-                </button>
-              </div>
-            ) : rooms.length === 0 ? (
-              <div className="list-state empty-groups-state">
-                <span>No groups yet.</span>
-                <button type="button" className="retry-btn" onClick={handleOpenCreateGroup}>
-                  Create group
-                </button>
-              </div>
-            ) : (
-              rooms.map((room) => (
+            <div className="user-search" role="search">
+              <input
+                type="search"
+                value={userSearchQuery}
+                onChange={(event) => handleUserSearchChange(event.target.value)}
+                className="user-search-input"
+                placeholder="Search username to add"
+                aria-label="Search users by username"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              {userSearchQuery ? (
                 <button
                   type="button"
-                  key={room.id}
-                  className={`user-item room-item ${selectedRoom?.id === room.id ? 'active' : ''}`}
-                  onClick={() => handleRoomSelect(room)}
+                  className="user-search-clear"
+                  onClick={handleClearUserSearch}
+                  aria-label="Clear user search"
                 >
-                  <div className="user-avatar room-avatar">
-                    {getRoomInitial(room)}
-                  </div>
-                  <div className="user-info">
-                    <div className="user-name">{room.name}</div>
-                    <div className="user-meta">
-                      <span className="user-status">{room.participants.length} members</span>
-                      <span className="user-username">
-                        {getRoomMemberSummary(room, currentUser?.id)}
-                      </span>
-                    </div>
-                  </div>
+                  ×
                 </button>
-              ))
-            )}
+              ) : null}
+            </div>
+          </div>
+          <div className="user-list" aria-busy={sidebarBusy} aria-label="Chat list">
+            {hasUserSearch ? renderSidebarSearchList() : renderSidebarChatList()}
           </div>
         </aside>
 
-        <main className="chat-area">
-          {selectedConversationOpen ? (
+        <main className={`chat-area ${mainView !== 'chat' ? 'main-view-open' : ''}`}>
+          {mainView === 'friends' ? (
+            renderFriendsPanel()
+          ) : mainView === 'requests' ? (
+            renderRequestsPanel()
+          ) : selectedConversationOpen ? (
             <>
               <div className="chat-area-header">
                 <div className="selected-user">
@@ -1339,7 +2236,7 @@ export default function ChatPage() {
             </>
           ) : (
             <div className="no-chat-selected">
-              <p>Select a user or group to start chatting</p>
+              <p>Select a friend or group to start chatting</p>
             </div>
           )}
         </main>
@@ -1357,7 +2254,7 @@ export default function ChatPage() {
               <div className="group-modal-header">
                 <div>
                   <h3 id="create-group-title">New group</h3>
-                  <p>{selectedGroupMemberIds.length} selected</p>
+                  <p>{groupMemberRequirementText}</p>
                 </div>
                 <button
                   type="button"
@@ -1374,7 +2271,10 @@ export default function ChatPage() {
                 <input
                   type="text"
                   value={groupName}
-                  onChange={(event) => setGroupName(event.target.value)}
+                  onChange={(event) => {
+                    setGroupName(event.target.value);
+                    setGroupError('');
+                  }}
                   placeholder="Weekend plans"
                   maxLength={100}
                   autoFocus
@@ -1382,12 +2282,15 @@ export default function ChatPage() {
               </label>
 
               <div className="group-field">
-                <span>Members</span>
+                <div className="group-field-heading">
+                  <span>Members</span>
+                  <small>Minimum {MIN_GROUP_MEMBERS} members</small>
+                </div>
                 <div className="group-member-list">
-                  {users.length === 0 ? (
-                    <div className="list-state">No users available.</div>
+                  {friends.length === 0 ? (
+                    <div className="list-state">No friends available.</div>
                   ) : (
-                    users.map((user) => (
+                    friends.map((user) => (
                       <label key={user.id} className="group-member-option">
                         <input
                           type="checkbox"
