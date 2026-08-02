@@ -20,6 +20,14 @@ public enum ErrorCode {
     ),
     SELF_MESSAGE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "MESSAGE_002", "Cannot send message to yourself"),
 
+    ROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "ROOM_001", "Chat room not found"),
+    ROOM_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ROOM_002", "You are not a member of this chat room"),
+    GROUP_REQUIRES_PARTICIPANTS(
+            HttpStatus.BAD_REQUEST,
+            "ROOM_003",
+            "A group chat requires at least one other participant"
+    ),
+
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "COMMON_001", "Validation failed"),
     MALFORMED_REQUEST(HttpStatus.BAD_REQUEST, "COMMON_002", "Malformed request body"),
     DATA_INTEGRITY_VIOLATION(HttpStatus.CONFLICT, "COMMON_003", "Data integrity violation"),

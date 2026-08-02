@@ -50,4 +50,6 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     );
 
     Optional<Message> findBySenderIdAndClientId(Long senderId, String clientId);
+
+    List<Message> findByChatRoomIdOrderByTimestampAsc(Long chatRoomId);
 }

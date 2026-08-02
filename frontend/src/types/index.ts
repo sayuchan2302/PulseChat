@@ -13,8 +13,10 @@ export interface Message {
   id: number;
   content: string;
   senderId: number;
-  receiverId: number;
-  chatRoomId?: number;
+  senderUsername?: string;
+  senderFullName?: string;
+  receiverId?: number | null;
+  chatRoomId?: number | null;
   timestamp: string;
   read: boolean;
   clientId?: string | null;
@@ -50,7 +52,6 @@ export interface ChatRoom {
   name: string;
   type: 'private' | 'group';
   participants: User[];
-  lastMessage?: Message;
   createdAt: string;
 }
 

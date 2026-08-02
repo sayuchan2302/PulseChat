@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type {
+  ChatRoom,
   ConnectionStatus,
   Message,
   PresenceEvent,
@@ -14,6 +15,7 @@ import { wsService } from '../services/websocket';
 import './ChatPage.css';
 
 const PRIVATE_MESSAGE_DESTINATION = '/app/chat.send';
+const GROUP_MESSAGE_DESTINATION_PREFIX = '/app/rooms';
 const TYPING_DESTINATION = '/app/chat.typing';
 const READ_RECEIPT_DESTINATION = '/app/chat.read';
 const STOP_TYPING_DELAY_MS = 1500;
@@ -40,10 +42,17 @@ type SendMessagePayload = {
   clientId: string;
 };
 
+type SendRoomMessagePayload = {
+  content: string;
+  clientId: string;
+};
+
 type LoadOptions = {
   silent?: boolean;
   search?: string;
 };
+
+type SidebarTab = 'users' | 'groups';
 
 function toDeliveredMessage(message: Message): ChatMessage {
   return {
@@ -82,6 +91,13 @@ function appendOptimisticMessage(messages: ChatMessage[], optimisticMessage: Cha
   return alreadyExists ? messages : [...messages, optimisticMessage];
 }
 
+function appendOrUpdateRoom(rooms: ChatRoom[], incomingRoom: ChatRoom) {
+  const existingRoom = rooms.some((room) => room.id === incomingRoom.id);
+  return existingRoom
+    ? rooms.map((room) => (room.id === incomingRoom.id ? incomingRoom : room))
+    : [incomingRoom, ...rooms];
+}
+
 function mergeServerMessagesWithPending(
   currentMessages: ChatMessage[],
   serverMessages: Message[]
@@ -116,6 +132,19 @@ function isConversationMessage(
     (message.senderId === currentUserId && message.receiverId === selectedUserId) ||
     (message.senderId === selectedUserId && message.receiverId === currentUserId)
   );
+}
+
+function isActiveConversationMessage(
+  message: Message,
+  currentUserId: number | null,
+  selectedUserId: number | null,
+  selectedRoomId: number | null
+) {
+  if (message.chatRoomId) {
+    return selectedRoomId === message.chatRoomId;
+  }
+
+  return isConversationMessage(message, currentUserId, selectedUserId);
 }
 
 function applyPresenceToUser(user: User, presence: PresenceEvent) {
@@ -182,6 +211,28 @@ function createOptimisticMessage(
   };
 }
 
+function createOptimisticRoomMessage(
+  tempId: number,
+  sender: User,
+  chatRoomId: number,
+  content: string,
+  clientId: string
+): ChatMessage {
+  return {
+    id: tempId,
+    content,
+    senderId: sender.id,
+    senderUsername: sender.username,
+    senderFullName: getUserDisplayName(sender),
+    receiverId: null,
+    chatRoomId,
+    timestamp: new Date().toISOString(),
+    read: false,
+    clientId,
+    deliveryStatus: 'sending',
+  };
+}
+
 function markOptimisticMessageSending(messages: ChatMessage[], clientId: string) {
   return messages.map((message) =>
     message.clientId === clientId ? { ...message, deliveryStatus: 'sending' as const } : message
@@ -228,9 +279,38 @@ function shouldShowUsername(user: User) {
   return getUserDisplayName(user) !== user.username;
 }
 
+function getRoomInitial(room: ChatRoom) {
+  return room.name.trim().charAt(0).toUpperCase();
+}
+
+function getRoomMemberSummary(room: ChatRoom, currentUserId?: number | null) {
+  const otherMembers = room.participants.filter((participant) => participant.id !== currentUserId);
+  const visibleNames = otherMembers.slice(0, 2).map(getUserDisplayName);
+  const remainingCount = otherMembers.length - visibleNames.length;
+
+  if (visibleNames.length === 0) {
+    return 'Only you';
+  }
+
+  return remainingCount > 0
+    ? `${visibleNames.join(', ')} +${remainingCount}`
+    : visibleNames.join(', ');
+}
+
+function getMessageSenderName(message: ChatMessage, selectedRoom: ChatRoom | null) {
+  if (message.senderFullName?.trim()) {
+    return message.senderFullName;
+  }
+
+  const participant = selectedRoom?.participants.find((user) => user.id === message.senderId);
+  return participant ? getUserDisplayName(participant) : message.senderUsername ?? 'Unknown';
+}
+
 export default function ChatPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageInput, setMessageInput] = useState('');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -238,10 +318,19 @@ export default function ChatPage() {
   const [usersLoading, setUsersLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [usersError, setUsersError] = useState('');
+  const [roomsError, setRoomsError] = useState('');
   const [messagesError, setMessagesError] = useState('');
   const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [roomsLoading, setRoomsLoading] = useState(true);
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('users');
+  const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<number[]>([]);
+  const [groupCreating, setGroupCreating] = useState(false);
+  const [groupError, setGroupError] = useState('');
   const currentUserIdRef = useRef<number | null>(null);
   const selectedUserIdRef = useRef<number | null>(null);
+  const selectedRoomIdRef = useRef<number | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -252,6 +341,7 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
   const selectedUserId = selectedUser?.id ?? null;
+  const selectedRoomId = selectedRoom?.id ?? null;
 
   const scrollToLatestMessage = useCallback((behavior: ScrollBehavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({
@@ -304,6 +394,32 @@ export default function ChatPage() {
     }
   }, []);
 
+  const loadRooms = useCallback(async (options: LoadOptions = {}) => {
+    if (!options.silent) {
+      setRoomsLoading(true);
+    }
+    setRoomsError('');
+
+    try {
+      const response = await apiClient.get<ChatRoom[]>('/rooms');
+      setRooms(response.data);
+      setSelectedRoom((currentSelectedRoom) =>
+        currentSelectedRoom
+          ? response.data.find((room) => room.id === currentSelectedRoom.id) ?? currentSelectedRoom
+          : null
+      );
+    } catch (error) {
+      console.error('Failed to load rooms:', error);
+      if (!options.silent) {
+        setRoomsError('Unable to load groups.');
+      }
+    } finally {
+      if (!options.silent) {
+        setRoomsLoading(false);
+      }
+    }
+  }, []);
+
   const loadMessages = useCallback(async (userId: number, options: LoadOptions = {}) => {
     if (!options.silent) {
       setMessages([]);
@@ -325,6 +441,32 @@ export default function ChatPage() {
       }
     } finally {
       if (!options.silent && selectedUserIdRef.current === userId) {
+        setMessagesLoading(false);
+      }
+    }
+  }, []);
+
+  const loadRoomMessages = useCallback(async (roomId: number, options: LoadOptions = {}) => {
+    if (!options.silent) {
+      setMessages([]);
+      setMessagesLoading(true);
+    }
+    setMessagesError('');
+
+    try {
+      const response = await apiClient.get<Message[]>(`/rooms/${roomId}/messages`);
+      if (selectedRoomIdRef.current === roomId) {
+        setMessages((currentMessages) =>
+          mergeServerMessagesWithPending(currentMessages, response.data)
+        );
+      }
+    } catch (error) {
+      console.error('Failed to load room messages:', error);
+      if (!options.silent && selectedRoomIdRef.current === roomId) {
+        setMessagesError('Unable to load group messages.');
+      }
+    } finally {
+      if (!options.silent && selectedRoomIdRef.current === roomId) {
         setMessagesLoading(false);
       }
     }
@@ -369,6 +511,14 @@ export default function ChatPage() {
       return;
     }
 
+    void loadRooms();
+  }, [currentUser?.id, loadRooms]);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      return;
+    }
+
     currentUserIdRef.current = currentUser.id;
     let active = true;
 
@@ -381,10 +531,11 @@ export default function ChatPage() {
 
           setMessages((currentMessages) => {
             if (
-              !isConversationMessage(
+              !isActiveConversationMessage(
                 incomingMessage,
                 currentUserIdRef.current,
-                selectedUserIdRef.current
+                selectedUserIdRef.current,
+                selectedRoomIdRef.current
               )
             ) {
               return currentMessages;
@@ -395,6 +546,10 @@ export default function ChatPage() {
 
           if (incomingMessage.clientId) {
             clearOptimisticSendTimeout(incomingMessage.clientId);
+          }
+
+          if (incomingMessage.chatRoomId) {
+            return;
           }
 
           if (
@@ -468,11 +623,15 @@ export default function ChatPage() {
           }
 
           const selectedUserIdForResync = selectedUserIdRef.current;
+          const selectedRoomIdForResync = selectedRoomIdRef.current;
           Promise.all([
             loadUsers({ silent: true }),
-            selectedUserIdForResync === null
-              ? Promise.resolve()
-            : loadMessages(selectedUserIdForResync, { silent: true }),
+            loadRooms({ silent: true }),
+            selectedUserIdForResync !== null
+              ? loadMessages(selectedUserIdForResync, { silent: true })
+            : selectedRoomIdForResync !== null
+              ? loadRoomMessages(selectedRoomIdForResync, { silent: true })
+              : Promise.resolve(),
           ])
             .then(() => {
               if (
@@ -485,6 +644,16 @@ export default function ChatPage() {
             .catch((error) => {
               console.error('Failed to resync chat state:', error);
             });
+        },
+        (room) => {
+          if (!active) {
+            return;
+          }
+
+          setRooms((currentRooms) => appendOrUpdateRoom(currentRooms, room));
+          setSelectedRoom((currentSelectedRoom) =>
+            currentSelectedRoom?.id === room.id ? room : currentSelectedRoom
+          );
         }
       )
       .catch((error) => {
@@ -499,15 +668,22 @@ export default function ChatPage() {
       clearOptimisticSendTimeouts();
       wsService.disconnect();
     };
-  }, [currentUser?.id, loadMessages, loadUsers]);
+  }, [currentUser?.id, loadMessages, loadRoomMessages, loadRooms, loadUsers]);
 
   useEffect(() => {
-    if (selectedUserId === null || messagesLoading) {
+    if ((selectedUserId === null && selectedRoomId === null) || messagesLoading) {
       return;
     }
 
     scrollToLatestMessage('smooth');
-  }, [messages.length, messagesLoading, scrollToLatestMessage, selectedUserId, typingUserId]);
+  }, [
+    messages.length,
+    messagesLoading,
+    scrollToLatestMessage,
+    selectedRoomId,
+    selectedUserId,
+    typingUserId,
+  ]);
 
   const clearTypingTimeout = () => {
     if (typingTimeoutRef.current) {
@@ -593,6 +769,27 @@ export default function ChatPage() {
     }
   };
 
+  const sendOptimisticRoomMessage = async (roomId: number, payload: SendRoomMessagePayload) => {
+    const sentRealtime = wsService.sendMessage(
+      `${GROUP_MESSAGE_DESTINATION_PREFIX}/${roomId}/send`,
+      payload
+    );
+    if (sentRealtime) {
+      scheduleOptimisticSendTimeout(payload.clientId);
+      return;
+    }
+
+    try {
+      const response = await apiClient.post<Message>(`/rooms/${roomId}/messages`, payload);
+      clearOptimisticSendTimeout(payload.clientId);
+      setMessages((currentMessages) => appendOrReconcileMessage(currentMessages, response.data));
+    } catch (error) {
+      console.error('Failed to send group message:', error);
+      clearOptimisticSendTimeout(payload.clientId);
+      setMessages((currentMessages) => markOptimisticMessageFailed(currentMessages, payload.clientId));
+    }
+  };
+
   const markConversationAsRead = async (senderId: number) => {
     setUsers((currentUsers) => resetUnreadCount(currentUsers, senderId));
 
@@ -615,11 +812,26 @@ export default function ChatPage() {
       stopTyping(selectedUserIdRef.current);
     }
 
+    setSelectedRoom(null);
+    selectedRoomIdRef.current = null;
     setSelectedUser(user);
     selectedUserIdRef.current = user.id;
     hideRemoteTyping();
     void loadMessages(user.id);
     void markConversationAsRead(user.id);
+  };
+
+  const handleRoomSelect = (room: ChatRoom) => {
+    if (selectedUserIdRef.current !== null) {
+      stopTyping(selectedUserIdRef.current);
+    }
+
+    setSelectedUser(null);
+    selectedUserIdRef.current = null;
+    setSelectedRoom(room);
+    selectedRoomIdRef.current = room.id;
+    hideRemoteTyping();
+    void loadRoomMessages(room.id);
   };
 
   const handleUserSearchChange = (value: string) => {
@@ -632,6 +844,68 @@ export default function ChatPage() {
     userSearchQueryRef.current = '';
     setUserSearchQuery('');
     setUsersError('');
+  };
+
+  const handleOpenCreateGroup = () => {
+    setSidebarTab('groups');
+    setCreateGroupOpen(true);
+    setGroupError('');
+  };
+
+  const handleCloseCreateGroup = () => {
+    if (groupCreating) {
+      return;
+    }
+
+    setCreateGroupOpen(false);
+    setGroupName('');
+    setSelectedGroupMemberIds([]);
+    setGroupError('');
+  };
+
+  const handleToggleGroupMember = (userId: number) => {
+    setSelectedGroupMemberIds((currentIds) =>
+      currentIds.includes(userId)
+        ? currentIds.filter((currentId) => currentId !== userId)
+        : [...currentIds, userId]
+    );
+  };
+
+  const handleCreateGroup = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = groupName.trim();
+    if (!name || selectedGroupMemberIds.length === 0) {
+      return;
+    }
+
+    setGroupCreating(true);
+    setGroupError('');
+
+    try {
+      const response = await apiClient.post<ChatRoom>('/rooms', {
+        name,
+        participantIds: selectedGroupMemberIds,
+      });
+      const room = response.data;
+      if (selectedUserIdRef.current !== null) {
+        stopTyping(selectedUserIdRef.current);
+      }
+      setRooms((currentRooms) => appendOrUpdateRoom(currentRooms, room));
+      setSelectedUser(null);
+      selectedUserIdRef.current = null;
+      setSelectedRoom(room);
+      selectedRoomIdRef.current = room.id;
+      setMessages([]);
+      setMessageInput('');
+      setCreateGroupOpen(false);
+      setGroupName('');
+      setSelectedGroupMemberIds([]);
+    } catch (error) {
+      console.error('Failed to create group:', error);
+      setGroupError('Unable to create group.');
+    } finally {
+      setGroupCreating(false);
+    }
   };
 
   const handleMessageInputChange = (value: string) => {
@@ -665,32 +939,68 @@ export default function ChatPage() {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const content = messageInput.trim();
-    if (!content || !selectedUser || !currentUser) return;
+    if (!content || !currentUser || (!selectedUser && !selectedRoom)) return;
 
     const clientId = createClientId();
-    const optimisticMessage = createOptimisticMessage(
-      getNextOptimisticMessageId(),
-      currentUser.id,
-      selectedUser.id,
-      content,
-      clientId
-    );
-    const payload = {
-      receiverId: selectedUser.id,
-      content,
-      clientId,
-    };
-
-    stopTyping(selectedUser.id);
     setMessagesError('');
-    setMessages((currentMessages) => appendOptimisticMessage(currentMessages, optimisticMessage));
     setMessageInput('');
-    void sendOptimisticMessage(payload);
+
+    if (selectedUser) {
+      const optimisticMessage = createOptimisticMessage(
+        getNextOptimisticMessageId(),
+        currentUser.id,
+        selectedUser.id,
+        content,
+        clientId
+      );
+      const payload = {
+        receiverId: selectedUser.id,
+        content,
+        clientId,
+      };
+
+      stopTyping(selectedUser.id);
+      setMessages((currentMessages) => appendOptimisticMessage(currentMessages, optimisticMessage));
+      void sendOptimisticMessage(payload);
+      return;
+    }
+
+    if (selectedRoom) {
+      const optimisticMessage = createOptimisticRoomMessage(
+        getNextOptimisticMessageId(),
+        currentUser,
+        selectedRoom.id,
+        content,
+        clientId
+      );
+      const payload = {
+        content,
+        clientId,
+      };
+
+      setMessages((currentMessages) => appendOptimisticMessage(currentMessages, optimisticMessage));
+      void sendOptimisticRoomMessage(selectedRoom.id, payload);
+    }
   };
 
   const handleRetryMessage = (message: ChatMessage) => {
     const clientId = message.clientId;
     if (!clientId) {
+      return;
+    }
+
+    if (message.chatRoomId) {
+      const payload = {
+        content: message.content,
+        clientId,
+      };
+
+      setMessages((currentMessages) => markOptimisticMessageSending(currentMessages, clientId));
+      void sendOptimisticRoomMessage(message.chatRoomId, payload);
+      return;
+    }
+
+    if (!message.receiverId) {
       return;
     }
 
@@ -721,6 +1031,13 @@ export default function ChatPage() {
   const usersEmptyMessage = normalizedUserSearchQuery
     ? `No username matches "${normalizedUserSearchQuery}".`
     : 'No users available.';
+  const selectedConversationName = selectedRoom
+    ? selectedRoom.name
+    : selectedUser
+      ? getUserDisplayName(selectedUser)
+      : '';
+  const selectedConversationOpen = Boolean(selectedUser || selectedRoom);
+  const canCreateGroup = Boolean(groupName.trim()) && selectedGroupMemberIds.length > 0 && !groupCreating;
 
   return (
     <div className="chat-page">
@@ -747,32 +1064,111 @@ export default function ChatPage() {
       <div className="chat-container">
         <aside className="sidebar">
           <div className="sidebar-header">
-            <h3>Users</h3>
-            <div className="user-search" role="search">
-              <input
-                type="search"
-                value={userSearchQuery}
-                onChange={(event) => handleUserSearchChange(event.target.value)}
-                className="user-search-input"
-                placeholder="Search username"
-                aria-label="Search users by username"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              {userSearchQuery ? (
-                <button
-                  type="button"
-                  className="user-search-clear"
-                  onClick={handleClearUserSearch}
-                  aria-label="Clear user search"
-                >
-                  ×
-                </button>
-              ) : null}
+            <div className="sidebar-title-row">
+              <h3>Chats</h3>
+              <button type="button" className="new-group-btn" onClick={handleOpenCreateGroup}>
+                New group
+              </button>
             </div>
+            <div className="sidebar-tabs" role="tablist" aria-label="Chat sections">
+              <button
+                type="button"
+                className={`sidebar-tab ${sidebarTab === 'users' ? 'active' : ''}`}
+                onClick={() => setSidebarTab('users')}
+                role="tab"
+                aria-selected={sidebarTab === 'users'}
+              >
+                Users
+              </button>
+              <button
+                type="button"
+                className={`sidebar-tab ${sidebarTab === 'groups' ? 'active' : ''}`}
+                onClick={() => setSidebarTab('groups')}
+                role="tab"
+                aria-selected={sidebarTab === 'groups'}
+              >
+                Groups
+              </button>
+            </div>
+            {sidebarTab === 'users' ? (
+              <div className="user-search" role="search">
+                <input
+                  type="search"
+                  value={userSearchQuery}
+                  onChange={(event) => handleUserSearchChange(event.target.value)}
+                  className="user-search-input"
+                  placeholder="Search username"
+                  aria-label="Search users by username"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                {userSearchQuery ? (
+                  <button
+                    type="button"
+                    className="user-search-clear"
+                    onClick={handleClearUserSearch}
+                    aria-label="Clear user search"
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
-          <div className="user-list" aria-busy={usersLoading}>
-            {usersLoading ? (
+          <div className="user-list" aria-busy={sidebarTab === 'users' ? usersLoading : roomsLoading}>
+            {sidebarTab === 'users' ? (
+              usersLoading ? (
+                USER_SKELETON_KEYS.map((key) => (
+                  <div key={key} className="user-item user-item-skeleton" aria-hidden="true">
+                    <div className="skeleton-avatar" />
+                    <div className="skeleton-user-info">
+                      <div className="skeleton-line name" />
+                      <div className="skeleton-line status" />
+                    </div>
+                  </div>
+                ))
+              ) : usersError ? (
+                <div className="list-state error-state">
+                  <span>{usersError}</span>
+                  <button
+                    type="button"
+                    className="retry-btn"
+                    onClick={() => void loadUsers({ search: userSearchQuery })}
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : users.length === 0 ? (
+                <div className="list-state">{usersEmptyMessage}</div>
+              ) : (
+                users.map((user) => (
+                  <button
+                    type="button"
+                    key={user.id}
+                    className={`user-item ${selectedUser?.id === user.id ? 'active' : ''}`}
+                    onClick={() => handleUserSelect(user)}
+                  >
+                    <div className="user-avatar">
+                      {getUserInitial(user)}
+                    </div>
+                    <div className="user-info">
+                      <div className="user-name">{getUserDisplayName(user)}</div>
+                      <div className="user-meta">
+                        <span className={`user-status ${user.online ? 'online' : 'offline'}`}>
+                          {user.online ? 'Online' : 'Offline'}
+                        </span>
+                        {shouldShowUsername(user) ? (
+                          <span className="user-username">@{user.username}</span>
+                        ) : null}
+                      </div>
+                    </div>
+                    {(user.unreadCount ?? 0) > 0 ? (
+                      <div className="unread-badge">{user.unreadCount}</div>
+                    ) : null}
+                  </button>
+                ))
+              )
+            ) : roomsLoading ? (
               USER_SKELETON_KEYS.map((key) => (
                 <div key={key} className="user-item user-item-skeleton" aria-hidden="true">
                   <div className="skeleton-avatar" />
@@ -782,44 +1178,40 @@ export default function ChatPage() {
                   </div>
                 </div>
               ))
-            ) : usersError ? (
+            ) : roomsError ? (
               <div className="list-state error-state">
-                <span>{usersError}</span>
-                <button
-                  type="button"
-                  className="retry-btn"
-                  onClick={() => void loadUsers({ search: userSearchQuery })}
-                >
+                <span>{roomsError}</span>
+                <button type="button" className="retry-btn" onClick={() => void loadRooms()}>
                   Retry
                 </button>
               </div>
-            ) : users.length === 0 ? (
-              <div className="list-state">{usersEmptyMessage}</div>
+            ) : rooms.length === 0 ? (
+              <div className="list-state empty-groups-state">
+                <span>No groups yet.</span>
+                <button type="button" className="retry-btn" onClick={handleOpenCreateGroup}>
+                  Create group
+                </button>
+              </div>
             ) : (
-              users.map((user) => (
+              rooms.map((room) => (
                 <button
                   type="button"
-                  key={user.id}
-                  className={`user-item ${selectedUser?.id === user.id ? 'active' : ''}`}
-                  onClick={() => handleUserSelect(user)}
+                  key={room.id}
+                  className={`user-item room-item ${selectedRoom?.id === room.id ? 'active' : ''}`}
+                  onClick={() => handleRoomSelect(room)}
                 >
-                  <div className="user-avatar">
-                    {getUserInitial(user)}
+                  <div className="user-avatar room-avatar">
+                    {getRoomInitial(room)}
                   </div>
                   <div className="user-info">
-                    <div className="user-name">{getUserDisplayName(user)}</div>
+                    <div className="user-name">{room.name}</div>
                     <div className="user-meta">
-                      <span className={`user-status ${user.online ? 'online' : 'offline'}`}>
-                        {user.online ? 'Online' : 'Offline'}
+                      <span className="user-status">{room.participants.length} members</span>
+                      <span className="user-username">
+                        {getRoomMemberSummary(room, currentUser?.id)}
                       </span>
-                      {shouldShowUsername(user) ? (
-                        <span className="user-username">@{user.username}</span>
-                      ) : null}
                     </div>
                   </div>
-                  {(user.unreadCount ?? 0) > 0 ? (
-                    <div className="unread-badge">{user.unreadCount}</div>
-                  ) : null}
                 </button>
               ))
             )}
@@ -827,23 +1219,34 @@ export default function ChatPage() {
         </aside>
 
         <main className="chat-area">
-          {selectedUser ? (
+          {selectedConversationOpen ? (
             <>
               <div className="chat-area-header">
                 <div className="selected-user">
                   <div className="user-avatar">
-                    {getUserInitial(selectedUser)}
+                    {selectedRoom ? getRoomInitial(selectedRoom) : getUserInitial(selectedUser!)}
                   </div>
                   <div>
-                    <div className="user-name">{getUserDisplayName(selectedUser)}</div>
-                    <div className="user-meta">
-                      <span className={`user-status ${selectedUser.online ? 'online' : 'offline'}`}>
-                        {selectedUser.online ? 'Online' : 'Offline'}
-                      </span>
-                      {shouldShowUsername(selectedUser) ? (
-                        <span className="user-username">@{selectedUser.username}</span>
-                      ) : null}
-                    </div>
+                    <div className="user-name">{selectedConversationName}</div>
+                    {selectedRoom ? (
+                      <div className="user-meta">
+                        <span className="user-status">
+                          {selectedRoom.participants.length} members
+                        </span>
+                        <span className="user-username">
+                          {getRoomMemberSummary(selectedRoom, currentUser?.id)}
+                        </span>
+                      </div>
+                    ) : selectedUser ? (
+                      <div className="user-meta">
+                        <span className={`user-status ${selectedUser.online ? 'online' : 'offline'}`}>
+                          {selectedUser.online ? 'Online' : 'Offline'}
+                        </span>
+                        {shouldShowUsername(selectedUser) ? (
+                          <span className="user-username">@{selectedUser.username}</span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -865,7 +1268,13 @@ export default function ChatPage() {
                     <button
                       type="button"
                       className="retry-btn"
-                      onClick={() => void loadMessages(selectedUser.id)}
+                      onClick={() => {
+                        if (selectedUser) {
+                          void loadMessages(selectedUser.id);
+                        } else if (selectedRoom) {
+                          void loadRoomMessages(selectedRoom.id);
+                        }
+                      }}
                     >
                       Retry
                     </button>
@@ -878,6 +1287,11 @@ export default function ChatPage() {
                       key={message.clientId ?? message.id}
                       className={`message ${message.senderId === currentUser?.id ? 'sent' : 'received'} ${message.deliveryStatus ?? ''}`}
                     >
+                      {selectedRoom && message.senderId !== currentUser?.id ? (
+                        <div className="message-sender">
+                          {getMessageSenderName(message, selectedRoom)}
+                        </div>
+                      ) : null}
                       <div className="message-content">{message.content}</div>
                       <div className="message-time">
                         <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
@@ -901,7 +1315,7 @@ export default function ChatPage() {
                     </div>
                   ))
                 )}
-                {!messagesLoading && typingUserId === selectedUser.id ? (
+                {!messagesLoading && selectedUser && typingUserId === selectedUser.id ? (
                   <div className="typing-indicator">
                     {getUserDisplayName(selectedUser)} is typing...
                   </div>
@@ -914,7 +1328,7 @@ export default function ChatPage() {
                   value={messageInput}
                   onChange={(e) => handleMessageInputChange(e.target.value)}
                   onKeyDown={handleMessageInputKeyDown}
-                  placeholder={`Message ${getUserDisplayName(selectedUser)}`}
+                  placeholder={`Message ${selectedConversationName}`}
                   className="message-input"
                   rows={1}
                 />
@@ -925,11 +1339,86 @@ export default function ChatPage() {
             </>
           ) : (
             <div className="no-chat-selected">
-              <p>Select a user to start chatting</p>
+              <p>Select a user or group to start chatting</p>
             </div>
           )}
         </main>
       </div>
+
+      {createGroupOpen ? (
+        <div className="modal-backdrop">
+          <div
+            className="group-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-group-title"
+          >
+            <form onSubmit={handleCreateGroup} className="group-form">
+              <div className="group-modal-header">
+                <div>
+                  <h3 id="create-group-title">New group</h3>
+                  <p>{selectedGroupMemberIds.length} selected</p>
+                </div>
+                <button
+                  type="button"
+                  className="modal-close-btn"
+                  onClick={handleCloseCreateGroup}
+                  aria-label="Close create group"
+                >
+                  ×
+                </button>
+              </div>
+
+              <label className="group-field">
+                <span>Group name</span>
+                <input
+                  type="text"
+                  value={groupName}
+                  onChange={(event) => setGroupName(event.target.value)}
+                  placeholder="Weekend plans"
+                  maxLength={100}
+                  autoFocus
+                />
+              </label>
+
+              <div className="group-field">
+                <span>Members</span>
+                <div className="group-member-list">
+                  {users.length === 0 ? (
+                    <div className="list-state">No users available.</div>
+                  ) : (
+                    users.map((user) => (
+                      <label key={user.id} className="group-member-option">
+                        <input
+                          type="checkbox"
+                          checked={selectedGroupMemberIds.includes(user.id)}
+                          onChange={() => handleToggleGroupMember(user.id)}
+                        />
+                        <span className="user-avatar small-avatar">{getUserInitial(user)}</span>
+                        <span className="group-member-copy">
+                          <span>{getUserDisplayName(user)}</span>
+                          {shouldShowUsername(user) ? <small>@{user.username}</small> : null}
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {groupError ? <div className="group-error">{groupError}</div> : null}
+
+              <div className="group-modal-actions">
+                <button type="button" className="secondary-btn" onClick={handleCloseCreateGroup}>
+                  Cancel
+                </button>
+                <button type="submit" className="send-btn" disabled={!canCreateGroup}>
+                  {groupCreating ? 'Creating' : 'Create group'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

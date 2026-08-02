@@ -108,6 +108,69 @@
   font-size: 18px;
 }
 
+.sidebar-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.new-group-btn {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--purple-100);
+  color: var(--purple-700);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.new-group-btn:hover {
+  background: var(--purple-200);
+}
+
+.new-group-btn:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 2px;
+}
+
+.sidebar-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--gray-100);
+}
+
+.sidebar-tab {
+  min-height: 34px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gray-500);
+  font-size: 13px;
+  font-weight: 700;
+  transition: all 0.2s;
+}
+
+.sidebar-tab:hover {
+  color: var(--purple-700);
+  background: var(--white);
+}
+
+.sidebar-tab.active {
+  background: var(--white);
+  color: var(--purple-700);
+  box-shadow: 0 1px 4px rgba(17, 24, 39, 0.08);
+}
+
+.sidebar-tab:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 2px;
+}
+
 .user-search {
   position: relative;
 }
@@ -216,6 +279,11 @@
   font-weight: 600;
 }
 
+.room-avatar {
+  border-radius: 14px;
+  background: linear-gradient(135deg, #7C3AED, #DB2777);
+}
+
 .user-info {
   flex: 1;
   min-width: 0;
@@ -284,6 +352,13 @@
 
 .list-state {
   padding: 16px 12px;
+}
+
+.empty-groups-state {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .message-state {
@@ -379,6 +454,17 @@
 
 .message.received {
   align-self: flex-start;
+}
+
+.message-sender {
+  max-width: 100%;
+  margin: 0 0 3px 4px;
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .message-content {
@@ -532,6 +618,206 @@
   outline-offset: 2px;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(17, 24, 39, 0.45);
+}
+
+.group-modal {
+  width: min(480px, 100%);
+  max-height: min(680px, calc(100dvh - 40px));
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--white);
+  box-shadow: 0 20px 48px rgba(17, 24, 39, 0.24);
+}
+
+.group-form {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+}
+
+.group-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.group-modal-header h3 {
+  color: var(--gray-800);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.group-modal-header p {
+  margin-top: 4px;
+  color: var(--gray-500);
+  font-size: 13px;
+}
+
+.modal-close-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--purple-50);
+  color: var(--purple-700);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.modal-close-btn:hover {
+  background: var(--purple-100);
+}
+
+.modal-close-btn:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 2px;
+}
+
+.group-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 20px 0;
+}
+
+.group-field > span {
+  color: var(--gray-700);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.group-field input[type='text'] {
+  min-height: 42px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 2px solid var(--purple-100);
+  border-radius: 10px;
+  background: var(--white);
+  color: var(--gray-800);
+  caret-color: var(--purple-600);
+  color-scheme: light;
+  font: inherit;
+  font-size: 14px;
+}
+
+.group-field input[type='text']::placeholder {
+  color: var(--gray-400);
+}
+
+.group-field input[type='text']:focus {
+  outline: none;
+  border-color: var(--purple-500);
+  box-shadow: 0 0 0 3px var(--purple-100);
+}
+
+.group-member-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.group-member-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.group-member-option:hover {
+  background: var(--purple-50);
+}
+
+.group-member-option input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--purple-600);
+  flex: 0 0 auto;
+}
+
+.small-avatar {
+  width: 36px;
+  height: 36px;
+  font-size: 15px;
+  flex: 0 0 auto;
+}
+
+.group-member-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--gray-800);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.group-member-copy span,
+.group-member-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-member-copy small {
+  color: var(--gray-400);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.group-error {
+  margin: 14px 20px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #FEF2F2;
+  color: #991B1B;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.group-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 18px 20px 20px;
+}
+
+.secondary-btn {
+  min-height: 46px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  background: var(--gray-100);
+  color: var(--gray-700);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.secondary-btn:hover {
+  background: var(--gray-200);
+}
+
+.secondary-btn:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 2px;
+}
+
 .user-item-skeleton {
   pointer-events: none;
 }
@@ -615,7 +901,7 @@
 
   .sidebar {
     width: 100%;
-    height: 232px;
+    height: 280px;
     border-right: 0;
     border-bottom: 1px solid var(--gray-200);
     flex: 0 0 auto;
@@ -666,6 +952,10 @@
   .send-btn {
     padding: 12px 18px;
   }
+
+  .group-modal {
+    max-height: calc(100dvh - 24px);
+  }
 }
 
 @media (max-width: 480px) {
@@ -686,7 +976,16 @@
   }
 
   .sidebar {
-    height: 220px;
+    height: 268px;
+  }
+
+  .sidebar-title-row {
+    align-items: flex-start;
+  }
+
+  .new-group-btn {
+    padding: 0 10px;
+    font-size: 12px;
   }
 
   .user-item {
@@ -724,5 +1023,19 @@
   .send-btn {
     min-height: 44px;
     padding: 10px 14px;
+  }
+
+  .modal-backdrop {
+    padding: 12px;
+  }
+
+  .group-modal-actions {
+    padding: 14px 16px 16px;
+  }
+
+  .group-modal-header,
+  .group-field {
+    padding-left: 16px;
+    padding-right: 16px;
   }
 }

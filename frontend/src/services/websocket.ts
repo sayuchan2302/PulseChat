@@ -2,6 +2,7 @@ import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { WS_BASE_URL } from '../config/constants';
 import type {
+  ChatRoom,
   ConnectionStatus,
   Message,
   PresenceEvent,
@@ -14,6 +15,7 @@ type PresenceHandler = (presence: PresenceEvent) => void;
 type TypingHandler = (typing: TypingEvent) => void;
 type ReadReceiptHandler = (receipt: ReadReceiptEvent) => void;
 type ConnectionStatusHandler = (status: ConnectionStatus) => void;
+type RoomHandler = (room: ChatRoom) => void;
 
 export class WebSocketService {
   private client: Client | null = null;
@@ -26,19 +28,22 @@ export class WebSocketService {
   private onTypingReceived: TypingHandler | null = null;
   private onReadReceiptReceived: ReadReceiptHandler | null = null;
   private onConnectionStatusChanged: ConnectionStatusHandler | null = null;
+  private onRoomReceived: RoomHandler | null = null;
 
   connect(
     onMessageReceived: MessageHandler,
     onPresenceReceived?: PresenceHandler,
     onTypingReceived?: TypingHandler,
     onReadReceiptReceived?: ReadReceiptHandler,
-    onConnectionStatusChanged?: ConnectionStatusHandler
+    onConnectionStatusChanged?: ConnectionStatusHandler,
+    onRoomReceived?: RoomHandler
   ): Promise<void> {
     this.onMessageReceived = onMessageReceived;
     this.onPresenceReceived = onPresenceReceived ?? null;
     this.onTypingReceived = onTypingReceived ?? null;
     this.onReadReceiptReceived = onReadReceiptReceived ?? null;
     this.onConnectionStatusChanged = onConnectionStatusChanged ?? null;
+    this.onRoomReceived = onRoomReceived ?? null;
 
     if (this.connected) {
       this.updateStatus('connected');
@@ -93,6 +98,10 @@ export class WebSocketService {
 
         this.client?.subscribe('/user/queue/read-receipts', (message) => {
           this.handleIncomingReadReceipt(message.body);
+        });
+
+        this.client?.subscribe('/user/queue/rooms', (message) => {
+          this.handleIncomingRoom(message.body);
         });
 
         resolve();
@@ -163,6 +172,7 @@ export class WebSocketService {
     this.onTypingReceived = null;
     this.onReadReceiptReceived = null;
     this.onConnectionStatusChanged = null;
+    this.onRoomReceived = null;
   }
 
   isConnected(): boolean {
@@ -220,6 +230,15 @@ export class WebSocketService {
       this.onReadReceiptReceived?.(receipt);
     } catch (error) {
       console.error('Failed to parse WebSocket read receipt event:', error);
+    }
+  }
+
+  private handleIncomingRoom(body: string) {
+    try {
+      const room = JSON.parse(body) as ChatRoom;
+      this.onRoomReceived?.(room);
+    } catch (error) {
+      console.error('Failed to parse WebSocket room event:', error);
     }
   }
 }

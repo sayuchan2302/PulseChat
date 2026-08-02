@@ -12,7 +12,12 @@ import java.util.HashSet;
 import java.util.Set;
 
 @Entity
-@Table(name = "chat_rooms")
+@Table(
+        name = "chat_rooms",
+        indexes = {
+                @Index(name = "idx_chat_rooms_type_created", columnList = "type, created_at")
+        }
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -33,7 +38,17 @@ public class ChatRoom {
     @JoinTable(
         name = "chat_room_participants",
         joinColumns = @JoinColumn(name = "chat_room_id"),
-        inverseJoinColumns = @JoinColumn(name = "user_id")
+        inverseJoinColumns = @JoinColumn(name = "user_id"),
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_chat_room_participant",
+                        columnNames = {"chat_room_id", "user_id"}
+                )
+        },
+        indexes = {
+                @Index(name = "idx_chat_room_participants_room", columnList = "chat_room_id"),
+                @Index(name = "idx_chat_room_participants_user", columnList = "user_id")
+        }
     )
     private Set<User> participants = new HashSet<>();
 

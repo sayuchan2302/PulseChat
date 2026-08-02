@@ -2,15 +2,18 @@ package com.chatapp.controller;
 
 import com.chatapp.dto.request.ReadReceiptRequest;
 import com.chatapp.dto.request.SendMessageRequest;
+import com.chatapp.dto.request.SendRoomMessageRequest;
 import com.chatapp.dto.request.TypingRequest;
 import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.dto.response.ReadReceiptResponse;
 import com.chatapp.dto.response.TypingResponse;
 import com.chatapp.model.User;
+import com.chatapp.service.ChatRoomService;
 import com.chatapp.service.MessageService;
 import com.chatapp.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -28,6 +31,7 @@ public class ChatWebSocketController {
 
     private final MessageService messageService;
     private final UserService userService;
+    private final ChatRoomService chatRoomService;
     private final SimpMessagingTemplate messagingTemplate;
 
     @MessageMapping("/chat.send")
@@ -47,6 +51,30 @@ public class ChatWebSocketController {
                 PRIVATE_MESSAGE_QUEUE,
                 savedMessage
         );
+    }
+
+    @MessageMapping("/rooms/{roomId}/send")
+    public void sendRoomMessage(
+            @DestinationVariable Long roomId,
+            @Valid @Payload SendRoomMessageRequest request,
+            Principal principal
+    ) {
+        Principal authenticatedPrincipal = requireAuthenticatedPrincipal(principal);
+
+        MessageResponse savedMessage = messageService.sendRoomMessage(
+                authenticatedPrincipal.getName(),
+                roomId,
+                request
+        );
+
+        chatRoomService.getGroupParticipantUsernames(authenticatedPrincipal.getName(), roomId)
+                .forEach(username ->
+                        messagingTemplate.convertAndSendToUser(
+                                username,
+                                PRIVATE_MESSAGE_QUEUE,
+                                savedMessage
+                        )
+                );
     }
 
     @MessageMapping("/chat.typing")
