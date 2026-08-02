@@ -1,7 +1,9 @@
 package com.chatapp.service;
 
 import com.chatapp.dto.request.SendMessageRequest;
+import com.chatapp.dto.response.ReadReceiptResponse;
 import com.chatapp.dto.response.MessageResponse;
+import com.chatapp.dto.response.UnreadCountResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.Message;
@@ -34,6 +36,16 @@ public class MessageService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<UnreadCountResponse> getUnreadCounts(String currentUsername) {
+        User currentUser = userService.findByUsername(currentUsername);
+
+        return messageRepository.countUnreadMessagesGroupedBySender(currentUser.getId())
+                .stream()
+                .map(count -> new UnreadCountResponse(count.getUserId(), count.getUnreadCount()))
+                .toList();
+    }
+
     @Transactional
     public MessageResponse sendMessage(String currentUsername, SendMessageRequest request) {
         User sender = userService.findByUsername(currentUsername);
@@ -51,5 +63,18 @@ public class MessageService {
 
         Message savedMessage = messageRepository.saveAndFlush(message);
         return MessageResponse.from(savedMessage);
+    }
+
+    @Transactional
+    public ReadReceiptResponse markConversationAsRead(String currentUsername, Long senderId) {
+        User reader = userService.findByUsername(currentUsername);
+        User sender = userService.findById(senderId);
+
+        if (reader.getId().equals(sender.getId())) {
+            throw new AppException(ErrorCode.SELF_CONVERSATION_NOT_ALLOWED);
+        }
+
+        int readCount = messageRepository.markConversationAsRead(sender.getId(), reader.getId());
+        return new ReadReceiptResponse(reader.getId(), sender.getId(), readCount);
     }
 }

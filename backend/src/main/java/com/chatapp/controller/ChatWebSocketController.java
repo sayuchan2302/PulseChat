@@ -1,8 +1,10 @@
 package com.chatapp.controller;
 
+import com.chatapp.dto.request.ReadReceiptRequest;
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.request.TypingRequest;
 import com.chatapp.dto.response.MessageResponse;
+import com.chatapp.dto.response.ReadReceiptResponse;
 import com.chatapp.dto.response.TypingResponse;
 import com.chatapp.model.User;
 import com.chatapp.service.MessageService;
@@ -22,6 +24,7 @@ import java.security.Principal;
 public class ChatWebSocketController {
     private static final String PRIVATE_MESSAGE_QUEUE = "/queue/messages";
     private static final String TYPING_QUEUE = "/queue/typing";
+    private static final String READ_RECEIPT_QUEUE = "/queue/read-receipts";
 
     private final MessageService messageService;
     private final UserService userService;
@@ -61,6 +64,27 @@ public class ChatWebSocketController {
         messagingTemplate.convertAndSendToUser(
                 receiver.getUsername(),
                 TYPING_QUEUE,
+                response
+        );
+    }
+
+    @MessageMapping("/chat.read")
+    public void markConversationAsRead(@Valid @Payload ReadReceiptRequest request, Principal principal) {
+        Principal authenticatedPrincipal = requireAuthenticatedPrincipal(principal);
+        ReadReceiptResponse response = messageService.markConversationAsRead(
+                authenticatedPrincipal.getName(),
+                request.senderId()
+        );
+        User sender = userService.findById(request.senderId());
+
+        messagingTemplate.convertAndSendToUser(
+                sender.getUsername(),
+                READ_RECEIPT_QUEUE,
+                response
+        );
+        messagingTemplate.convertAndSendToUser(
+                authenticatedPrincipal.getName(),
+                READ_RECEIPT_QUEUE,
                 response
         );
     }

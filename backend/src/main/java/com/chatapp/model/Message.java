@@ -10,7 +10,13 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "messages")
+@Table(
+        name = "messages",
+        indexes = {
+                @Index(name = "idx_messages_conversation_timestamp", columnList = "sender_id, receiver_id, timestamp"),
+                @Index(name = "idx_messages_unread_receiver_sender", columnList = "receiver_id, read, sender_id")
+        }
+)
 @Getter
 @Setter
 @NoArgsConstructor

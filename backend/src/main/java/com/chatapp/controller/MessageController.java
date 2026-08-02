@@ -2,6 +2,8 @@ package com.chatapp.controller;
 
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.response.MessageResponse;
+import com.chatapp.dto.response.ReadReceiptResponse;
+import com.chatapp.dto.response.UnreadCountResponse;
 import com.chatapp.service.MessageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -9,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,9 +26,19 @@ import java.util.List;
 public class MessageController {
     private final MessageService messageService;
 
+    @GetMapping("/unread-counts")
+    public List<UnreadCountResponse> getUnreadCounts(Authentication authentication) {
+        return messageService.getUnreadCounts(authentication.getName());
+    }
+
     @GetMapping("/{userId}")
     public List<MessageResponse> getConversation(Authentication authentication, @PathVariable Long userId) {
         return messageService.getConversation(authentication.getName(), userId);
+    }
+
+    @PatchMapping("/{userId}/read")
+    public ReadReceiptResponse markConversationAsRead(Authentication authentication, @PathVariable Long userId) {
+        return messageService.markConversationAsRead(authentication.getName(), userId);
     }
 
     @PostMapping

@@ -1,11 +1,12 @@
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { WS_BASE_URL } from '../config/constants';
-import type { Message, PresenceEvent, TypingEvent } from '../types';
+import type { Message, PresenceEvent, ReadReceiptEvent, TypingEvent } from '../types';
 
 type MessageHandler = (message: Message) => void;
 type PresenceHandler = (presence: PresenceEvent) => void;
 type TypingHandler = (typing: TypingEvent) => void;
+type ReadReceiptHandler = (receipt: ReadReceiptEvent) => void;
 
 export class WebSocketService {
   private client: Client | null = null;
@@ -14,15 +15,18 @@ export class WebSocketService {
   private onMessageReceived: MessageHandler | null = null;
   private onPresenceReceived: PresenceHandler | null = null;
   private onTypingReceived: TypingHandler | null = null;
+  private onReadReceiptReceived: ReadReceiptHandler | null = null;
 
   connect(
     onMessageReceived: MessageHandler,
     onPresenceReceived?: PresenceHandler,
-    onTypingReceived?: TypingHandler
+    onTypingReceived?: TypingHandler,
+    onReadReceiptReceived?: ReadReceiptHandler
   ): Promise<void> {
     this.onMessageReceived = onMessageReceived;
     this.onPresenceReceived = onPresenceReceived ?? null;
     this.onTypingReceived = onTypingReceived ?? null;
+    this.onReadReceiptReceived = onReadReceiptReceived ?? null;
 
     if (this.connected) {
       return Promise.resolve();
@@ -66,6 +70,10 @@ export class WebSocketService {
 
         this.client?.subscribe('/user/queue/typing', (message) => {
           this.handleIncomingTyping(message.body);
+        });
+
+        this.client?.subscribe('/user/queue/read-receipts', (message) => {
+          this.handleIncomingReadReceipt(message.body);
         });
 
         resolve();
@@ -118,6 +126,7 @@ export class WebSocketService {
     this.onMessageReceived = null;
     this.onPresenceReceived = null;
     this.onTypingReceived = null;
+    this.onReadReceiptReceived = null;
   }
 
   isConnected(): boolean {
@@ -148,6 +157,15 @@ export class WebSocketService {
       this.onTypingReceived?.(typing);
     } catch (error) {
       console.error('Failed to parse WebSocket typing event:', error);
+    }
+  }
+
+  private handleIncomingReadReceipt(body: string) {
+    try {
+      const receipt = JSON.parse(body) as ReadReceiptEvent;
+      this.onReadReceiptReceived?.(receipt);
+    } catch (error) {
+      console.error('Failed to parse WebSocket read receipt event:', error);
     }
   }
 }

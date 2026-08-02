@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { User, Message, PresenceEvent, TypingEvent } from '../types';
+import type {
+  Message,
+  PresenceEvent,
+  ReadReceiptEvent,
+  TypingEvent,
+  UnreadCount,
+  User,
+} from '../types';
 import { apiClient } from '../services/api';
 import { wsService } from '../services/websocket';
 import './ChatPage.css';
 
 const PRIVATE_MESSAGE_DESTINATION = '/app/chat.send';
 const TYPING_DESTINATION = '/app/chat.typing';
+const READ_RECEIPT_DESTINATION = '/app/chat.read';
 const STOP_TYPING_DELAY_MS = 1500;
 const REMOTE_TYPING_VISIBLE_MS = 2500;
 
@@ -38,6 +46,35 @@ function isTypingFromSelectedUser(typing: TypingEvent, selectedUserId: number | 
   return selectedUserId !== null && typing.senderId === selectedUserId;
 }
 
+function mergeUnreadCounts(users: User[], unreadCounts: UnreadCount[]) {
+  const unreadCountByUserId = new Map(
+    unreadCounts.map((unreadCount) => [unreadCount.userId, unreadCount.unreadCount])
+  );
+
+  return users.map((user) => ({
+    ...user,
+    unreadCount: unreadCountByUserId.get(user.id) ?? 0,
+  }));
+}
+
+function incrementUnreadCount(users: User[], senderId: number) {
+  return users.map((user) =>
+    user.id === senderId ? { ...user, unreadCount: (user.unreadCount ?? 0) + 1 } : user
+  );
+}
+
+function resetUnreadCount(users: User[], userId: number) {
+  return users.map((user) => (user.id === userId ? { ...user, unreadCount: 0 } : user));
+}
+
+function applyReadReceipt(messages: Message[], receipt: ReadReceiptEvent) {
+  return messages.map((message) =>
+    message.senderId === receipt.senderId && message.receiverId === receipt.readerId
+      ? { ...message, read: true }
+      : message
+  );
+}
+
 export default function ChatPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -53,8 +90,11 @@ export default function ChatPage() {
 
   const loadUsers = useCallback(async () => {
     try {
-      const response = await apiClient.get<User[]>('/users');
-      setUsers(response.data);
+      const [usersResponse, unreadCountsResponse] = await Promise.all([
+        apiClient.get<User[]>('/users'),
+        apiClient.get<UnreadCount[]>('/messages/unread-counts'),
+      ]);
+      setUsers(mergeUnreadCounts(usersResponse.data, unreadCountsResponse.data));
     } catch (error) {
       console.error('Failed to load users:', error);
     }
@@ -117,6 +157,18 @@ export default function ChatPage() {
 
             return appendUniqueMessage(currentMessages, incomingMessage);
           });
+
+          if (
+            incomingMessage.senderId !== currentUserIdRef.current &&
+            incomingMessage.senderId === selectedUserIdRef.current
+          ) {
+            markConversationAsRead(incomingMessage.senderId);
+            return;
+          }
+
+          if (incomingMessage.senderId !== currentUserIdRef.current) {
+            setUsers((currentUsers) => incrementUnreadCount(currentUsers, incomingMessage.senderId));
+          }
         },
         (presence) => {
           if (!active) {
@@ -139,6 +191,16 @@ export default function ChatPage() {
             showRemoteTyping(typing.senderId);
           } else {
             hideRemoteTyping();
+          }
+        },
+        (receipt) => {
+          if (!active) {
+            return;
+          }
+
+          setMessages((currentMessages) => applyReadReceipt(currentMessages, receipt));
+          if (receipt.readerId === currentUserIdRef.current) {
+            setUsers((currentUsers) => resetUnreadCount(currentUsers, receipt.senderId));
           }
         }
       )
@@ -194,6 +256,23 @@ export default function ChatPage() {
     publishTyping(receiverId, false);
   };
 
+  const markConversationAsRead = async (senderId: number) => {
+    setUsers((currentUsers) => resetUnreadCount(currentUsers, senderId));
+
+    const sentRealtime = wsService.sendMessage(READ_RECEIPT_DESTINATION, {
+      senderId,
+    });
+
+    if (!sentRealtime) {
+      try {
+        const response = await apiClient.patch<ReadReceiptEvent>(`/messages/${senderId}/read`);
+        setMessages((currentMessages) => applyReadReceipt(currentMessages, response.data));
+      } catch (error) {
+        console.error('Failed to mark conversation as read:', error);
+      }
+    }
+  };
+
   const handleUserSelect = (user: User) => {
     if (selectedUserIdRef.current !== null) {
       stopTyping(selectedUserIdRef.current);
@@ -203,6 +282,7 @@ export default function ChatPage() {
     selectedUserIdRef.current = user.id;
     hideRemoteTyping();
     void loadMessages(user.id);
+    void markConversationAsRead(user.id);
   };
 
   const handleMessageInputChange = (value: string) => {
@@ -292,6 +372,9 @@ export default function ChatPage() {
                     {user.online ? 'Online' : 'Offline'}
                   </div>
                 </div>
+                {(user.unreadCount ?? 0) > 0 && (
+                  <div className="unread-badge">{user.unreadCount}</div>
+                )}
               </div>
             ))}
           </div>
@@ -322,7 +405,12 @@ export default function ChatPage() {
                   >
                     <div className="message-content">{message.content}</div>
                     <div className="message-time">
-                      {new Date(message.timestamp).toLocaleTimeString()}
+                      <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
+                      {message.senderId === currentUser?.id && (
+                        <span className="message-read-status">
+                          {message.read ? 'Read' : 'Sent'}
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}

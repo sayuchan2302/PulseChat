@@ -4,6 +4,7 @@ export interface User {
   email: string;
   avatar?: string;
   online: boolean;
+  unreadCount?: number;
   createdAt: string;
 }
 
@@ -27,6 +28,17 @@ export interface TypingEvent {
   senderId: number;
   username: string;
   typing: boolean;
+}
+
+export interface UnreadCount {
+  userId: number;
+  unreadCount: number;
+}
+
+export interface ReadReceiptEvent {
+  readerId: number;
+  senderId: number;
+  readCount: number;
 }
 
 export interface ChatRoom {
