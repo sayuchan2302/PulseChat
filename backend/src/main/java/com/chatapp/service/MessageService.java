@@ -12,6 +12,7 @@ import com.chatapp.repository.MessageRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 
@@ -50,19 +51,39 @@ public class MessageService {
     public MessageResponse sendMessage(String currentUsername, SendMessageRequest request) {
         User sender = userService.findByUsername(currentUsername);
         User receiver = userService.findById(request.receiverId());
+        String clientId = normalizeClientId(request.clientId());
 
         if (sender.getId().equals(receiver.getId())) {
             throw new AppException(ErrorCode.SELF_MESSAGE_NOT_ALLOWED);
         }
 
+        if (clientId != null) {
+            return messageRepository.findBySenderIdAndClientId(sender.getId(), clientId)
+                    .map(MessageResponse::from)
+                    .orElseGet(() -> saveMessage(sender, receiver, request.content(), clientId));
+        }
+
+        return saveMessage(sender, receiver, request.content(), null);
+    }
+
+    private MessageResponse saveMessage(User sender, User receiver, String content, String clientId) {
         Message message = new Message();
         message.setSender(sender);
         message.setReceiver(receiver);
-        message.setContent(request.content().trim());
+        message.setContent(content.trim());
+        message.setClientId(clientId);
         message.setRead(false);
 
         Message savedMessage = messageRepository.saveAndFlush(message);
         return MessageResponse.from(savedMessage);
+    }
+
+    private String normalizeClientId(String clientId) {
+        if (!StringUtils.hasText(clientId)) {
+            return null;
+        }
+
+        return clientId.trim();
     }
 
     @Transactional

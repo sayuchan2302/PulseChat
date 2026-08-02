@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Size;
 
 public record SendMessageRequest(
         @NotNull Long receiverId,
-        @NotBlank @Size(max = 5000) String content
+        @NotBlank @Size(max = 5000) String content,
+        @Size(max = 100) String clientId
 ) {
 }

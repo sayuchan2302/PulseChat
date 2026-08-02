@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 public record UserResponse(
         Long id,
         String username,
+        String fullName,
         String email,
         String avatar,
         Boolean online,
@@ -16,10 +17,16 @@ public record UserResponse(
         return new UserResponse(
                 user.getId(),
                 user.getUsername(),
+                displayName(user),
                 user.getEmail(),
                 user.getAvatar(),
                 user.getOnline(),
                 user.getCreatedAt()
         );
+    }
+
+    private static String displayName(User user) {
+        String fullName = user.getFullName();
+        return fullName == null || fullName.isBlank() ? user.getUsername() : fullName;
     }
 }

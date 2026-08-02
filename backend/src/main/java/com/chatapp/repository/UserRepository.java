@@ -14,4 +14,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByEmail(String email);
 
     List<User> findAllByUsernameNotOrderByUsernameAsc(String username);
+
+    List<User> findAllByUsernameContainingIgnoreCaseAndUsernameNotOrderByUsernameAsc(
+            String username,
+            String excludedUsername
+    );
 }

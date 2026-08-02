@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -24,7 +25,10 @@ public class UserController {
     }
 
     @GetMapping
-    public List<UserResponse> listUsers(Authentication authentication) {
-        return userService.listOtherUsers(authentication.getName());
+    public List<UserResponse> listUsers(
+            Authentication authentication,
+            @RequestParam(required = false) String username
+    ) {
+        return userService.listOtherUsers(authentication.getName(), username);
     }
 }

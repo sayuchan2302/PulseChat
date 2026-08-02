@@ -29,6 +29,7 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
+        String fullName = request.fullName().trim();
         String username = request.username().trim();
         String email = request.email().trim().toLowerCase(Locale.ROOT);
 
@@ -40,6 +41,7 @@ public class AuthService {
         }
 
         User user = new User();
+        user.setFullName(fullName);
         user.setUsername(username);
         user.setEmail(email);
         user.setPassword(passwordEncoder.encode(request.password()));

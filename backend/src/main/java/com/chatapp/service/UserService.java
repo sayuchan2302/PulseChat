@@ -19,7 +19,20 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public List<UserResponse> listOtherUsers(String currentUsername) {
-        return userRepository.findAllByUsernameNotOrderByUsernameAsc(currentUsername)
+        return listOtherUsers(currentUsername, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<UserResponse> listOtherUsers(String currentUsername, String usernameQuery) {
+        String normalizedQuery = normalizeSearchQuery(usernameQuery);
+        List<User> users = normalizedQuery.isBlank()
+                ? userRepository.findAllByUsernameNotOrderByUsernameAsc(currentUsername)
+                : userRepository.findAllByUsernameContainingIgnoreCaseAndUsernameNotOrderByUsernameAsc(
+                        normalizedQuery,
+                        currentUsername
+                );
+
+        return users
                 .stream()
                 .map(UserResponse::from)
                 .toList();
@@ -53,5 +66,9 @@ public class UserService {
     public void resetOnlineStatuses() {
         userRepository.findAll()
                 .forEach(user -> user.setOnline(false));
+    }
+
+    private String normalizeSearchQuery(String query) {
+        return query == null ? "" : query.trim();
     }
 }

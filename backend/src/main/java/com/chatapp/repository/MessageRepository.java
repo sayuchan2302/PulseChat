@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface MessageRepository extends JpaRepository<Message, Long> {
     interface UnreadCountProjection {
@@ -47,4 +48,6 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             @Param("senderId") Long senderId,
             @Param("receiverId") Long receiverId
     );
+
+    Optional<Message> findBySenderIdAndClientId(Long senderId, String clientId);
 }

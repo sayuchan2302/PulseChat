@@ -1,45 +1,63 @@
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { WS_BASE_URL } from '../config/constants';
-import type { Message, PresenceEvent, ReadReceiptEvent, TypingEvent } from '../types';
+import type {
+  ConnectionStatus,
+  Message,
+  PresenceEvent,
+  ReadReceiptEvent,
+  TypingEvent,
+} from '../types';
 
 type MessageHandler = (message: Message) => void;
 type PresenceHandler = (presence: PresenceEvent) => void;
 type TypingHandler = (typing: TypingEvent) => void;
 type ReadReceiptHandler = (receipt: ReadReceiptEvent) => void;
+type ConnectionStatusHandler = (status: ConnectionStatus) => void;
 
 export class WebSocketService {
   private client: Client | null = null;
   private connected = false;
   private connectingPromise: Promise<void> | null = null;
+  private manuallyDisconnecting = false;
+  private status: ConnectionStatus = 'offline';
   private onMessageReceived: MessageHandler | null = null;
   private onPresenceReceived: PresenceHandler | null = null;
   private onTypingReceived: TypingHandler | null = null;
   private onReadReceiptReceived: ReadReceiptHandler | null = null;
+  private onConnectionStatusChanged: ConnectionStatusHandler | null = null;
 
   connect(
     onMessageReceived: MessageHandler,
     onPresenceReceived?: PresenceHandler,
     onTypingReceived?: TypingHandler,
-    onReadReceiptReceived?: ReadReceiptHandler
+    onReadReceiptReceived?: ReadReceiptHandler,
+    onConnectionStatusChanged?: ConnectionStatusHandler
   ): Promise<void> {
     this.onMessageReceived = onMessageReceived;
     this.onPresenceReceived = onPresenceReceived ?? null;
     this.onTypingReceived = onTypingReceived ?? null;
     this.onReadReceiptReceived = onReadReceiptReceived ?? null;
+    this.onConnectionStatusChanged = onConnectionStatusChanged ?? null;
 
     if (this.connected) {
+      this.updateStatus('connected');
       return Promise.resolve();
     }
 
     if (this.connectingPromise) {
+      this.onConnectionStatusChanged?.(this.status);
       return this.connectingPromise;
     }
 
     const token = localStorage.getItem('token');
     if (!token) {
+      this.updateStatus('offline');
       return Promise.reject(new Error('Missing auth token'));
     }
+
+    this.manuallyDisconnecting = false;
+    this.updateStatus(this.isBrowserOffline() ? 'offline' : 'connecting');
 
     this.connectingPromise = new Promise((resolve, reject) => {
       this.client = new Client({
@@ -59,6 +77,7 @@ export class WebSocketService {
         console.log('Connected to WebSocket');
         this.connected = true;
         this.connectingPromise = null;
+        this.updateStatus('connected');
 
         this.client?.subscribe('/user/queue/messages', (message) => {
           this.handleIncomingMessage(message.body);
@@ -84,12 +103,25 @@ export class WebSocketService {
         console.error('Additional details: ' + frame.body);
         this.connected = false;
         this.connectingPromise = null;
+        this.updateStatus(this.client?.active ? 'reconnecting' : 'offline');
         reject(new Error(frame.headers['message']));
+      };
+
+      this.client.onWebSocketError = () => {
+        this.connected = false;
+        this.updateStatus(this.isBrowserOffline() ? 'offline' : 'reconnecting');
       };
 
       this.client.onWebSocketClose = () => {
         this.connected = false;
         this.connectingPromise = null;
+        this.updateStatus(
+          this.manuallyDisconnecting || !this.client?.active
+            ? 'offline'
+            : this.isBrowserOffline()
+              ? 'offline'
+              : 'reconnecting'
+        );
       };
 
       this.client.activate();
@@ -116,6 +148,8 @@ export class WebSocketService {
   }
 
   disconnect() {
+    this.manuallyDisconnecting = true;
+
     if (this.client) {
       this.client.deactivate();
     }
@@ -123,14 +157,34 @@ export class WebSocketService {
     this.client = null;
     this.connected = false;
     this.connectingPromise = null;
+    this.updateStatus('offline');
     this.onMessageReceived = null;
     this.onPresenceReceived = null;
     this.onTypingReceived = null;
     this.onReadReceiptReceived = null;
+    this.onConnectionStatusChanged = null;
   }
 
   isConnected(): boolean {
     return this.connected;
+  }
+
+  getConnectionStatus(): ConnectionStatus {
+    return this.status;
+  }
+
+  private updateStatus(status: ConnectionStatus) {
+    if (this.status === status) {
+      this.onConnectionStatusChanged?.(status);
+      return;
+    }
+
+    this.status = status;
+    this.onConnectionStatusChanged?.(status);
+  }
+
+  private isBrowserOffline() {
+    return typeof navigator !== 'undefined' && !navigator.onLine;
   }
 
   private handleIncomingMessage(body: string) {

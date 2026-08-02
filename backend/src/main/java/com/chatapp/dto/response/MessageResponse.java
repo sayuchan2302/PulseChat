@@ -11,7 +11,8 @@ public record MessageResponse(
         Long receiverId,
         Long chatRoomId,
         Boolean read,
-        LocalDateTime timestamp
+        LocalDateTime timestamp,
+        String clientId
 ) {
     public static MessageResponse from(Message message) {
         return new MessageResponse(
@@ -21,7 +22,8 @@ public record MessageResponse(
                 message.getReceiver() == null ? null : message.getReceiver().getId(),
                 message.getChatRoom() == null ? null : message.getChatRoom().getId(),
                 message.getRead(),
-                message.getTimestamp()
+                message.getTimestamp(),
+                message.getClientId()
         );
     }
 }

@@ -1,6 +1,7 @@
 export interface User {
   id: number;
   username: string;
+  fullName?: string;
   email: string;
   avatar?: string;
   online: boolean;
@@ -16,6 +17,7 @@ export interface Message {
   chatRoomId?: number;
   timestamp: string;
   read: boolean;
+  clientId?: string | null;
 }
 
 export interface PresenceEvent {
@@ -40,6 +42,8 @@ export interface ReadReceiptEvent {
   senderId: number;
   readCount: number;
 }
+
+export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline';
 
 export interface ChatRoom {
   id: number;

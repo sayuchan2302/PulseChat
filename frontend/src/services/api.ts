@@ -1,6 +1,10 @@
 import axios from 'axios';
 import { API_BASE_URL, ROUTES } from '../config/constants';
 
+function isAuthEndpoint(url?: string) {
+  return url?.startsWith('/auth/') ?? false;
+}
+
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -12,7 +16,7 @@ export const apiClient = axios.create({
 apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
-    if (token) {
+    if (token && !isAuthEndpoint(config.url)) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -24,7 +28,7 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !isAuthEndpoint(error.config?.url)) {
       localStorage.removeItem('token');
       window.location.href = ROUTES.LOGIN;
     }

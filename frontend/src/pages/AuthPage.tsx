@@ -8,6 +8,7 @@ type AuthMode = 'login' | 'register';
 export default function AuthPage() {
   const [mode, setMode] = useState<AuthMode>('login');
   const [formData, setFormData] = useState({
+    fullName: '',
     username: '',
     email: '',
     password: '',
@@ -100,6 +101,28 @@ export default function AuthPage() {
                 <line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>
               <span>{error}</span>
+            </div>
+          )}
+
+          {mode === 'register' && (
+            <div className="form-group animate-fade-in">
+              <label htmlFor="fullName">Full name</label>
+              <div className="input-wrapper">
+                <svg className="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M20 21a8 8 0 1 0-16 0" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+                <input
+                  id="fullName"
+                  type="text"
+                  name="fullName"
+                  value={formData.fullName}
+                  onChange={handleChange}
+                  placeholder="Enter your full name"
+                  required
+                  autoComplete="name"
+                />
+              </div>
             </div>
           )}
 
