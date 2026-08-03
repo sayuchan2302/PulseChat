@@ -28,6 +28,7 @@ const OPTIMISTIC_SEND_TIMEOUT_MS = 10000;
 const MESSAGE_GROUP_THRESHOLD_MS = 5 * 60 * 1000;
 const MIN_GROUP_MEMBERS = 3;
 const MIN_GROUP_INVITED_MEMBERS = MIN_GROUP_MEMBERS - 1;
+const BIO_MAX_LENGTH = 160;
 const MAX_AVATAR_SIZE_BYTES = 2 * 1024 * 1024;
 const MAX_AVATAR_SIZE_MB = MAX_AVATAR_SIZE_BYTES / 1024 / 1024;
 const ACCEPTED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -324,7 +325,13 @@ function isActiveConversationMessage(
 }
 
 function applyPresenceToUser(user: User, presence: PresenceEvent) {
-  return user.id === presence.userId ? { ...user, online: presence.online } : user;
+  return user.id === presence.userId
+    ? {
+        ...user,
+        online: presence.online,
+        lastSeenAt: presence.lastSeenAt ?? user.lastSeenAt,
+      }
+    : user;
 }
 
 function applyProfileToUser(user: User, updatedUser: User) {
@@ -348,6 +355,59 @@ function applyProfileToRoom(room: ChatRoom, updatedUser: User) {
   return {
     ...room,
     participants: room.participants.map((participant) => applyProfileToUser(participant, updatedUser)),
+  };
+}
+
+function getProfileUserFromFriendship(friendship: Friendship, currentUserId: number | null) {
+  if (friendship.requester.id === currentUserId) {
+    return friendship.receiver;
+  }
+
+  return friendship.requester;
+}
+
+function getUserFriendshipStatusFromFriendship(
+  friendship: Friendship,
+  currentUserId: number | null
+): User['friendshipStatus'] {
+  if (friendship.status === 'accepted') {
+    return 'accepted';
+  }
+
+  if (friendship.status === 'declined') {
+    return 'declined';
+  }
+
+  return friendship.receiver.id === currentUserId ? 'pending_incoming' : 'pending_outgoing';
+}
+
+function applyFriendshipToProfileUser(
+  user: User,
+  friendship: Friendship,
+  currentUserId: number | null
+) {
+  const profileUser = getProfileUserFromFriendship(friendship, currentUserId);
+  if (user.id !== profileUser.id) {
+    return user;
+  }
+
+  return {
+    ...applyProfileToUser(user, profileUser),
+    friendshipId: friendship.id,
+    friendshipStatus: getUserFriendshipStatusFromFriendship(friendship, currentUserId),
+  };
+}
+
+function mergeViewedProfileUser(viewedUser: User, refreshedUser?: User) {
+  if (!refreshedUser) {
+    return viewedUser;
+  }
+
+  return {
+    ...viewedUser,
+    ...refreshedUser,
+    friendshipId: viewedUser.friendshipId ?? refreshedUser.friendshipId,
+    friendshipStatus: viewedUser.friendshipStatus ?? refreshedUser.friendshipStatus,
   };
 }
 
@@ -577,6 +637,77 @@ function getFriendshipStatusLabel(user: User) {
     default:
       return user.online ? 'Online' : 'Offline';
   }
+}
+
+function getRelationshipLabel(user: User) {
+  switch (user.friendshipStatus) {
+    case 'accepted':
+      return 'Friend';
+    case 'pending_incoming':
+      return 'Request received';
+    case 'pending_outgoing':
+      return 'Pending';
+    case 'declined':
+    case 'none':
+    case undefined:
+    default:
+      return 'Not friends';
+  }
+}
+
+function formatRelativeTime(timestamp?: string) {
+  if (!timestamp) {
+    return '';
+  }
+
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  const secondsDifference = Math.round((date.getTime() - Date.now()) / 1000);
+  if (secondsDifference > 0) {
+    return 'just now';
+  }
+
+  const absoluteSeconds = Math.abs(secondsDifference);
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+
+  if (absoluteSeconds < 60) {
+    return 'just now';
+  }
+
+  if (absoluteSeconds < 3600) {
+    return formatter.format(Math.round(secondsDifference / 60), 'minute');
+  }
+
+  if (absoluteSeconds < 86400) {
+    return formatter.format(Math.round(secondsDifference / 3600), 'hour');
+  }
+
+  if (absoluteSeconds < 2592000) {
+    return formatter.format(Math.round(secondsDifference / 86400), 'day');
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function getPresenceLabel(user: User | null) {
+  if (!user) {
+    return 'Offline';
+  }
+
+  if (user.online) {
+    return 'Online';
+  }
+
+  const lastSeen = formatRelativeTime(user.lastSeenAt);
+  return lastSeen ? `Last seen ${lastSeen}` : 'Offline';
 }
 
 function getUserStatusClass(user: User) {
@@ -935,10 +1066,15 @@ export default function ChatPage() {
   const [groupCreating, setGroupCreating] = useState(false);
   const [groupError, setGroupError] = useState('');
   const [profileFullName, setProfileFullName] = useState('');
+  const [profileBio, setProfileBio] = useState('');
   const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null);
   const [profileAvatarPreview, setProfileAvatarPreview] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState('');
+  const [viewedProfileUser, setViewedProfileUser] = useState<User | null>(null);
+  const [viewedProfileLoading, setViewedProfileLoading] = useState(false);
+  const [viewedProfileError, setViewedProfileError] = useState('');
+  const [profileActionError, setProfileActionError] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(shouldOpenConversationDetailsByDefault);
   const currentUserIdRef = useRef<number | null>(null);
   const selectedUserIdRef = useRef<number | null>(null);
@@ -947,6 +1083,7 @@ export default function ChatPage() {
   const remoteTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const userSearchQueryRef = useRef('');
+  const viewedProfileUsernameRef = useRef('');
   const optimisticMessageIdRef = useRef(0);
   const hasConnectedRef = useRef(false);
   const hasLoadedInitialUsersRef = useRef(false);
@@ -1631,6 +1768,14 @@ export default function ChatPage() {
     ]);
   };
 
+  const updateViewedProfileFromFriendship = (friendship: Friendship) => {
+    setViewedProfileUser((currentProfileUser) =>
+      currentProfileUser
+        ? applyFriendshipToProfileUser(currentProfileUser, friendship, currentUserIdRef.current)
+        : null
+    );
+  };
+
   const handleOpenRequestsPanel = () => {
     setMainView('requests');
     setProfileMenuOpen(false);
@@ -1644,15 +1789,18 @@ export default function ChatPage() {
     const actionKey = `send-${user.id}`;
     setFriendActionPending(actionKey, true);
     setUsersError('');
+    setProfileActionError('');
 
     try {
-      await apiClient.post<Friendship>('/friend-requests', {
+      const response = await apiClient.post<Friendship>('/friend-requests', {
         receiverId: user.id,
       });
+      updateViewedProfileFromFriendship(response.data);
       await refreshFriendshipState();
     } catch (error) {
       console.error('Failed to send friend request:', error);
       setUsersError('Unable to send friend request.');
+      setProfileActionError('Unable to send friend request.');
     } finally {
       setFriendActionPending(actionKey, false);
     }
@@ -1661,13 +1809,16 @@ export default function ChatPage() {
   const handleAcceptFriendRequest = async (requestId: number, actionKey: string) => {
     setFriendActionPending(actionKey, true);
     setFriendRequestsError('');
+    setProfileActionError('');
 
     try {
-      await apiClient.patch<Friendship>(`/friend-requests/${requestId}/accept`);
+      const response = await apiClient.patch<Friendship>(`/friend-requests/${requestId}/accept`);
+      updateViewedProfileFromFriendship(response.data);
       await refreshFriendshipState();
     } catch (error) {
       console.error('Failed to accept friend request:', error);
       setFriendRequestsError('Unable to accept request.');
+      setProfileActionError('Unable to accept request.');
     } finally {
       setFriendActionPending(actionKey, false);
     }
@@ -1676,13 +1827,16 @@ export default function ChatPage() {
   const handleDeclineFriendRequest = async (requestId: number, actionKey: string) => {
     setFriendActionPending(actionKey, true);
     setFriendRequestsError('');
+    setProfileActionError('');
 
     try {
-      await apiClient.patch<Friendship>(`/friend-requests/${requestId}/decline`);
+      const response = await apiClient.patch<Friendship>(`/friend-requests/${requestId}/decline`);
+      updateViewedProfileFromFriendship(response.data);
       await refreshFriendshipState();
     } catch (error) {
       console.error('Failed to decline friend request:', error);
       setFriendRequestsError('Unable to decline request.');
+      setProfileActionError('Unable to decline request.');
     } finally {
       setFriendActionPending(actionKey, false);
     }
@@ -1696,13 +1850,20 @@ export default function ChatPage() {
     const actionKey = `cancel-${user.id}`;
     setFriendActionPending(actionKey, true);
     setUsersError('');
+    setProfileActionError('');
 
     try {
       await apiClient.delete(`/friend-requests/${user.friendshipId}`);
+      setViewedProfileUser((currentProfileUser) =>
+        currentProfileUser?.id === user.id
+          ? { ...currentProfileUser, friendshipId: undefined, friendshipStatus: 'none' }
+          : currentProfileUser
+      );
       await refreshFriendshipState();
     } catch (error) {
       console.error('Failed to cancel friend request:', error);
       setUsersError('Unable to cancel friend request.');
+      setProfileActionError('Unable to cancel friend request.');
     } finally {
       setFriendActionPending(actionKey, false);
     }
@@ -1723,6 +1884,8 @@ export default function ChatPage() {
     selectedUserIdRef.current = user.id;
     setMainView('chat');
     setProfileMenuOpen(false);
+    viewedProfileUsernameRef.current = '';
+    setViewedProfileUser(null);
     setDetailsOpen(shouldOpenConversationDetailsByDefault());
     hideRemoteTyping();
     void loadMessages(user.id);
@@ -1740,6 +1903,8 @@ export default function ChatPage() {
     selectedRoomIdRef.current = room.id;
     setMainView('chat');
     setProfileMenuOpen(false);
+    viewedProfileUsernameRef.current = '';
+    setViewedProfileUser(null);
     setDetailsOpen(shouldOpenConversationDetailsByDefault());
     hideRemoteTyping();
     void loadRoomMessages(room.id);
@@ -1764,6 +1929,42 @@ export default function ChatPage() {
 
   const handleClearFriendSearch = () => {
     setFriendSearchQuery('');
+  };
+
+  const handleOpenUserProfile = async (user: User) => {
+    const requestedUsername = user.username;
+    viewedProfileUsernameRef.current = requestedUsername;
+    setViewedProfileUser(user);
+    setProfileActionError('');
+    setViewedProfileError('');
+    setViewedProfileLoading(true);
+    setProfileMenuOpen(false);
+
+    try {
+      const response = await apiClient.get<User>(`/users/${encodeURIComponent(requestedUsername)}`);
+      setViewedProfileUser((currentProfileUser) =>
+        currentProfileUser?.username === requestedUsername
+          ? { ...currentProfileUser, ...response.data }
+          : currentProfileUser
+      );
+    } catch (error) {
+      console.error('Failed to load user profile:', error);
+      if (viewedProfileUsernameRef.current === requestedUsername) {
+        setViewedProfileError('Unable to refresh profile.');
+      }
+    } finally {
+      if (viewedProfileUsernameRef.current === requestedUsername) {
+        setViewedProfileLoading(false);
+      }
+    }
+  };
+
+  const handleCloseUserProfile = () => {
+    viewedProfileUsernameRef.current = '';
+    setViewedProfileUser(null);
+    setViewedProfileLoading(false);
+    setViewedProfileError('');
+    setProfileActionError('');
   };
 
   const handleOpenFriendsPanel = () => {
@@ -2025,6 +2226,7 @@ export default function ChatPage() {
 
   const handleOpenProfileEditor = () => {
     setProfileFullName(currentUser?.fullName ?? '');
+    setProfileBio(currentUser?.bio ?? '');
     setProfileAvatarFile(null);
     setProfileAvatarPreview(getAvatarUrl(currentUser?.avatar));
     setProfileError('');
@@ -2040,6 +2242,7 @@ export default function ChatPage() {
     setProfileEditorOpen(false);
     setProfileAvatarFile(null);
     setProfileAvatarPreview('');
+    setProfileBio('');
     setProfileError('');
   };
 
@@ -2077,8 +2280,14 @@ export default function ChatPage() {
       return;
     }
 
+    if (profileBio.trim().length > BIO_MAX_LENGTH) {
+      setProfileError(`Bio must be ${BIO_MAX_LENGTH} characters or fewer.`);
+      return;
+    }
+
     const formData = new FormData();
     formData.append('fullName', fullName);
+    formData.append('bio', profileBio.trim());
     if (profileAvatarFile) {
       formData.append('avatar', profileAvatarFile);
     }
@@ -2092,6 +2301,7 @@ export default function ChatPage() {
       setProfileEditorOpen(false);
       setProfileAvatarFile(null);
       setProfileAvatarPreview('');
+      setProfileBio('');
     } catch (error) {
       console.error('Failed to update profile:', error);
       setProfileError('Unable to update profile.');
@@ -2120,6 +2330,15 @@ export default function ChatPage() {
   const filteredFriends = friends.filter((friend) =>
     matchesFriendSearch(friend, normalizedFriendSearchQuery)
   );
+  const refreshedViewedProfileUser = viewedProfileUser
+    ? users.find((user) => user.id === viewedProfileUser.id) ??
+      friends.find((friend) => friend.id === viewedProfileUser.id) ??
+      (selectedUser?.id === viewedProfileUser.id ? selectedUser : undefined) ??
+      selectedRoom?.participants.find((participant) => participant.id === viewedProfileUser.id)
+    : undefined;
+  const activeViewedProfileUser = viewedProfileUser
+    ? mergeViewedProfileUser(viewedProfileUser, refreshedViewedProfileUser)
+    : null;
   const friendRequestBadgeCount = friendSummary.incomingCount;
   const usersEmptyMessage = normalizedUserSearchQuery
     ? `No username matches "${normalizedUserSearchQuery}".`
@@ -2152,7 +2371,10 @@ export default function ChatPage() {
             type="button"
             className="friend-action-btn"
             disabled={friendActionKeys.includes(`accept-user-${user.id}`)}
-            onClick={() => void handleAcceptFriendRequest(requestId, `accept-user-${user.id}`)}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleAcceptFriendRequest(requestId, `accept-user-${user.id}`);
+            }}
           >
             Accept
           </button>
@@ -2166,7 +2388,10 @@ export default function ChatPage() {
               type="button"
               className="friend-action-btn secondary"
               disabled={!user.friendshipId || friendActionKeys.includes(`cancel-${user.id}`)}
-              onClick={() => void handleCancelFriendRequest(user)}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleCancelFriendRequest(user);
+              }}
             >
               Cancel
             </button>
@@ -2177,17 +2402,90 @@ export default function ChatPage() {
       case undefined:
         return (
           <button
+          type="button"
+          className="friend-action-btn"
+          disabled={friendActionKeys.includes(`send-${user.id}`)}
+          onClick={(event) => {
+            event.stopPropagation();
+            void handleSendFriendRequest(user);
+          }}
+        >
+          Add
+        </button>
+        );
+      case 'accepted':
+      default:
+        return <span className="friend-status-pill accepted">Friend</span>;
+    }
+  };
+
+  const renderProfileAction = (user: User) => {
+    switch (user.friendshipStatus) {
+      case 'accepted':
+        return (
+          <button
+            type="button"
+            className="send-btn profile-message-btn"
+            onClick={() => handleUserSelect(user)}
+          >
+            Message
+          </button>
+        );
+      case 'pending_incoming': {
+        const requestId = user.friendshipId;
+        return requestId ? (
+          <>
+            <button
+              type="button"
+              className="friend-action-btn"
+              disabled={friendActionKeys.includes(`accept-profile-${user.id}`)}
+              onClick={() =>
+                void handleAcceptFriendRequest(requestId, `accept-profile-${user.id}`)
+              }
+            >
+              Accept
+            </button>
+            <button
+              type="button"
+              className="friend-action-btn secondary"
+              disabled={friendActionKeys.includes(`decline-profile-${user.id}`)}
+              onClick={() =>
+                void handleDeclineFriendRequest(requestId, `decline-profile-${user.id}`)
+              }
+            >
+              Decline
+            </button>
+          </>
+        ) : null;
+      }
+      case 'pending_outgoing':
+        return (
+          <>
+            <span className="friend-status-pill">Pending</span>
+            <button
+              type="button"
+              className="friend-action-btn secondary"
+              disabled={!user.friendshipId || friendActionKeys.includes(`cancel-${user.id}`)}
+              onClick={() => void handleCancelFriendRequest(user)}
+            >
+              Cancel
+            </button>
+          </>
+        );
+      case 'declined':
+      case 'none':
+      case undefined:
+      default:
+        return (
+          <button
             type="button"
             className="friend-action-btn"
             disabled={friendActionKeys.includes(`send-${user.id}`)}
             onClick={() => void handleSendFriendRequest(user)}
           >
-            Add
+            Add friend
           </button>
         );
-      case 'accepted':
-      default:
-        return <span className="friend-status-pill accepted">Friend</span>;
     }
   };
 
@@ -2245,8 +2543,15 @@ export default function ChatPage() {
     }
 
     return (
-      <div key={user.id} className="user-item relationship-item">
-        {renderUserIdentity(user)}
+      <div key={user.id} className="user-item relationship-item profile-result-item">
+        <button
+          type="button"
+          className="profile-result-trigger"
+          onClick={() => void handleOpenUserProfile(user)}
+          aria-label={`View profile for ${getUserDisplayName(user)}`}
+        >
+          {renderUserIdentity(user)}
+        </button>
         {renderFriendshipAction(user)}
       </div>
     );
@@ -2608,10 +2913,8 @@ export default function ChatPage() {
   const renderDetailsMemberItem = (user: User) => {
     const isCurrentUser = user.id === currentUser?.id;
     const presenceLabel = isCurrentUser
-      ? `You - ${user.online ? 'Online' : 'Offline'}`
-      : user.online
-        ? 'Online'
-        : 'Offline';
+      ? `You - ${getPresenceLabel(user)}`
+      : getPresenceLabel(user);
 
     return (
       <div key={user.id} className="details-member-item">
@@ -2653,8 +2956,9 @@ export default function ChatPage() {
             <h4>{getUserDisplayName(selectedUser)}</h4>
             {shouldShowUsername(selectedUser) ? <span>@{selectedUser.username}</span> : null}
             <span className={`details-status ${selectedUser.online ? 'online' : 'offline'}`}>
-              {selectedUser.online ? 'Online' : 'Offline'}
+              {getPresenceLabel(selectedUser)}
             </span>
+            {selectedUser.bio?.trim() ? <p className="details-bio">{selectedUser.bio}</p> : null}
           </div>
 
           <section className="details-section" aria-labelledby="private-details-title">
@@ -2881,7 +3185,7 @@ export default function ChatPage() {
                     ) : selectedUser ? (
                       <div className="user-meta">
                         <span className={`user-status ${selectedUser.online ? 'online' : 'offline'}`}>
-                          {selectedUser.online ? 'Online' : 'Offline'}
+                          {getPresenceLabel(selectedUser)}
                         </span>
                         {shouldShowUsername(selectedUser) ? (
                           <span className="user-username">@{selectedUser.username}</span>
@@ -3024,6 +3328,62 @@ export default function ChatPage() {
         ) : null}
       </div>
 
+      {activeViewedProfileUser ? (
+        <div className="modal-backdrop">
+          <div
+            className="user-profile-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="view-profile-title"
+          >
+            <div className="user-profile-header">
+              <span>Profile</span>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={handleCloseUserProfile}
+                aria-label="Close user profile"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="user-profile-body">
+              {renderUserAvatar(activeViewedProfileUser, 'user-avatar profile-view-avatar')}
+              <div className="user-profile-copy">
+                <h3 id="view-profile-title">{getUserDisplayName(activeViewedProfileUser)}</h3>
+                <span>@{activeViewedProfileUser.username}</span>
+              </div>
+              {activeViewedProfileUser.bio?.trim() ? (
+                <p className="profile-bio">{activeViewedProfileUser.bio}</p>
+              ) : null}
+              {viewedProfileLoading ? <div className="profile-loading">Refreshing profile...</div> : null}
+              {viewedProfileError ? <div className="profile-action-error">{viewedProfileError}</div> : null}
+
+              <div className="profile-info-grid">
+                <div className="profile-info-item">
+                  <span>Status</span>
+                  <strong className={activeViewedProfileUser.online ? 'online' : 'offline'}>
+                    {getPresenceLabel(activeViewedProfileUser)}
+                  </strong>
+                </div>
+                <div className="profile-info-item">
+                  <span>Relationship</span>
+                  <strong>{getRelationshipLabel(activeViewedProfileUser)}</strong>
+                </div>
+              </div>
+
+              <div className="profile-action-row">
+                {renderProfileAction(activeViewedProfileUser)}
+              </div>
+              {profileActionError ? (
+                <div className="profile-action-error">{profileActionError}</div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {profileEditorOpen ? (
         <div className="modal-backdrop">
           <div
@@ -3085,6 +3445,24 @@ export default function ChatPage() {
                   autoFocus
                   disabled={profileSaving}
                 />
+              </label>
+
+              <label className="group-field">
+                <span>Bio</span>
+                <textarea
+                  value={profileBio}
+                  onChange={(event) => {
+                    setProfileBio(event.target.value);
+                    setProfileError('');
+                  }}
+                  placeholder="Write a short status"
+                  maxLength={BIO_MAX_LENGTH}
+                  rows={3}
+                  disabled={profileSaving}
+                />
+                <small className="profile-bio-count">
+                  {profileBio.trim().length}/{BIO_MAX_LENGTH}
+                </small>
               </label>
 
               {profileError ? <div className="group-error">{profileError}</div> : null}

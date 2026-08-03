@@ -205,6 +205,24 @@ class FriendshipServiceTest {
         assertEquals(2L, responses.get(1).lastMessageSenderId());
     }
 
+    @Test
+    void getUserProfileIncludesFriendshipStatus() {
+        User currentUser = user(1L, "sayu");
+        User profileUser = user(2L, "thinh");
+        Friendship friendship = friendship(currentUser, profileUser, FriendshipStatus.ACCEPTED);
+        friendship.setId(77L);
+        when(userService.findByUsername("sayu")).thenReturn(currentUser);
+        when(userService.findByUsername("thinh")).thenReturn(profileUser);
+        when(friendshipRepository.findByUserLowIdAndUserHighId(1L, 2L))
+                .thenReturn(Optional.of(friendship));
+
+        UserResponse response = friendshipService.getUserProfile("sayu", "thinh");
+
+        assertEquals("thinh", response.username());
+        assertEquals("accepted", response.friendshipStatus());
+        assertEquals(77L, response.friendshipId());
+    }
+
     private User user(Long id, String username) {
         User user = new User();
         user.setId(id);

@@ -13,7 +13,9 @@ export interface User {
   fullName?: string;
   email: string;
   avatar?: string;
+  bio?: string;
   online: boolean;
+  lastSeenAt?: string;
   unreadCount?: number;
   friendshipStatus?: UserFriendshipStatus;
   friendshipId?: number;
@@ -40,6 +42,7 @@ export interface PresenceEvent {
   userId: number;
   username: string;
   online: boolean;
+  lastSeenAt?: string;
 }
 
 export interface TypingEvent {

@@ -10,10 +10,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -41,11 +44,13 @@ class UserServiceTest {
         when(localAvatarStorageService.storeAvatar(avatar)).thenReturn("/api/uploads/avatars/avatar.png");
         when(userRepository.save(user)).thenReturn(user);
 
-        UserResponse response = userService.updateProfile("sayu", "  Ngoc Thinh  ", avatar);
+        UserResponse response = userService.updateProfile("sayu", "  Ngoc Thinh  ", "  Building chat  ", avatar);
 
         assertEquals("Ngoc Thinh", user.getFullName());
+        assertEquals("Building chat", user.getBio());
         assertEquals("/api/uploads/avatars/avatar.png", user.getAvatar());
         assertEquals("Ngoc Thinh", response.fullName());
+        assertEquals("Building chat", response.bio());
         assertEquals("/api/uploads/avatars/avatar.png", response.avatar());
         verify(localAvatarStorageService).storeAvatar(avatar);
     }
@@ -56,10 +61,25 @@ class UserServiceTest {
         when(userRepository.findByUsername("sayu")).thenReturn(Optional.of(user));
         when(userRepository.save(user)).thenReturn(user);
 
-        UserResponse response = userService.updateProfile("sayu", "   ", null);
+        UserResponse response = userService.updateProfile("sayu", "   ", "   ", null);
 
         assertNull(user.getFullName());
+        assertNull(user.getBio());
         assertEquals("sayu", response.fullName());
+    }
+
+    @Test
+    void updateOnlineStatusStoresLastSeenWhenUserGoesOffline() {
+        User user = user();
+        user.setOnline(true);
+        when(userRepository.findByUsername("sayu")).thenReturn(Optional.of(user));
+
+        LocalDateTime before = LocalDateTime.now().minusSeconds(1);
+        userService.updateOnlineStatus("sayu", false);
+
+        assertEquals(false, user.getOnline());
+        assertNotNull(user.getLastSeenAt());
+        assertTrue(user.getLastSeenAt().isAfter(before));
     }
 
     private User user() {

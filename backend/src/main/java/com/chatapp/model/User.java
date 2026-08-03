@@ -35,8 +35,13 @@ public class User {
 
     private String avatar;
 
+    @Column(length = 160)
+    private String bio;
+
     @Column(nullable = false)
     private Boolean online = false;
+
+    private LocalDateTime lastSeenAt;
 
     @CreationTimestamp
     @Column(updatable = false)

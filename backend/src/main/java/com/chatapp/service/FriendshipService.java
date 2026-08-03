@@ -71,6 +71,17 @@ public class FriendshipService {
     }
 
     @Transactional(readOnly = true)
+    public UserResponse getUserProfile(String currentUsername, String username) {
+        User currentUser = userService.findByUsername(currentUsername);
+        User profileUser = userService.findByUsername(username);
+        if (currentUser.getId().equals(profileUser.getId())) {
+            return UserResponse.from(profileUser, STATUS_NONE);
+        }
+
+        return toUserResponseWithFriendshipStatus(currentUser, profileUser);
+    }
+
+    @Transactional(readOnly = true)
     public List<FriendshipResponse> listIncomingRequests(String currentUsername) {
         return friendshipRepository
                 .findByReceiverUsernameAndStatusOrderByUpdatedAtDesc(
