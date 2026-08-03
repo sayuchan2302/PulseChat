@@ -1,12 +1,15 @@
 package com.chatapp.dto.request;
 
-import jakarta.validation.constraints.NotBlank;
+import com.chatapp.model.Message.MessageType;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 public record SendMessageRequest(
         @NotNull Long receiverId,
-        @NotBlank @Size(max = 5000) String content,
-        @Size(max = 100) String clientId
+        @Size(max = 5000) String content,
+        @Size(max = 100) String clientId,
+        MessageType type,
+        @Valid MediaAttachmentRequest media
 ) {
 }

@@ -6,6 +6,18 @@ export type UserFriendshipStatus =
   | 'declined';
 
 export type FriendshipStatus = 'pending' | 'accepted' | 'declined';
+export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO';
+
+export interface MediaAttachment {
+  url: string;
+  publicId: string;
+  resourceType: 'image' | 'video';
+  format?: string | null;
+  bytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  duration?: number | null;
+}
 
 export interface User {
   id: number;
@@ -28,6 +40,15 @@ export interface User {
 export interface Message {
   id: number;
   content: string;
+  type?: MessageType;
+  mediaUrl?: string | null;
+  mediaPublicId?: string | null;
+  mediaResourceType?: 'image' | 'video' | null;
+  mediaFormat?: string | null;
+  mediaBytes?: number | null;
+  mediaWidth?: number | null;
+  mediaHeight?: number | null;
+  mediaDuration?: number | null;
   senderId: number;
   senderUsername?: string;
   senderFullName?: string;
@@ -42,6 +63,16 @@ export interface MessagePage {
   items: Message[];
   hasMore: boolean;
   nextBefore?: number | null;
+}
+
+export interface CloudinaryUploadSignature {
+  cloudName: string;
+  apiKey: string;
+  timestamp: number;
+  signature: string;
+  folder: string;
+  resourceType: string;
+  uploadUrl: string;
 }
 
 export interface PresenceEvent {

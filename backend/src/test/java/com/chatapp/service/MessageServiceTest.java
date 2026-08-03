@@ -1,10 +1,13 @@
 package com.chatapp.service;
 
+import com.chatapp.dto.request.MediaAttachmentRequest;
+import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.response.MessagePageResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.ChatRoom;
 import com.chatapp.model.Message;
+import com.chatapp.model.Message.MessageType;
 import com.chatapp.model.User;
 import com.chatapp.repository.MessageRepository;
 import org.junit.jupiter.api.Test;
@@ -111,6 +114,90 @@ class MessageServiceTest {
         assertEquals(31, pageableCaptor.getValue().getPageSize());
     }
 
+    @Test
+    void sendImageMessageSavesMediaMetadata() {
+        User sender = user(1L, "sayu");
+        User receiver = user(2L, "thinh");
+        MediaAttachmentRequest media = media(
+                "https://res.cloudinary.com/chat-app/image/upload/sample.jpg",
+                "chat-app/messages/sample",
+                "image",
+                "jpg",
+                1024L
+        );
+        when(userService.findByUsername("sayu")).thenReturn(sender);
+        when(userService.findById(receiver.getId())).thenReturn(receiver);
+        when(friendshipService.areFriends(sender, receiver)).thenReturn(true);
+        when(messageRepository.saveAndFlush(any(Message.class))).thenAnswer(invocation -> {
+            Message message = invocation.getArgument(0);
+            message.setId(99L);
+            message.setTimestamp(LocalDateTime.of(2026, 8, 3, 11, 0));
+            return message;
+        });
+
+        messageService.sendMessage(
+                "sayu",
+                new SendMessageRequest(receiver.getId(), "Look", null, MessageType.IMAGE, media)
+        );
+
+        ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
+        verify(messageRepository).saveAndFlush(messageCaptor.capture());
+        Message savedMessage = messageCaptor.getValue();
+        assertEquals(MessageType.IMAGE, savedMessage.getType());
+        assertEquals("Look", savedMessage.getContent());
+        assertEquals(media.url(), savedMessage.getMediaUrl());
+        assertEquals(media.publicId(), savedMessage.getMediaPublicId());
+        assertEquals("image", savedMessage.getMediaResourceType());
+        assertEquals(media.bytes(), savedMessage.getMediaBytes());
+    }
+
+    @Test
+    void sendTextMessageRejectsBlankContent() {
+        User sender = user(1L, "sayu");
+        User receiver = user(2L, "thinh");
+        when(userService.findByUsername("sayu")).thenReturn(sender);
+        when(userService.findById(receiver.getId())).thenReturn(receiver);
+        when(friendshipService.areFriends(sender, receiver)).thenReturn(true);
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> messageService.sendMessage(
+                        "sayu",
+                        new SendMessageRequest(receiver.getId(), " ", null, MessageType.TEXT, null)
+                )
+        );
+
+        assertEquals(ErrorCode.INVALID_MESSAGE_CONTENT, exception.getErrorCode());
+        verify(messageRepository, never()).saveAndFlush(any(Message.class));
+    }
+
+    @Test
+    void sendVideoMessageRejectsOversizedMedia() {
+        User sender = user(1L, "sayu");
+        User receiver = user(2L, "thinh");
+        MediaAttachmentRequest media = media(
+                "https://res.cloudinary.com/chat-app/video/upload/sample.mp4",
+                "chat-app/messages/sample",
+                "video",
+                "mp4",
+                51L * 1024 * 1024
+        );
+        when(userService.findByUsername("sayu")).thenReturn(sender);
+        when(userService.findById(receiver.getId())).thenReturn(receiver);
+        when(friendshipService.areFriends(sender, receiver)).thenReturn(true);
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> messageService.sendMessage(
+                        "sayu",
+                        new SendMessageRequest(receiver.getId(), "", null, MessageType.VIDEO, media)
+                )
+        );
+
+        assertEquals(ErrorCode.INVALID_MEDIA_MESSAGE, exception.getErrorCode());
+        verify(messageRepository, never()).saveAndFlush(any(Message.class));
+    }
+
     private static User user(Long id, String username) {
         User user = new User();
         user.setId(id);
@@ -141,10 +228,21 @@ class MessageServiceTest {
         return message;
     }
 
+    private static MediaAttachmentRequest media(
+            String url,
+            String publicId,
+            String resourceType,
+            String format,
+            Long bytes
+    ) {
+        return new MediaAttachmentRequest(url, publicId, resourceType, format, bytes, 640, 480, 3.5);
+    }
+
     private static Message baseMessage(Long id, String content, User sender) {
         Message message = new Message();
         message.setId(id);
         message.setContent(content);
+        message.setType(MessageType.TEXT);
         message.setSender(sender);
         message.setRead(false);
         message.setTimestamp(LocalDateTime.of(2026, 8, 3, 10, id.intValue()));

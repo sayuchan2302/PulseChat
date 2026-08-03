@@ -3,11 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL, ROUTES } from '../config/constants';
 import type {
   ChatRoom,
+  CloudinaryUploadSignature,
   ConnectionStatus,
   Friendship,
   FriendshipSummary,
+  MediaAttachment,
   Message,
   MessagePage,
+  MessageType,
   PresenceEvent,
   ReadReceiptEvent,
   TypingEvent,
@@ -34,8 +37,13 @@ const MIN_GROUP_INVITED_MEMBERS = MIN_GROUP_MEMBERS - 1;
 const BIO_MAX_LENGTH = 160;
 const MAX_AVATAR_SIZE_BYTES = 2 * 1024 * 1024;
 const MAX_AVATAR_SIZE_MB = MAX_AVATAR_SIZE_BYTES / 1024 / 1024;
+const MAX_IMAGE_MEDIA_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_VIDEO_MEDIA_SIZE_BYTES = 50 * 1024 * 1024;
+const MAX_IMAGE_MEDIA_SIZE_MB = MAX_IMAGE_MEDIA_SIZE_BYTES / 1024 / 1024;
+const MAX_VIDEO_MEDIA_SIZE_MB = MAX_VIDEO_MEDIA_SIZE_BYTES / 1024 / 1024;
 const ACCEPTED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const AVATAR_ACCEPT = ACCEPTED_AVATAR_TYPES.join(',');
+const MEDIA_ACCEPT = 'image/*,video/*';
 const USER_SKELETON_KEYS = ['user-skeleton-1', 'user-skeleton-2', 'user-skeleton-3'];
 const MESSAGE_SKELETON_KEYS = [
   'message-skeleton-1',
@@ -124,11 +132,41 @@ type SendMessagePayload = {
   receiverId: number;
   content: string;
   clientId: string;
+  type?: MessageType;
+  media?: MediaAttachment;
 };
 
 type SendRoomMessagePayload = {
   content: string;
   clientId: string;
+  type?: MessageType;
+  media?: MediaAttachment;
+};
+
+type PendingMedia = {
+  file: File;
+  previewUrl: string;
+  type: Extract<MessageType, 'IMAGE' | 'VIDEO'>;
+  resourceType: 'image' | 'video';
+};
+
+type CloudinaryUploadResult = {
+  secure_url: string;
+  public_id: string;
+  resource_type: 'image' | 'video';
+  format?: string;
+  bytes?: number;
+  width?: number;
+  height?: number;
+  duration?: number;
+};
+
+type LocalMediaUploadResult = {
+  url: string;
+  publicId: string;
+  resourceType: 'image' | 'video';
+  format?: string;
+  bytes?: number;
 };
 
 type LoadOptions = {
@@ -323,6 +361,28 @@ function EmojiIcon({ className }: HeaderIconProps) {
   );
 }
 
+function MediaIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect width="18" height="18" x="3" y="3" rx="3" />
+      <circle cx="9" cy="9" r="2" />
+      <path d="m21 15-3.5-3.5a2 2 0 0 0-2.8 0L7 19" />
+      <path d="M16 5v4" />
+      <path d="M18 7h-4" />
+    </svg>
+  );
+}
+
 function toDeliveredMessage(message: Message): ChatMessage {
   return {
     ...message,
@@ -454,10 +514,10 @@ function isActiveConversationMessage(
 function applyPresenceToUser(user: User, presence: PresenceEvent) {
   return user.id === presence.userId
     ? {
-        ...user,
-        online: presence.online,
-        lastSeenAt: presence.lastSeenAt ?? user.lastSeenAt,
-      }
+      ...user,
+      online: presence.online,
+      lastSeenAt: presence.lastSeenAt ?? user.lastSeenAt,
+    }
     : user;
 }
 
@@ -583,23 +643,129 @@ function createClientId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function getMessageType(message: Message): MessageType {
+  return message.type ?? 'TEXT';
+}
+
+function isMediaMessage(message: Message) {
+  const type = getMessageType(message);
+  return type === 'IMAGE' || type === 'VIDEO';
+}
+
+function getMessagePreviewContent(message: Message) {
+  const content = message.content?.trim();
+  if (content) {
+    return content;
+  }
+
+  if (getMessageType(message) === 'IMAGE') {
+    return 'Photo';
+  }
+
+  if (getMessageType(message) === 'VIDEO') {
+    return 'Video';
+  }
+
+  return '';
+}
+
+function applyMediaPayload(message: ChatMessage, media?: MediaAttachment): ChatMessage {
+  if (!media) {
+    return message;
+  }
+
+  return {
+    ...message,
+    mediaUrl: media.url,
+    mediaPublicId: media.publicId,
+    mediaResourceType: media.resourceType,
+    mediaFormat: media.format,
+    mediaBytes: media.bytes,
+    mediaWidth: media.width,
+    mediaHeight: media.height,
+    mediaDuration: media.duration,
+  };
+}
+
+function getMediaPayloadFromMessage(message: Message): MediaAttachment | undefined {
+  if (!isMediaMessage(message) || !message.mediaUrl || !message.mediaPublicId || !message.mediaResourceType) {
+    return undefined;
+  }
+
+  return {
+    url: message.mediaUrl,
+    publicId: message.mediaPublicId,
+    resourceType: message.mediaResourceType,
+    format: message.mediaFormat,
+    bytes: message.mediaBytes,
+    width: message.mediaWidth,
+    height: message.mediaHeight,
+    duration: message.mediaDuration,
+  };
+}
+
+function getPendingMediaType(file: File): Pick<PendingMedia, 'type' | 'resourceType'> | null {
+  if (file.type.startsWith('image/')) {
+    return { type: 'IMAGE', resourceType: 'image' };
+  }
+
+  if (file.type.startsWith('video/')) {
+    return { type: 'VIDEO', resourceType: 'video' };
+  }
+
+  return null;
+}
+
+function getMediaSizeError(file: File, pendingMediaType: Pick<PendingMedia, 'type'>) {
+  if (pendingMediaType.type === 'IMAGE' && file.size > MAX_IMAGE_MEDIA_SIZE_BYTES) {
+    return `Image must be ${MAX_IMAGE_MEDIA_SIZE_MB}MB or smaller.`;
+  }
+
+  if (pendingMediaType.type === 'VIDEO' && file.size > MAX_VIDEO_MEDIA_SIZE_BYTES) {
+    return `Video must be ${MAX_VIDEO_MEDIA_SIZE_MB}MB or smaller.`;
+  }
+
+  return '';
+}
+
+function getFileFormat(file: File) {
+  const extension = file.name.split('.').pop();
+  return extension ? extension.toLowerCase() : undefined;
+}
+
+function cloudinaryResultToMedia(result: CloudinaryUploadResult): MediaAttachment {
+  return {
+    url: result.secure_url,
+    publicId: result.public_id,
+    resourceType: result.resource_type,
+    format: result.format,
+    bytes: result.bytes,
+    width: result.width,
+    height: result.height,
+    duration: result.duration,
+  };
+}
+
 function createOptimisticMessage(
   tempId: number,
   senderId: number,
   receiverId: number,
   content: string,
-  clientId: string
+  clientId: string,
+  type: MessageType = 'TEXT',
+  media?: MediaAttachment
 ): ChatMessage {
-  return {
+  return applyMediaPayload({
     id: tempId,
     content,
+    type,
     senderId,
     receiverId,
     timestamp: new Date().toISOString(),
     read: false,
     clientId,
     deliveryStatus: 'sending',
-  };
+  }, media);
 }
 
 function createOptimisticRoomMessage(
@@ -607,11 +773,14 @@ function createOptimisticRoomMessage(
   sender: User,
   chatRoomId: number,
   content: string,
-  clientId: string
+  clientId: string,
+  type: MessageType = 'TEXT',
+  media?: MediaAttachment
 ): ChatMessage {
-  return {
+  return applyMediaPayload({
     id: tempId,
     content,
+    type,
     senderId: sender.id,
     senderUsername: sender.username,
     senderFullName: getUserDisplayName(sender),
@@ -621,7 +790,7 @@ function createOptimisticRoomMessage(
     read: false,
     clientId,
     deliveryStatus: 'sending',
-  };
+  }, media);
 }
 
 function markOptimisticMessageSending(messages: ChatMessage[], clientId: string) {
@@ -666,14 +835,14 @@ function getUserInitial(user: User | null) {
   return getUserDisplayName(user).charAt(0).toUpperCase() || '?';
 }
 
-function getAvatarUrl(avatar?: string | null) {
-  const trimmedAvatar = avatar?.trim();
-  if (!trimmedAvatar) {
+function getApiAssetUrl(assetUrl?: string | null) {
+  const trimmedAssetUrl = assetUrl?.trim();
+  if (!trimmedAssetUrl) {
     return '';
   }
 
-  if (/^(https?:|blob:|data:)/i.test(trimmedAvatar)) {
-    return trimmedAvatar;
+  if (/^(https?:|blob:|data:)/i.test(trimmedAssetUrl)) {
+    return trimmedAssetUrl;
   }
 
   const baseUrl = new URL(
@@ -681,11 +850,19 @@ function getAvatarUrl(avatar?: string | null) {
     typeof window === 'undefined' ? 'http://localhost' : window.location.origin
   );
   const apiPath = baseUrl.pathname.replace(/\/$/, '');
-  const assetPath = trimmedAvatar.startsWith('/') ? trimmedAvatar : `/${trimmedAvatar}`;
+  const assetPath = trimmedAssetUrl.startsWith('/') ? trimmedAssetUrl : `/${trimmedAssetUrl}`;
   const resolvedPath =
     apiPath && !assetPath.startsWith(`${apiPath}/`) ? `${apiPath}${assetPath}` : assetPath;
 
   return `${baseUrl.origin}${resolvedPath}`;
+}
+
+function getAvatarUrl(avatar?: string | null) {
+  return getApiAssetUrl(avatar);
+}
+
+function getMediaUrl(mediaUrl?: string | null) {
+  return getApiAssetUrl(mediaUrl);
 }
 
 function renderUserAvatar(user: User | null, className = 'user-avatar') {
@@ -896,7 +1073,7 @@ function applyRoomPreviewToRoom(room: ChatRoom, message: Message) {
 
   return {
     ...room,
-    lastMessageContent: message.content,
+    lastMessageContent: getMessagePreviewContent(message),
     lastMessageAt: message.timestamp,
     lastMessageSenderId: message.senderId,
     lastMessageSenderName: getMessageSenderDisplayName(message),
@@ -948,7 +1125,7 @@ function applyConversationPreviewToUser(user: User, message: Message, currentUse
 
   return {
     ...user,
-    lastMessageContent: message.content,
+    lastMessageContent: getMessagePreviewContent(message),
     lastMessageAt: message.timestamp,
     lastMessageSenderId: message.senderId,
   };
@@ -1149,8 +1326,8 @@ function buildMessageListItems(
       groupedWithNext,
       showSender: Boolean(
         selectedRoom &&
-          message.senderId !== currentUserId &&
-          !groupedWithPrevious
+        message.senderId !== currentUserId &&
+        !groupedWithPrevious
       ),
     });
   });
@@ -1167,6 +1344,10 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageInput, setMessageInput] = useState('');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null);
+  const [mediaUploading, setMediaUploading] = useState(false);
+  const [mediaError, setMediaError] = useState('');
+  const [mediaViewerMessage, setMediaViewerMessage] = useState<ChatMessage | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [typingUserId, setTypingUserId] = useState<number | null>(null);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -1225,6 +1406,7 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const messageInputSelectionRef = useRef({ start: 0, end: 0 });
+  const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
   const emojiPickerRef = useRef<HTMLDivElement | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const navigate = useNavigate();
@@ -1269,6 +1451,14 @@ export default function ChatPage() {
       start: input.selectionStart,
       end: input.selectionEnd,
     };
+  };
+
+  const clearPendingMedia = () => {
+    setPendingMedia(null);
+    setMediaError('');
+    if (mediaFileInputRef.current) {
+      mediaFileInputRef.current.value = '';
+    }
   };
 
   const loadUsers = useCallback(async (options: LoadOptions = {}) => {
@@ -1475,11 +1665,11 @@ export default function ChatPage() {
       const response =
         selectedUserIdForLoad !== null
           ? await apiClient.get<MessagePage>(`/messages/${selectedUserIdForLoad}`, {
-              params: { before, size: MESSAGE_PAGE_SIZE },
-            })
+            params: { before, size: MESSAGE_PAGE_SIZE },
+          })
           : await apiClient.get<MessagePage>(`/rooms/${selectedRoomIdForLoad}/messages`, {
-              params: { before, size: MESSAGE_PAGE_SIZE },
-            });
+            params: { before, size: MESSAGE_PAGE_SIZE },
+          });
 
       if (
         selectedUserIdRef.current !== selectedUserIdForLoad ||
@@ -1551,8 +1741,17 @@ export default function ChatPage() {
     }
   }, [profileAvatarPreview]);
 
+  useEffect(() => () => {
+    if (pendingMedia?.previewUrl) {
+      URL.revokeObjectURL(pendingMedia.previewUrl);
+    }
+  }, [pendingMedia?.previewUrl]);
+
   useEffect(() => {
     setEmojiPickerOpen(false);
+    clearPendingMedia();
+    setMediaUploading(false);
+    setMediaViewerMessage(null);
   }, [selectedRoomId, selectedUserId]);
 
   useEffect(() => {
@@ -1709,10 +1908,10 @@ export default function ChatPage() {
           setSelectedUser((currentSelectedUser) =>
             currentSelectedUser
               ? applyConversationPreviewToUser(
-                  currentSelectedUser,
-                  incomingMessage,
-                  currentUserIdRef.current
-                )
+                currentSelectedUser,
+                incomingMessage,
+                currentUserIdRef.current
+              )
               : null
           );
 
@@ -1800,9 +1999,9 @@ export default function ChatPage() {
             loadFriendSummary({ silent: true }),
             selectedUserIdForResync !== null
               ? loadMessages(selectedUserIdForResync, { silent: true })
-            : selectedRoomIdForResync !== null
-              ? loadRoomMessages(selectedRoomIdForResync, { silent: true })
-              : Promise.resolve(),
+              : selectedRoomIdForResync !== null
+                ? loadRoomMessages(selectedRoomIdForResync, { silent: true })
+                : Promise.resolve(),
           ])
             .then(() => {
               if (
@@ -2427,6 +2626,106 @@ export default function ChatPage() {
     });
   };
 
+  const handleOpenMediaPicker = () => {
+    setEmojiPickerOpen(false);
+    setMediaError('');
+    mediaFileInputRef.current?.click();
+  };
+
+  const handleMediaFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const pendingMediaType = getPendingMediaType(file);
+    if (!pendingMediaType) {
+      setMediaError('Choose an image or video file.');
+      event.currentTarget.value = '';
+      return;
+    }
+
+    const sizeError = getMediaSizeError(file, pendingMediaType);
+    if (sizeError) {
+      setMediaError(sizeError);
+      event.currentTarget.value = '';
+      return;
+    }
+
+    setPendingMedia({
+      file,
+      previewUrl: URL.createObjectURL(file),
+      ...pendingMediaType,
+    });
+    setMediaError('');
+    setEmojiPickerOpen(false);
+  };
+
+  const uploadToLocalMedia = async (file: File): Promise<MediaAttachment> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.postForm<LocalMediaUploadResult>('/media/upload', formData);
+    const data = response.data;
+
+    return {
+      url: getMediaUrl(data.url),
+      publicId: data.publicId,
+      resourceType: data.resourceType,
+      format: data.format ?? getFileFormat(file),
+      bytes: data.bytes ?? file.size,
+    };
+  };
+
+  const uploadPendingMedia = async (media: PendingMedia): Promise<MediaAttachment> => {
+    try {
+      const signatureResponse = await apiClient.post<CloudinaryUploadSignature>(
+        '/media/upload-signature'
+      );
+      const signature = signatureResponse.data;
+
+      if (
+        !signature.cloudName ||
+        signature.cloudName === 'chat-app' ||
+        signature.apiKey === '933935263295315'
+      ) {
+        return await uploadToLocalMedia(media.file);
+      }
+
+      const formData = new FormData();
+      formData.append('file', media.file);
+      formData.append('api_key', signature.apiKey);
+      formData.append('timestamp', String(signature.timestamp));
+      formData.append('signature', signature.signature);
+      formData.append('folder', signature.folder);
+
+      const uploadResponse = await fetch(signature.uploadUrl, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error('Cloudinary upload failed');
+      }
+
+      const uploadResult = (await uploadResponse.json()) as CloudinaryUploadResult;
+      if (
+        !uploadResult.secure_url ||
+        !uploadResult.public_id ||
+        uploadResult.resource_type !== media.resourceType
+      ) {
+        throw new Error('Cloudinary upload response is invalid');
+      }
+
+      return {
+        ...cloudinaryResultToMedia(uploadResult),
+        format: uploadResult.format ?? getFileFormat(media.file),
+        bytes: uploadResult.bytes ?? media.file.size,
+      };
+    } catch {
+      return await uploadToLocalMedia(media.file);
+    }
+  };
+
   const handleMessageInputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
       return;
@@ -2439,12 +2738,37 @@ export default function ChatPage() {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const content = messageInput.trim();
-    if (!content || !currentUser || (!selectedUser && !selectedRoom)) return;
+    const mediaToSend = pendingMedia;
+    if (
+      (!content && !mediaToSend) ||
+      mediaUploading ||
+      !currentUser ||
+      (!selectedUser && !selectedRoom)
+    ) {
+      return;
+    }
+
+    let mediaPayload: MediaAttachment | undefined;
+    const messageType: MessageType = mediaToSend ? mediaToSend.type : 'TEXT';
+    if (mediaToSend) {
+      setMediaUploading(true);
+      setMediaError('');
+      try {
+        mediaPayload = await uploadPendingMedia(mediaToSend);
+      } catch (error) {
+        console.error('Failed to upload media:', error);
+        setMediaError('Unable to upload media. Please try again.');
+        setMediaUploading(false);
+        return;
+      }
+      setMediaUploading(false);
+    }
 
     const clientId = createClientId();
     setMessagesError('');
     setMessageInput('');
     setEmojiPickerOpen(false);
+    clearPendingMedia();
 
     if (selectedUser) {
       const optimisticMessage = createOptimisticMessage(
@@ -2452,12 +2776,16 @@ export default function ChatPage() {
         currentUser.id,
         selectedUser.id,
         content,
-        clientId
+        clientId,
+        messageType,
+        mediaPayload
       );
       const payload = {
         receiverId: selectedUser.id,
         content,
         clientId,
+        type: messageType,
+        media: mediaPayload,
       };
 
       stopTyping(selectedUser.id);
@@ -2488,11 +2816,15 @@ export default function ChatPage() {
         currentUser,
         selectedRoom.id,
         content,
-        clientId
+        clientId,
+        messageType,
+        mediaPayload
       );
       const payload = {
         content,
         clientId,
+        type: messageType,
+        media: mediaPayload,
       };
 
       setMessages((currentMessages) => appendOptimisticMessage(currentMessages, optimisticMessage));
@@ -2507,9 +2839,9 @@ export default function ChatPage() {
       setSelectedRoom((currentSelectedRoom) =>
         currentSelectedRoom?.id === selectedRoom.id
           ? {
-              ...applyRoomPreviewToRoom(currentSelectedRoom, optimisticMessage),
-              unreadCount: 0,
-            }
+            ...applyRoomPreviewToRoom(currentSelectedRoom, optimisticMessage),
+            unreadCount: 0,
+          }
           : currentSelectedRoom
       );
       void sendOptimisticRoomMessage(selectedRoom.id, payload);
@@ -2526,6 +2858,8 @@ export default function ChatPage() {
       const payload = {
         content: message.content,
         clientId,
+        type: getMessageType(message),
+        media: getMediaPayloadFromMessage(message),
       };
 
       setMessages((currentMessages) => markOptimisticMessageSending(currentMessages, clientId));
@@ -2541,6 +2875,8 @@ export default function ChatPage() {
       receiverId: message.receiverId,
       content: message.content,
       clientId,
+      type: getMessageType(message),
+      media: getMediaPayloadFromMessage(message),
     };
 
     setMessages((currentMessages) => markOptimisticMessageSending(currentMessages, clientId));
@@ -2680,9 +3016,9 @@ export default function ChatPage() {
   );
   const refreshedViewedProfileUser = viewedProfileUser
     ? users.find((user) => user.id === viewedProfileUser.id) ??
-      friends.find((friend) => friend.id === viewedProfileUser.id) ??
-      (selectedUser?.id === viewedProfileUser.id ? selectedUser : undefined) ??
-      selectedRoom?.participants.find((participant) => participant.id === viewedProfileUser.id)
+    friends.find((friend) => friend.id === viewedProfileUser.id) ??
+    (selectedUser?.id === viewedProfileUser.id ? selectedUser : undefined) ??
+    selectedRoom?.participants.find((participant) => participant.id === viewedProfileUser.id)
     : undefined;
   const activeViewedProfileUser = viewedProfileUser
     ? mergeViewedProfileUser(viewedProfileUser, refreshedViewedProfileUser)
@@ -2705,6 +3041,47 @@ export default function ChatPage() {
   const canCreateGroup = Boolean(groupName.trim()) && hasMinimumInvitedMembers && !groupCreating;
   const sidebarBusy = hasUserSearch ? usersLoading : usersLoading || roomsLoading;
   const messageListItems = buildMessageListItems(messages, selectedRoom, currentUser?.id ?? null);
+  const mediaViewerUrl = getMediaUrl(mediaViewerMessage?.mediaUrl);
+
+  const renderMessageBody = (message: ChatMessage) => {
+    const mediaUrl = getMediaUrl(message.mediaUrl);
+
+    if (getMessageType(message) === 'IMAGE' && mediaUrl) {
+      return (
+        <div className="message-media-content">
+          <button
+            type="button"
+            className="message-image-preview-btn"
+            onClick={() => setMediaViewerMessage(message)}
+            aria-label="Open image preview"
+          >
+            <img src={mediaUrl} alt={message.content || 'Shared image'} />
+          </button>
+          {message.content ? (
+            <div className="message-media-caption">{message.content}</div>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (getMessageType(message) === 'VIDEO' && mediaUrl) {
+      return (
+        <div className="message-media-content">
+          <video
+            className="message-video-preview"
+            src={mediaUrl}
+            controls
+            preload="metadata"
+          />
+          {message.content ? (
+            <div className="message-media-caption">{message.content}</div>
+          ) : null}
+        </div>
+      );
+    }
+
+    return <div className="message-content">{message.content}</div>;
+  };
 
   const renderFriendshipAction = (user: User) => {
     if (!hasUserSearch) {
@@ -2750,16 +3127,16 @@ export default function ChatPage() {
       case undefined:
         return (
           <button
-          type="button"
-          className="friend-action-btn"
-          disabled={friendActionKeys.includes(`send-${user.id}`)}
-          onClick={(event) => {
-            event.stopPropagation();
-            void handleSendFriendRequest(user);
-          }}
-        >
-          Add
-        </button>
+            type="button"
+            className="friend-action-btn"
+            disabled={friendActionKeys.includes(`send-${user.id}`)}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleSendFriendRequest(user);
+            }}
+          >
+            Add
+          </button>
         );
       case 'accepted':
       default:
@@ -3035,13 +3412,7 @@ export default function ChatPage() {
       </div>
       <div className="main-list-copy">
         <strong>{getUserDisplayName(user)}</strong>
-        <span>
-          {user.lastMessageContent
-            ? getConversationPreviewText(user, currentUser?.id ?? null)
-            : shouldShowUsername(user)
-              ? `@${user.username}`
-              : 'Friend'}
-        </span>
+        <span>@{user.username}</span>
       </div>
       <span className={`main-status-pill ${user.online ? 'online' : 'offline'}`}>
         {user.online ? 'Online' : 'Offline'}
@@ -3535,9 +3906,6 @@ export default function ChatPage() {
                         <span className={`user-status ${selectedUser.online ? 'online' : 'offline'}`}>
                           {getPresenceLabel(selectedUser)}
                         </span>
-                        {shouldShowUsername(selectedUser) ? (
-                          <span className="user-username">@{selectedUser.username}</span>
-                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -3624,7 +3992,7 @@ export default function ChatPage() {
                               {getMessageSenderName(message, selectedRoom)}
                             </div>
                           ) : null}
-                          <div className="message-content">{message.content}</div>
+                          {renderMessageBody(message)}
                           {!groupedWithNext || message.deliveryStatus === 'failed' ? (
                             <div className="message-time">
                               <span>{formatMessageTime(message.timestamp)}</span>
@@ -3660,71 +4028,125 @@ export default function ChatPage() {
               </div>
 
               <form onSubmit={handleSendMessage} className="message-input-form">
-                <div className="message-composer">
-                  <button
-                    ref={emojiButtonRef}
-                    type="button"
-                    className={`emoji-toggle-btn ${emojiPickerOpen ? 'active' : ''}`}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={handleToggleEmojiPicker}
-                    aria-label={emojiPickerOpen ? 'Close emoji picker' : 'Open emoji picker'}
-                    aria-expanded={emojiPickerOpen}
-                    aria-controls="emoji-picker-panel"
-                    aria-haspopup="dialog"
-                    title="Emoji"
-                  >
-                    <EmojiIcon className="emoji-toggle-icon" />
-                  </button>
-                  <textarea
-                    ref={messageInputRef}
-                    value={messageInput}
-                    onChange={(e) => handleMessageInputChange(e.target.value)}
-                    onKeyDown={handleMessageInputKeyDown}
-                    onKeyUp={updateMessageInputSelection}
-                    onClick={updateMessageInputSelection}
-                    onSelect={updateMessageInputSelection}
-                    placeholder={`Message ${selectedConversationName}`}
-                    className="message-input"
-                    rows={1}
-                  />
+                <input
+                  ref={mediaFileInputRef}
+                  type="file"
+                  className="media-file-input"
+                  accept={MEDIA_ACCEPT}
+                  onChange={handleMediaFileChange}
+                />
 
-                  {emojiPickerOpen ? (
-                    <div
-                      ref={emojiPickerRef}
-                      id="emoji-picker-panel"
-                      className="emoji-picker-panel"
-                      role="dialog"
-                      aria-label="Emoji picker"
-                    >
-                      <div className="emoji-picker-header">Emoji</div>
-                      <div className="emoji-category-list">
-                        {EMOJI_CATEGORIES.map((category) => (
-                          <section key={category.name} className="emoji-category">
-                            <div className="emoji-category-title">{category.name}</div>
-                            <div className="emoji-grid">
-                              {category.emojis.map((emoji) => (
-                                <button
-                                  key={`${category.name}-${emoji.symbol}`}
-                                  type="button"
-                                  className="emoji-option-btn"
-                                  onMouseDown={(event) => event.preventDefault()}
-                                  onClick={() => handleInsertEmoji(emoji.symbol)}
-                                  aria-label={`Insert ${emoji.label}`}
-                                  title={emoji.label}
-                                >
-                                  {emoji.symbol}
-                                </button>
-                              ))}
-                            </div>
-                          </section>
-                        ))}
+                {pendingMedia || mediaError ? (
+                  <div className="pending-media-wrap">
+                    {pendingMedia ? (
+                      <div className="pending-media-preview">
+                        {pendingMedia.resourceType === 'image' ? (
+                          <img src={pendingMedia.previewUrl} alt="Selected media preview" />
+                        ) : (
+                          <video src={pendingMedia.previewUrl} muted preload="metadata" />
+                        )}
+                        <div className="pending-media-copy">
+                          <strong>{pendingMedia.file.name}</strong>
+                          <span>{mediaUploading ? 'Uploading...' : 'Ready to send'}</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="pending-media-remove"
+                          onClick={clearPendingMedia}
+                          disabled={mediaUploading}
+                          aria-label="Remove selected media"
+                        >
+                          <CloseIcon className="pending-media-remove-icon" />
+                        </button>
                       </div>
-                    </div>
-                  ) : null}
+                    ) : null}
+                    {mediaError ? <div className="media-error-text">{mediaError}</div> : null}
+                  </div>
+                ) : null}
+
+                <div className="message-input-row">
+                  <div className="message-composer">
+                    <button
+                      type="button"
+                      className="composer-icon-btn"
+                      onClick={handleOpenMediaPicker}
+                      disabled={mediaUploading}
+                      aria-label="Attach image or video"
+                      title="Attach media"
+                    >
+                      <MediaIcon className="composer-icon" />
+                    </button>
+                    <button
+                      ref={emojiButtonRef}
+                      type="button"
+                      className={`composer-icon-btn emoji-toggle-btn ${emojiPickerOpen ? 'active' : ''}`}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={handleToggleEmojiPicker}
+                      disabled={mediaUploading}
+                      aria-label={emojiPickerOpen ? 'Close emoji picker' : 'Open emoji picker'}
+                      aria-expanded={emojiPickerOpen}
+                      aria-controls="emoji-picker-panel"
+                      aria-haspopup="dialog"
+                      title="Emoji"
+                    >
+                      <EmojiIcon className="composer-icon" />
+                    </button>
+                    <textarea
+                      ref={messageInputRef}
+                      value={messageInput}
+                      onChange={(e) => handleMessageInputChange(e.target.value)}
+                      onKeyDown={handleMessageInputKeyDown}
+                      onKeyUp={updateMessageInputSelection}
+                      onClick={updateMessageInputSelection}
+                      onSelect={updateMessageInputSelection}
+                      placeholder={`Message ${selectedConversationName}`}
+                      className="message-input"
+                      rows={1}
+                      disabled={mediaUploading}
+                    />
+
+                    {emojiPickerOpen ? (
+                      <div
+                        ref={emojiPickerRef}
+                        id="emoji-picker-panel"
+                        className="emoji-picker-panel"
+                        role="dialog"
+                        aria-label="Emoji picker"
+                      >
+                        <div className="emoji-picker-header">Emoji</div>
+                        <div className="emoji-category-list">
+                          {EMOJI_CATEGORIES.map((category) => (
+                            <section key={category.name} className="emoji-category">
+                              <div className="emoji-category-title">{category.name}</div>
+                              <div className="emoji-grid">
+                                {category.emojis.map((emoji) => (
+                                  <button
+                                    key={`${category.name}-${emoji.symbol}`}
+                                    type="button"
+                                    className="emoji-option-btn"
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => handleInsertEmoji(emoji.symbol)}
+                                    aria-label={`Insert ${emoji.label}`}
+                                    title={emoji.label}
+                                  >
+                                    {emoji.symbol}
+                                  </button>
+                                ))}
+                              </div>
+                            </section>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="submit"
+                    className="send-btn"
+                    disabled={(!messageInput.trim() && !pendingMedia) || mediaUploading}
+                  >
+                    {mediaUploading ? 'Uploading' : 'Send'}
+                  </button>
                 </div>
-                <button type="submit" className="send-btn" disabled={!messageInput.trim()}>
-                  Send
-                </button>
               </form>
             </>
           ) : (
@@ -3746,6 +4168,37 @@ export default function ChatPage() {
           </>
         ) : null}
       </div>
+
+      {mediaViewerUrl ? (
+        <div
+          className="modal-backdrop media-viewer-backdrop"
+          onClick={() => setMediaViewerMessage(null)}
+        >
+          <div
+            className="media-viewer-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Image preview"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="media-viewer-close"
+              onClick={() => setMediaViewerMessage(null)}
+              aria-label="Close image preview"
+            >
+              <CloseIcon className="media-viewer-close-icon" />
+            </button>
+            <img
+              src={mediaViewerUrl}
+              alt={mediaViewerMessage?.content || 'Shared image preview'}
+            />
+            {mediaViewerMessage?.content ? (
+              <div className="media-viewer-caption">{mediaViewerMessage.content}</div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {activeViewedProfileUser ? (
         <div className="modal-backdrop">

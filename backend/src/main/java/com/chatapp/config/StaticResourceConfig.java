@@ -13,10 +13,21 @@ public class StaticResourceConfig implements WebMvcConfigurer {
     @Value("${app.uploads.avatar-dir:uploads/avatars}")
     private String avatarDirectory;
 
+    @Value("${app.uploads.media-dir:uploads/media}")
+    private String mediaDirectory;
+
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        Path avatarPath = Paths.get(avatarDirectory).toAbsolutePath().normalize();
         registry.addResourceHandler("/uploads/avatars/**")
-                .addResourceLocations(avatarPath.toUri().toString());
+                .addResourceLocations(toDirectoryResourceLocation(avatarDirectory));
+
+        registry.addResourceHandler("/uploads/media/**")
+                .addResourceLocations(toDirectoryResourceLocation(mediaDirectory));
+    }
+
+    private String toDirectoryResourceLocation(String directory) {
+        Path path = Paths.get(directory).toAbsolutePath().normalize();
+        String location = path.toUri().toString();
+        return location.endsWith("/") ? location : location + "/";
     }
 }

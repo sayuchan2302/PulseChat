@@ -3,6 +3,7 @@ package com.chatapp.dto.response;
 import com.chatapp.model.ChatRoom;
 import com.chatapp.model.Message;
 import com.chatapp.model.User;
+import com.chatapp.util.MessagePreviewFormatter;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
@@ -35,7 +36,7 @@ public record ChatRoomResponse(
                         .map(UserResponse::from)
                         .toList(),
                 room.getCreatedAt(),
-                lastMessage == null ? null : lastMessage.getContent(),
+                MessagePreviewFormatter.previewContent(lastMessage),
                 lastMessage == null ? null : lastMessage.getTimestamp(),
                 lastMessage == null ? null : lastMessage.getSender().getId(),
                 lastMessage == null ? null : displayName(lastMessage.getSender()),

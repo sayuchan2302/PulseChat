@@ -13,6 +13,7 @@ import com.chatapp.model.User;
 import com.chatapp.repository.FriendshipRepository;
 import com.chatapp.repository.MessageRepository;
 import com.chatapp.repository.UserRepository;
+import com.chatapp.util.MessagePreviewFormatter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -249,7 +250,7 @@ public class FriendshipService {
                 friend,
                 STATUS_ACCEPTED,
                 null,
-                lastMessage.getContent(),
+                MessagePreviewFormatter.previewContent(lastMessage),
                 lastMessage.getTimestamp(),
                 lastMessage.getSender().getId()
         );

@@ -33,6 +33,34 @@ public class Message {
     @Column(nullable = false, length = 5000)
     private String content;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private MessageType type = MessageType.TEXT;
+
+    @Column(name = "media_url", length = 2048)
+    private String mediaUrl;
+
+    @Column(name = "media_public_id", length = 255)
+    private String mediaPublicId;
+
+    @Column(name = "media_resource_type", length = 20)
+    private String mediaResourceType;
+
+    @Column(name = "media_format", length = 20)
+    private String mediaFormat;
+
+    @Column(name = "media_bytes")
+    private Long mediaBytes;
+
+    @Column(name = "media_width")
+    private Integer mediaWidth;
+
+    @Column(name = "media_height")
+    private Integer mediaHeight;
+
+    @Column(name = "media_duration")
+    private Double mediaDuration;
+
     @Column(name = "client_id", length = 100)
     private String clientId;
 
@@ -54,4 +82,8 @@ public class Message {
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime timestamp;
+
+    public enum MessageType {
+        TEXT, IMAGE, VIDEO
+    }
 }
