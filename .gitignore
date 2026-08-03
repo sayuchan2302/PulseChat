@@ -8,9 +8,6 @@ frontend/.vite
 
 # Backend
 backend/target/
-backend/.mvn/
-backend/mvnw
-backend/mvnw.cmd
 backend/.idea/
 backend/*.iml
 backend/*.iws

@@ -43,6 +43,76 @@ const MESSAGE_SKELETON_KEYS = [
   'message-skeleton-3',
   'message-skeleton-4',
 ];
+const EMOJI_CATEGORIES = [
+  {
+    name: 'Smileys',
+    emojis: [
+      { symbol: '😀', label: 'grinning face' },
+      { symbol: '😄', label: 'smiling face' },
+      { symbol: '😁', label: 'beaming face' },
+      { symbol: '😂', label: 'face with tears of joy' },
+      { symbol: '🤣', label: 'rolling on the floor laughing' },
+      { symbol: '😊', label: 'smiling face with smiling eyes' },
+      { symbol: '😍', label: 'smiling face with heart eyes' },
+      { symbol: '😘', label: 'face blowing a kiss' },
+      { symbol: '😎', label: 'smiling face with sunglasses' },
+      { symbol: '🥹', label: 'holding back tears' },
+      { symbol: '😭', label: 'loudly crying face' },
+      { symbol: '😡', label: 'angry face' },
+    ],
+  },
+  {
+    name: 'Gestures',
+    emojis: [
+      { symbol: '👍', label: 'thumbs up' },
+      { symbol: '👎', label: 'thumbs down' },
+      { symbol: '👏', label: 'clapping hands' },
+      { symbol: '🙌', label: 'raising hands' },
+      { symbol: '🙏', label: 'folded hands' },
+      { symbol: '🤝', label: 'handshake' },
+      { symbol: '💪', label: 'flexed biceps' },
+      { symbol: '👌', label: 'ok hand' },
+      { symbol: '✌️', label: 'victory hand' },
+      { symbol: '🤞', label: 'crossed fingers' },
+      { symbol: '👋', label: 'waving hand' },
+      { symbol: '🫶', label: 'heart hands' },
+    ],
+  },
+  {
+    name: 'Hearts',
+    emojis: [
+      { symbol: '❤️', label: 'red heart' },
+      { symbol: '💜', label: 'purple heart' },
+      { symbol: '💙', label: 'blue heart' },
+      { symbol: '💚', label: 'green heart' },
+      { symbol: '💛', label: 'yellow heart' },
+      { symbol: '🧡', label: 'orange heart' },
+      { symbol: '🤍', label: 'white heart' },
+      { symbol: '💔', label: 'broken heart' },
+      { symbol: '💕', label: 'two hearts' },
+      { symbol: '💞', label: 'revolving hearts' },
+      { symbol: '💘', label: 'heart with arrow' },
+      { symbol: '💝', label: 'heart with ribbon' },
+    ],
+  },
+  {
+    name: 'Objects',
+    emojis: [
+      { symbol: '🔥', label: 'fire' },
+      { symbol: '✨', label: 'sparkles' },
+      { symbol: '🎉', label: 'party popper' },
+      { symbol: '🎂', label: 'birthday cake' },
+      { symbol: '🌟', label: 'glowing star' },
+      { symbol: '💯', label: 'hundred points' },
+      { symbol: '✅', label: 'check mark' },
+      { symbol: '☕', label: 'hot beverage' },
+      { symbol: '🍕', label: 'pizza' },
+      { symbol: '🎧', label: 'headphones' },
+      { symbol: '📚', label: 'books' },
+      { symbol: '💻', label: 'laptop' },
+    ],
+  },
+] as const;
 
 type DeliveryStatus = 'sending' | 'sent' | 'failed';
 
@@ -228,6 +298,27 @@ function CloseIcon({ className }: HeaderIconProps) {
     >
       <path d="M18 6 6 18" />
       <path d="m6 6 12 12" />
+    </svg>
+  );
+}
+
+function EmojiIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+      <path d="M9 9h.01" />
+      <path d="M15 9h.01" />
     </svg>
   );
 }
@@ -1075,6 +1166,7 @@ export default function ChatPage() {
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageInput, setMessageInput] = useState('');
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [typingUserId, setTypingUserId] = useState<number | null>(null);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -1131,6 +1223,10 @@ export default function ChatPage() {
   const skipNextAutoScrollRef = useRef(false);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const messageInputSelectionRef = useRef({ start: 0, end: 0 });
+  const emojiPickerRef = useRef<HTMLDivElement | null>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const navigate = useNavigate();
   const selectedUserId = selectedUser?.id ?? null;
   const selectedRoomId = selectedRoom?.id ?? null;
@@ -1161,6 +1257,18 @@ export default function ChatPage() {
   const getNextOptimisticMessageId = () => {
     optimisticMessageIdRef.current -= 1;
     return optimisticMessageIdRef.current;
+  };
+
+  const updateMessageInputSelection = () => {
+    const input = messageInputRef.current;
+    if (!input) {
+      return;
+    }
+
+    messageInputSelectionRef.current = {
+      start: input.selectionStart,
+      end: input.selectionEnd,
+    };
   };
 
   const loadUsers = useCallback(async (options: LoadOptions = {}) => {
@@ -1442,6 +1550,49 @@ export default function ChatPage() {
       URL.revokeObjectURL(profileAvatarPreview);
     }
   }, [profileAvatarPreview]);
+
+  useEffect(() => {
+    setEmojiPickerOpen(false);
+  }, [selectedRoomId, selectedUserId]);
+
+  useEffect(() => {
+    if (!emojiPickerOpen) {
+      return;
+    }
+
+    const handleOutsidePointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (
+        emojiPickerRef.current?.contains(target) ||
+        emojiButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      setEmojiPickerOpen(false);
+    };
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setEmojiPickerOpen(false);
+        messageInputRef.current?.focus();
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsidePointerDown);
+    document.addEventListener('touchstart', handleOutsidePointerDown);
+    document.addEventListener('keydown', handleEscapeKey);
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsidePointerDown);
+      document.removeEventListener('touchstart', handleOutsidePointerDown);
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [emojiPickerOpen]);
 
   useEffect(() => {
     if (!currentUser?.id) {
@@ -2242,6 +2393,40 @@ export default function ChatPage() {
     }, STOP_TYPING_DELAY_MS);
   };
 
+  const handleToggleEmojiPicker = () => {
+    updateMessageInputSelection();
+    setEmojiPickerOpen((currentOpen) => !currentOpen);
+  };
+
+  const handleInsertEmoji = (emoji: string) => {
+    updateMessageInputSelection();
+
+    const selectionStart = Math.min(messageInputSelectionRef.current.start, messageInput.length);
+    const selectionEnd = Math.min(
+      Math.max(messageInputSelectionRef.current.end, selectionStart),
+      messageInput.length
+    );
+    const nextValue =
+      messageInput.slice(0, selectionStart) + emoji + messageInput.slice(selectionEnd);
+    const nextCursorPosition = selectionStart + emoji.length;
+
+    messageInputSelectionRef.current = {
+      start: nextCursorPosition,
+      end: nextCursorPosition,
+    };
+    handleMessageInputChange(nextValue);
+
+    window.requestAnimationFrame(() => {
+      const input = messageInputRef.current;
+      if (!input) {
+        return;
+      }
+
+      input.focus();
+      input.setSelectionRange(nextCursorPosition, nextCursorPosition);
+    });
+  };
+
   const handleMessageInputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
       return;
@@ -2259,6 +2444,7 @@ export default function ChatPage() {
     const clientId = createClientId();
     setMessagesError('');
     setMessageInput('');
+    setEmojiPickerOpen(false);
 
     if (selectedUser) {
       const optimisticMessage = createOptimisticMessage(
@@ -3474,14 +3660,68 @@ export default function ChatPage() {
               </div>
 
               <form onSubmit={handleSendMessage} className="message-input-form">
-                <textarea
-                  value={messageInput}
-                  onChange={(e) => handleMessageInputChange(e.target.value)}
-                  onKeyDown={handleMessageInputKeyDown}
-                  placeholder={`Message ${selectedConversationName}`}
-                  className="message-input"
-                  rows={1}
-                />
+                <div className="message-composer">
+                  <button
+                    ref={emojiButtonRef}
+                    type="button"
+                    className={`emoji-toggle-btn ${emojiPickerOpen ? 'active' : ''}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={handleToggleEmojiPicker}
+                    aria-label={emojiPickerOpen ? 'Close emoji picker' : 'Open emoji picker'}
+                    aria-expanded={emojiPickerOpen}
+                    aria-controls="emoji-picker-panel"
+                    aria-haspopup="dialog"
+                    title="Emoji"
+                  >
+                    <EmojiIcon className="emoji-toggle-icon" />
+                  </button>
+                  <textarea
+                    ref={messageInputRef}
+                    value={messageInput}
+                    onChange={(e) => handleMessageInputChange(e.target.value)}
+                    onKeyDown={handleMessageInputKeyDown}
+                    onKeyUp={updateMessageInputSelection}
+                    onClick={updateMessageInputSelection}
+                    onSelect={updateMessageInputSelection}
+                    placeholder={`Message ${selectedConversationName}`}
+                    className="message-input"
+                    rows={1}
+                  />
+
+                  {emojiPickerOpen ? (
+                    <div
+                      ref={emojiPickerRef}
+                      id="emoji-picker-panel"
+                      className="emoji-picker-panel"
+                      role="dialog"
+                      aria-label="Emoji picker"
+                    >
+                      <div className="emoji-picker-header">Emoji</div>
+                      <div className="emoji-category-list">
+                        {EMOJI_CATEGORIES.map((category) => (
+                          <section key={category.name} className="emoji-category">
+                            <div className="emoji-category-title">{category.name}</div>
+                            <div className="emoji-grid">
+                              {category.emojis.map((emoji) => (
+                                <button
+                                  key={`${category.name}-${emoji.symbol}`}
+                                  type="button"
+                                  className="emoji-option-btn"
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() => handleInsertEmoji(emoji.symbol)}
+                                  aria-label={`Insert ${emoji.label}`}
+                                  title={emoji.label}
+                                >
+                                  {emoji.symbol}
+                                </button>
+                              ))}
+                            </div>
+                          </section>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
                 <button type="submit" className="send-btn" disabled={!messageInput.trim()}>
                   Send
                 </button>
