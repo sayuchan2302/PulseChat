@@ -19,6 +19,14 @@ export interface MediaAttachment {
   duration?: number | null;
 }
 
+export interface LinkPreview {
+  url: string;
+  title?: string | null;
+  description?: string | null;
+  imageUrl?: string | null;
+  domain?: string | null;
+}
+
 export interface User {
   id: number;
   username: string;
@@ -49,6 +57,7 @@ export interface Message {
   mediaWidth?: number | null;
   mediaHeight?: number | null;
   mediaDuration?: number | null;
+  linkPreview?: LinkPreview | null;
   senderId: number;
   senderUsername?: string;
   senderFullName?: string;

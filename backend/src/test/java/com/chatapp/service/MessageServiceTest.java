@@ -47,6 +47,9 @@ class MessageServiceTest {
     @Mock
     private FriendshipService friendshipService;
 
+    @Mock
+    private LinkPreviewService linkPreviewService;
+
     @InjectMocks
     private MessageService messageService;
 
@@ -169,6 +172,44 @@ class MessageServiceTest {
 
         assertEquals(ErrorCode.INVALID_MESSAGE_CONTENT, exception.getErrorCode());
         verify(messageRepository, never()).saveAndFlush(any(Message.class));
+    }
+
+    @Test
+    void sendTextMessageSavesLinkPreviewMetadata() {
+        User sender = user(1L, "sayu");
+        User receiver = user(2L, "thinh");
+        String content = "Read this https://example.com/post";
+        LinkPreviewMetadata linkPreview = new LinkPreviewMetadata(
+                "https://example.com/post",
+                "Example post",
+                "A useful example article",
+                "https://example.com/cover.png",
+                "example.com"
+        );
+        when(userService.findByUsername("sayu")).thenReturn(sender);
+        when(userService.findById(receiver.getId())).thenReturn(receiver);
+        when(friendshipService.areFriends(sender, receiver)).thenReturn(true);
+        when(linkPreviewService.resolveFirstPreview(content)).thenReturn(linkPreview);
+        when(messageRepository.saveAndFlush(any(Message.class))).thenAnswer(invocation -> {
+            Message message = invocation.getArgument(0);
+            message.setId(100L);
+            message.setTimestamp(LocalDateTime.of(2026, 8, 3, 12, 0));
+            return message;
+        });
+
+        messageService.sendMessage(
+                "sayu",
+                new SendMessageRequest(receiver.getId(), content, null, MessageType.TEXT, null)
+        );
+
+        ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
+        verify(messageRepository).saveAndFlush(messageCaptor.capture());
+        Message savedMessage = messageCaptor.getValue();
+        assertEquals(linkPreview.url(), savedMessage.getLinkPreviewUrl());
+        assertEquals(linkPreview.title(), savedMessage.getLinkPreviewTitle());
+        assertEquals(linkPreview.description(), savedMessage.getLinkPreviewDescription());
+        assertEquals(linkPreview.imageUrl(), savedMessage.getLinkPreviewImageUrl());
+        assertEquals(linkPreview.domain(), savedMessage.getLinkPreviewDomain());
     }
 
     @Test

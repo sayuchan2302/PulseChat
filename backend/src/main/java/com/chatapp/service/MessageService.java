@@ -37,6 +37,7 @@ public class MessageService {
     private final UserService userService;
     private final ChatRoomService chatRoomService;
     private final FriendshipService friendshipService;
+    private final LinkPreviewService linkPreviewService;
 
     @Transactional(readOnly = true)
     public MessagePageResponse getConversation(
@@ -107,10 +108,22 @@ public class MessageService {
         if (clientId != null) {
             return messageRepository.findBySenderIdAndClientId(sender.getId(), clientId)
                     .map(MessageResponse::from)
-                    .orElseGet(() -> saveMessage(sender, receiver, content, clientId, type, request.media()));
+                    .orElseGet(() -> {
+                        LinkPreviewMetadata linkPreview = resolveLinkPreview(type, content);
+                        return saveMessage(
+                                sender,
+                                receiver,
+                                content,
+                                clientId,
+                                type,
+                                request.media(),
+                                linkPreview
+                        );
+                    });
         }
 
-        return saveMessage(sender, receiver, content, null, type, request.media());
+        LinkPreviewMetadata linkPreview = resolveLinkPreview(type, content);
+        return saveMessage(sender, receiver, content, null, type, request.media(), linkPreview);
     }
 
     @Transactional
@@ -130,10 +143,22 @@ public class MessageService {
         if (clientId != null) {
             return messageRepository.findBySenderIdAndClientId(sender.getId(), clientId)
                     .map(MessageResponse::from)
-                    .orElseGet(() -> saveRoomMessage(sender, room, content, clientId, type, request.media()));
+                    .orElseGet(() -> {
+                        LinkPreviewMetadata linkPreview = resolveLinkPreview(type, content);
+                        return saveRoomMessage(
+                                sender,
+                                room,
+                                content,
+                                clientId,
+                                type,
+                                request.media(),
+                                linkPreview
+                        );
+                    });
         }
 
-        return saveRoomMessage(sender, room, content, null, type, request.media());
+        LinkPreviewMetadata linkPreview = resolveLinkPreview(type, content);
+        return saveRoomMessage(sender, room, content, null, type, request.media(), linkPreview);
     }
 
     private MessageResponse saveMessage(
@@ -142,12 +167,13 @@ public class MessageService {
             String content,
             String clientId,
             MessageType type,
-            MediaAttachmentRequest media
+            MediaAttachmentRequest media,
+            LinkPreviewMetadata linkPreview
     ) {
         Message message = new Message();
         message.setSender(sender);
         message.setReceiver(receiver);
-        applyMessagePayload(message, content, type, media);
+        applyMessagePayload(message, content, type, media, linkPreview);
         message.setClientId(clientId);
         message.setRead(false);
 
@@ -161,12 +187,13 @@ public class MessageService {
             String content,
             String clientId,
             MessageType type,
-            MediaAttachmentRequest media
+            MediaAttachmentRequest media,
+            LinkPreviewMetadata linkPreview
     ) {
         Message message = new Message();
         message.setSender(sender);
         message.setChatRoom(room);
-        applyMessagePayload(message, content, type, media);
+        applyMessagePayload(message, content, type, media, linkPreview);
         message.setClientId(clientId);
         message.setRead(false);
 
@@ -231,12 +258,18 @@ public class MessageService {
             Message message,
             String content,
             MessageType type,
-            MediaAttachmentRequest media
+            MediaAttachmentRequest media,
+            LinkPreviewMetadata linkPreview
     ) {
         message.setType(type);
         message.setContent(content);
 
-        if (type == MessageType.TEXT || media == null) {
+        if (type == MessageType.TEXT) {
+            applyLinkPreview(message, linkPreview);
+            return;
+        }
+
+        if (media == null) {
             return;
         }
 
@@ -248,6 +281,26 @@ public class MessageService {
         message.setMediaWidth(media.width());
         message.setMediaHeight(media.height());
         message.setMediaDuration(media.duration());
+    }
+
+    private LinkPreviewMetadata resolveLinkPreview(MessageType type, String content) {
+        if (type != MessageType.TEXT || !StringUtils.hasText(content)) {
+            return null;
+        }
+
+        return linkPreviewService.resolveFirstPreview(content);
+    }
+
+    private void applyLinkPreview(Message message, LinkPreviewMetadata linkPreview) {
+        if (linkPreview == null) {
+            return;
+        }
+
+        message.setLinkPreviewUrl(linkPreview.url());
+        message.setLinkPreviewTitle(linkPreview.title());
+        message.setLinkPreviewDescription(linkPreview.description());
+        message.setLinkPreviewImageUrl(linkPreview.imageUrl());
+        message.setLinkPreviewDomain(linkPreview.domain());
     }
 
     private String normalizeOptionalMediaValue(String value) {

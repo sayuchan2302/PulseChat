@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { API_BASE_URL, ROUTES } from '../config/constants';
 import type {
   ChatRoom,
@@ -7,6 +7,7 @@ import type {
   ConnectionStatus,
   Friendship,
   FriendshipSummary,
+  LinkPreview,
   MediaAttachment,
   Message,
   MessagePage,
@@ -44,6 +45,7 @@ const MAX_VIDEO_MEDIA_SIZE_MB = MAX_VIDEO_MEDIA_SIZE_BYTES / 1024 / 1024;
 const ACCEPTED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const AVATAR_ACCEPT = ACCEPTED_AVATAR_TYPES.join(',');
 const MEDIA_ACCEPT = 'image/*,video/*';
+const TEXT_URL_REGEX = /(https?:\/\/[^\s<>'"`]+)/gi;
 const USER_SKELETON_KEYS = ['user-skeleton-1', 'user-skeleton-2', 'user-skeleton-3'];
 const MESSAGE_SKELETON_KEYS = [
   'message-skeleton-1',
@@ -175,6 +177,14 @@ type LoadOptions = {
 };
 
 type MainView = 'chat' | 'friends' | 'requests';
+
+type ChatRouteState =
+  | { kind: 'chat' }
+  | { kind: 'friends' }
+  | { kind: 'requests' }
+  | { kind: 'user'; username: string }
+  | { kind: 'room'; roomId: number }
+  | { kind: 'unknown' };
 
 type HeaderIconProps = {
   className?: string;
@@ -643,6 +653,71 @@ function createClientId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function getChatRoute() {
+  return ROUTES.CHAT;
+}
+
+function getFriendsRoute() {
+  return `${ROUTES.CHAT}/friends`;
+}
+
+function getRequestsRoute() {
+  return `${ROUTES.CHAT}/requests`;
+}
+
+function getUserChatRoute(username: string) {
+  return `${ROUTES.CHAT}/u/${encodeURIComponent(username)}`;
+}
+
+function getRoomChatRoute(roomId: number) {
+  return `${ROUTES.CHAT}/g/${roomId}`;
+}
+
+function safeDecodePathSegment(segment: string) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return '';
+  }
+}
+
+function parseChatRoute(pathname: string): ChatRouteState {
+  const chatBase = ROUTES.CHAT.replace(/\/$/, '');
+  const normalizedPath = pathname.replace(/\/+$/, '') || chatBase;
+  if (normalizedPath === chatBase) {
+    return { kind: 'chat' };
+  }
+
+  if (!normalizedPath.startsWith(`${chatBase}/`)) {
+    return { kind: 'unknown' };
+  }
+
+  const segments = normalizedPath
+    .slice(chatBase.length + 1)
+    .split('/')
+    .filter(Boolean)
+    .map(safeDecodePathSegment);
+
+  if (segments.length === 1 && segments[0] === 'friends') {
+    return { kind: 'friends' };
+  }
+
+  if (segments.length === 1 && segments[0] === 'requests') {
+    return { kind: 'requests' };
+  }
+
+  if (segments.length === 2 && segments[0] === 'u' && segments[1]) {
+    return { kind: 'user', username: segments[1] };
+  }
+
+  if (segments.length === 2 && segments[0] === 'g') {
+    const roomId = Number(segments[1]);
+    return Number.isInteger(roomId) && roomId > 0 ? { kind: 'room', roomId } : { kind: 'unknown' };
+  }
+
+  return { kind: 'unknown' };
+}
+
 function getMessageType(message: Message): MessageType {
   return message.type ?? 'TEXT';
 }
@@ -863,6 +938,107 @@ function getAvatarUrl(avatar?: string | null) {
 
 function getMediaUrl(mediaUrl?: string | null) {
   return getApiAssetUrl(mediaUrl);
+}
+
+function trimUrlToken(rawUrl: string) {
+  let url = rawUrl;
+  while (url && /[.,!?;:)\]}]/.test(url.charAt(url.length - 1))) {
+    url = url.slice(0, -1);
+  }
+
+  return url;
+}
+
+function renderLinkedText(text: string) {
+  if (!text) {
+    return null;
+  }
+
+  const nodes = [];
+  let lastIndex = 0;
+  TEXT_URL_REGEX.lastIndex = 0;
+
+  for (const match of text.matchAll(TEXT_URL_REGEX)) {
+    const rawUrl = match[0];
+    const matchIndex = match.index ?? 0;
+    const url = trimUrlToken(rawUrl);
+    if (!url) {
+      continue;
+    }
+
+    if (matchIndex > lastIndex) {
+      nodes.push(text.slice(lastIndex, matchIndex));
+    }
+
+    nodes.push(
+      <a
+        key={`link-${matchIndex}-${url}`}
+        className="message-text-link"
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {url}
+      </a>
+    );
+
+    const trailingText = rawUrl.slice(url.length);
+    if (trailingText) {
+      nodes.push(trailingText);
+    }
+
+    lastIndex = matchIndex + rawUrl.length;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes.length > 0 ? nodes : text;
+}
+
+function hasLinkPreview(preview?: LinkPreview | null) {
+  return Boolean(preview?.url);
+}
+
+function renderLinkPreviewCard(preview?: LinkPreview | null, onImageLoad?: () => void) {
+  const url = preview?.url;
+  if (!url) {
+    return null;
+  }
+
+  const imageUrl = preview?.imageUrl?.trim();
+  const title = preview?.title?.trim() || url;
+  const description = preview?.description?.trim();
+  const domain = preview?.domain?.trim() || url;
+
+  return (
+    <a
+      className="link-preview-card"
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open link preview for ${title}`}
+    >
+      {imageUrl ? (
+        <img
+          className="link-preview-image"
+          src={imageUrl}
+          alt=""
+          loading="lazy"
+          onLoad={onImageLoad}
+          onError={onImageLoad}
+        />
+      ) : null}
+      <span className="link-preview-copy">
+        <span className="link-preview-domain">{domain}</span>
+        <strong className="link-preview-title">{title}</strong>
+        {description ? (
+          <span className="link-preview-description">{description}</span>
+        ) : null}
+      </span>
+    </a>
+  );
 }
 
 function renderUserAvatar(user: User | null, className = 'user-avatar') {
@@ -1402,6 +1578,10 @@ export default function ChatPage() {
   const hasMoreMessagesRef = useRef(false);
   const nextMessageBeforeRef = useRef<number | null>(null);
   const skipNextAutoScrollRef = useRef(false);
+  const pendingInitialMessageScrollRef = useRef(false);
+  const blockOlderMessagesAutoLoadRef = useRef(false);
+  const hasUserInteractedWithMessagesRef = useRef(false);
+  const releaseInitialScrollBlockFrameRef = useRef<number | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1410,24 +1590,78 @@ export default function ChatPage() {
   const emojiPickerRef = useRef<HTMLDivElement | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
   const selectedUserId = selectedUser?.id ?? null;
   const selectedRoomId = selectedRoom?.id ?? null;
 
-  const scrollToLatestMessage = useCallback((behavior: ScrollBehavior = 'smooth') => {
+  const clearInitialScrollBlockRelease = useCallback(() => {
+    if (releaseInitialScrollBlockFrameRef.current === null) {
+      return;
+    }
+
+    window.cancelAnimationFrame(releaseInitialScrollBlockFrameRef.current);
+    releaseInitialScrollBlockFrameRef.current = null;
+  }, []);
+
+  const forceScrollToLatestMessage = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+      return;
+    }
+
     messagesEndRef.current?.scrollIntoView({
-      behavior,
+      behavior: 'auto',
       block: 'end',
     });
   }, []);
+
+  const releaseInitialScrollBlock = useCallback(() => {
+    clearInitialScrollBlockRelease();
+    releaseInitialScrollBlockFrameRef.current = window.requestAnimationFrame(() => {
+      releaseInitialScrollBlockFrameRef.current = window.requestAnimationFrame(() => {
+        blockOlderMessagesAutoLoadRef.current = false;
+        releaseInitialScrollBlockFrameRef.current = null;
+      });
+    });
+  }, [clearInitialScrollBlockRelease]);
+
+  const scrollToLatestMessage = useCallback(
+    (behavior: ScrollBehavior = 'smooth') => {
+      if (behavior === 'auto') {
+        forceScrollToLatestMessage();
+        return;
+      }
+
+      const container = messagesContainerRef.current;
+      if (container) {
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior,
+        });
+        return;
+      }
+
+      messagesEndRef.current?.scrollIntoView({
+        behavior,
+        block: 'end',
+      });
+    },
+    [forceScrollToLatestMessage]
+  );
 
   const resetMessagePagination = useCallback(() => {
     olderMessagesLoadingRef.current = false;
     hasMoreMessagesRef.current = false;
     nextMessageBeforeRef.current = null;
     skipNextAutoScrollRef.current = false;
+    pendingInitialMessageScrollRef.current = true;
+    blockOlderMessagesAutoLoadRef.current = true;
+    hasUserInteractedWithMessagesRef.current = false;
+    clearInitialScrollBlockRelease();
     setOlderMessagesLoading(false);
     setHasMoreMessages(false);
-  }, []);
+  }, [clearInitialScrollBlockRelease]);
 
   const applyMessagePagination = useCallback((page: MessagePage) => {
     const nextBefore = page.nextBefore ?? null;
@@ -1707,14 +1941,56 @@ export default function ChatPage() {
     }
   }, [applyMessagePagination]);
 
+  const markMessagesScrollIntent = useCallback(() => {
+    hasUserInteractedWithMessagesRef.current = true;
+  }, []);
+
+  const handleMessageAssetLoaded = useCallback(() => {
+    if (
+      hasUserInteractedWithMessagesRef.current ||
+      (selectedUserIdRef.current === null && selectedRoomIdRef.current === null)
+    ) {
+      return;
+    }
+
+    forceScrollToLatestMessage();
+    if (blockOlderMessagesAutoLoadRef.current) {
+      releaseInitialScrollBlock();
+    }
+  }, [forceScrollToLatestMessage, releaseInitialScrollBlock]);
+
   const handleMessagesScroll = () => {
     const container = messagesContainerRef.current;
-    if (!container || container.scrollTop > LOAD_OLDER_SCROLL_THRESHOLD) {
+    if (
+      !container ||
+      !hasUserInteractedWithMessagesRef.current ||
+      blockOlderMessagesAutoLoadRef.current ||
+      messagesLoading ||
+      olderMessagesLoading ||
+      container.scrollTop > LOAD_OLDER_SCROLL_THRESHOLD
+    ) {
       return;
     }
 
     void loadOlderMessages();
   };
+
+  useEffect(() => () => {
+    clearInitialScrollBlockRelease();
+  }, [clearInitialScrollBlockRelease]);
+
+  useEffect(() => {
+    if (!('scrollRestoration' in window.history)) {
+      return undefined;
+    }
+
+    const previousScrollRestoration = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+
+    return () => {
+      window.history.scrollRestoration = previousScrollRestoration;
+    };
+  }, []);
 
   useEffect(() => {
     const user = localStorage.getItem('user');
@@ -1824,6 +2100,107 @@ export default function ChatPage() {
     void loadIncomingFriendRequests();
     void loadFriendSummary();
   }, [currentUser?.id, loadFriendSummary, loadIncomingFriendRequests]);
+
+  const clearTypingTimeout = useCallback(() => {
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearRemoteTypingTimeout = useCallback(() => {
+    if (remoteTypingTimeoutRef.current) {
+      clearTimeout(remoteTypingTimeoutRef.current);
+      remoteTypingTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearOptimisticSendTimeout = useCallback((clientId: string) => {
+    const timeout = sendTimeoutsRef.current.get(clientId);
+    if (!timeout) {
+      return;
+    }
+
+    clearTimeout(timeout);
+    sendTimeoutsRef.current.delete(clientId);
+  }, []);
+
+  const clearOptimisticSendTimeouts = useCallback(() => {
+    sendTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+    sendTimeoutsRef.current.clear();
+  }, []);
+
+  const scheduleOptimisticSendTimeout = useCallback((clientId: string) => {
+    clearOptimisticSendTimeout(clientId);
+
+    const timeout = setTimeout(() => {
+      sendTimeoutsRef.current.delete(clientId);
+      setMessages((currentMessages) => markOptimisticMessageFailed(currentMessages, clientId));
+    }, OPTIMISTIC_SEND_TIMEOUT_MS);
+
+    sendTimeoutsRef.current.set(clientId, timeout);
+  }, [clearOptimisticSendTimeout]);
+
+  const showRemoteTyping = useCallback((senderId: number) => {
+    setTypingUserId(senderId);
+    clearRemoteTypingTimeout();
+    remoteTypingTimeoutRef.current = setTimeout(() => {
+      setTypingUserId(null);
+      remoteTypingTimeoutRef.current = null;
+    }, REMOTE_TYPING_VISIBLE_MS);
+  }, [clearRemoteTypingTimeout]);
+
+  const hideRemoteTyping = useCallback(() => {
+    clearRemoteTypingTimeout();
+    setTypingUserId(null);
+  }, [clearRemoteTypingTimeout]);
+
+  const publishTyping = useCallback((receiverId: number, typing: boolean) => {
+    wsService.sendMessage(TYPING_DESTINATION, {
+      receiverId,
+      typing,
+    });
+  }, []);
+
+  const stopTyping = useCallback((receiverId: number) => {
+    clearTypingTimeout();
+    publishTyping(receiverId, false);
+  }, [clearTypingTimeout, publishTyping]);
+
+  const markConversationAsRead = useCallback(async (senderId: number) => {
+    setUsers((currentUsers) => resetUnreadCount(currentUsers, senderId));
+    setFriends((currentFriends) => resetUnreadCount(currentFriends, senderId));
+
+    const sentRealtime = wsService.sendMessage(READ_RECEIPT_DESTINATION, {
+      senderId,
+    });
+
+    if (!sentRealtime) {
+      try {
+        const response = await apiClient.patch<ReadReceiptEvent>(`/messages/${senderId}/read`);
+        setMessages((currentMessages) => applyReadReceipt(currentMessages, response.data));
+      } catch (error) {
+        console.error('Failed to mark conversation as read:', error);
+      }
+    }
+  }, []);
+
+  const markRoomAsRead = useCallback(async (roomId: number) => {
+    setRooms((currentRooms) => resetRoomUnreadCount(currentRooms, roomId));
+    setSelectedRoom((currentSelectedRoom) =>
+      currentSelectedRoom?.id === roomId ? { ...currentSelectedRoom, unreadCount: 0 } : currentSelectedRoom
+    );
+
+    try {
+      const response = await apiClient.patch<ChatRoom>(`/rooms/${roomId}/read`);
+      setRooms((currentRooms) => appendOrUpdateRoom(currentRooms, response.data));
+      setSelectedRoom((currentSelectedRoom) =>
+        currentSelectedRoom?.id === roomId ? response.data : currentSelectedRoom
+      );
+    } catch (error) {
+      console.error('Failed to mark group as read:', error);
+    }
+  }, []);
 
   useEffect(() => {
     if (!currentUser?.id) {
@@ -2055,16 +2432,24 @@ export default function ChatPage() {
       wsService.disconnect();
     };
   }, [
+    clearOptimisticSendTimeout,
+    clearOptimisticSendTimeouts,
+    clearRemoteTypingTimeout,
+    clearTypingTimeout,
     currentUser?.id,
+    hideRemoteTyping,
     loadFriendSummary,
     loadIncomingFriendRequests,
     loadMessages,
     loadRoomMessages,
     loadRooms,
     loadUsers,
+    markConversationAsRead,
+    markRoomAsRead,
+    showRemoteTyping,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       (selectedUserId === null && selectedRoomId === null) ||
       messagesLoading ||
@@ -2078,8 +2463,18 @@ export default function ChatPage() {
       return;
     }
 
+    const isInitialScroll = pendingInitialMessageScrollRef.current;
+    if (isInitialScroll) {
+      forceScrollToLatestMessage();
+      pendingInitialMessageScrollRef.current = false;
+      releaseInitialScrollBlock();
+      return;
+    }
+
     scrollToLatestMessage('smooth');
   }, [
+    forceScrollToLatestMessage,
+    releaseInitialScrollBlock,
     messages.length,
     messagesLoading,
     olderMessagesLoading,
@@ -2088,72 +2483,6 @@ export default function ChatPage() {
     selectedUserId,
     typingUserId,
   ]);
-
-  const clearTypingTimeout = () => {
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = null;
-    }
-  };
-
-  const clearRemoteTypingTimeout = () => {
-    if (remoteTypingTimeoutRef.current) {
-      clearTimeout(remoteTypingTimeoutRef.current);
-      remoteTypingTimeoutRef.current = null;
-    }
-  };
-
-  const clearOptimisticSendTimeout = (clientId: string) => {
-    const timeout = sendTimeoutsRef.current.get(clientId);
-    if (!timeout) {
-      return;
-    }
-
-    clearTimeout(timeout);
-    sendTimeoutsRef.current.delete(clientId);
-  };
-
-  const clearOptimisticSendTimeouts = () => {
-    sendTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
-    sendTimeoutsRef.current.clear();
-  };
-
-  const scheduleOptimisticSendTimeout = (clientId: string) => {
-    clearOptimisticSendTimeout(clientId);
-
-    const timeout = setTimeout(() => {
-      sendTimeoutsRef.current.delete(clientId);
-      setMessages((currentMessages) => markOptimisticMessageFailed(currentMessages, clientId));
-    }, OPTIMISTIC_SEND_TIMEOUT_MS);
-
-    sendTimeoutsRef.current.set(clientId, timeout);
-  };
-
-  const showRemoteTyping = (senderId: number) => {
-    setTypingUserId(senderId);
-    clearRemoteTypingTimeout();
-    remoteTypingTimeoutRef.current = setTimeout(() => {
-      setTypingUserId(null);
-      remoteTypingTimeoutRef.current = null;
-    }, REMOTE_TYPING_VISIBLE_MS);
-  };
-
-  const hideRemoteTyping = () => {
-    clearRemoteTypingTimeout();
-    setTypingUserId(null);
-  };
-
-  const publishTyping = (receiverId: number, typing: boolean) => {
-    wsService.sendMessage(TYPING_DESTINATION, {
-      receiverId,
-      typing,
-    });
-  };
-
-  const stopTyping = (receiverId: number) => {
-    clearTypingTimeout();
-    publishTyping(receiverId, false);
-  };
 
   const sendOptimisticMessage = async (payload: SendMessagePayload) => {
     const sentRealtime = wsService.sendMessage(PRIVATE_MESSAGE_DESTINATION, payload);
@@ -2228,40 +2557,218 @@ export default function ChatPage() {
     }
   };
 
-  const markConversationAsRead = async (senderId: number) => {
-    setUsers((currentUsers) => resetUnreadCount(currentUsers, senderId));
-    setFriends((currentFriends) => resetUnreadCount(currentFriends, senderId));
+  const navigateIfNeeded = useCallback((path: string, options: { replace?: boolean } = {}) => {
+    if (location.pathname !== path) {
+      navigate(path, options);
+    }
+  }, [location.pathname, navigate]);
 
-    const sentRealtime = wsService.sendMessage(READ_RECEIPT_DESTINATION, {
-      senderId,
-    });
+  const clearSelectedConversation = useCallback(() => {
+    if (selectedUserIdRef.current !== null) {
+      stopTyping(selectedUserIdRef.current);
+    }
 
-    if (!sentRealtime) {
-      try {
-        const response = await apiClient.patch<ReadReceiptEvent>(`/messages/${senderId}/read`);
-        setMessages((currentMessages) => applyReadReceipt(currentMessages, response.data));
-      } catch (error) {
-        console.error('Failed to mark conversation as read:', error);
+    selectedUserIdRef.current = null;
+    selectedRoomIdRef.current = null;
+    setSelectedUser(null);
+    setSelectedRoom(null);
+    setMainView('chat');
+    resetMessagePagination();
+    setMessages([]);
+    setMessageInput('');
+    setProfileMenuOpen(false);
+    viewedProfileUsernameRef.current = '';
+    setViewedProfileUser(null);
+    setDetailsOpen(shouldOpenConversationDetailsByDefault());
+    hideRemoteTyping();
+  }, [hideRemoteTyping, resetMessagePagination, stopTyping]);
+
+  const activateUserConversation = useCallback((user: User) => {
+    if (!canChatWithUser(user)) {
+      return;
+    }
+
+    const previousSelectedUserId = selectedUserIdRef.current;
+    const previousSelectedRoomId = selectedRoomIdRef.current;
+    const conversationChanged = previousSelectedUserId !== user.id || previousSelectedRoomId !== null;
+
+    if (previousSelectedUserId !== null && previousSelectedUserId !== user.id) {
+      stopTyping(previousSelectedUserId);
+    }
+
+    setSelectedRoom(null);
+    selectedRoomIdRef.current = null;
+    setSelectedUser(user);
+    selectedUserIdRef.current = user.id;
+    setMainView('chat');
+    setProfileMenuOpen(false);
+    viewedProfileUsernameRef.current = '';
+    setViewedProfileUser(null);
+    setDetailsOpen(shouldOpenConversationDetailsByDefault());
+    hideRemoteTyping();
+
+    if (conversationChanged) {
+      void loadMessages(user.id);
+    }
+    if (conversationChanged || (user.unreadCount ?? 0) > 0) {
+      void markConversationAsRead(user.id);
+    }
+  }, [hideRemoteTyping, loadMessages, markConversationAsRead, stopTyping]);
+
+  const activateRoomConversation = useCallback((room: ChatRoom) => {
+    const previousSelectedUserId = selectedUserIdRef.current;
+    const previousSelectedRoomId = selectedRoomIdRef.current;
+    const conversationChanged = previousSelectedRoomId !== room.id || previousSelectedUserId !== null;
+
+    if (previousSelectedUserId !== null) {
+      stopTyping(previousSelectedUserId);
+    }
+
+    setSelectedUser(null);
+    selectedUserIdRef.current = null;
+    setSelectedRoom(room);
+    selectedRoomIdRef.current = room.id;
+    setMainView('chat');
+    setProfileMenuOpen(false);
+    viewedProfileUsernameRef.current = '';
+    setViewedProfileUser(null);
+    setDetailsOpen(shouldOpenConversationDetailsByDefault());
+    hideRemoteTyping();
+
+    if (conversationChanged) {
+      void loadRoomMessages(room.id);
+    }
+    if (conversationChanged || (room.unreadCount ?? 0) > 0) {
+      void markRoomAsRead(room.id);
+    }
+  }, [hideRemoteTyping, loadRoomMessages, markRoomAsRead, stopTyping]);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      return;
+    }
+
+    const routeStateForPath = parseChatRoute(location.pathname);
+
+    if (routeStateForPath.kind === 'unknown') {
+      navigate(getChatRoute(), { replace: true });
+      return;
+    }
+
+    if (routeStateForPath.kind === 'chat') {
+      clearSelectedConversation();
+      return;
+    }
+
+    if (routeStateForPath.kind === 'friends') {
+      setMainView('friends');
+      setProfileMenuOpen(false);
+      if (userSearchQueryRef.current) {
+        userSearchQueryRef.current = '';
+        setUserSearchQuery('');
+        setUsersError('');
       }
+      void loadUsers({ silent: true, search: '' });
+      return;
     }
-  };
 
-  const markRoomAsRead = async (roomId: number) => {
-    setRooms((currentRooms) => resetRoomUnreadCount(currentRooms, roomId));
-    setSelectedRoom((currentSelectedRoom) =>
-      currentSelectedRoom?.id === roomId ? { ...currentSelectedRoom, unreadCount: 0 } : currentSelectedRoom
-    );
-
-    try {
-      const response = await apiClient.patch<ChatRoom>(`/rooms/${roomId}/read`);
-      setRooms((currentRooms) => appendOrUpdateRoom(currentRooms, response.data));
-      setSelectedRoom((currentSelectedRoom) =>
-        currentSelectedRoom?.id === roomId ? response.data : currentSelectedRoom
-      );
-    } catch (error) {
-      console.error('Failed to mark group as read:', error);
+    if (routeStateForPath.kind === 'requests') {
+      setMainView('requests');
+      setProfileMenuOpen(false);
+      void Promise.all([
+        loadIncomingFriendRequests({ silent: true }),
+        loadFriendSummary({ silent: true }),
+      ]);
     }
-  };
+  }, [
+    clearSelectedConversation,
+    currentUser?.id,
+    loadFriendSummary,
+    loadIncomingFriendRequests,
+    loadUsers,
+    location.pathname,
+    navigate,
+  ]);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      return;
+    }
+
+    let active = true;
+    const routeStateForPath = parseChatRoute(location.pathname);
+    const usernameMatches = (user: User, username: string) =>
+      user.username.toLowerCase() === username.toLowerCase();
+
+    if (routeStateForPath.kind === 'room') {
+      const room = rooms.find((currentRoom) => currentRoom.id === routeStateForPath.roomId);
+      if (room) {
+        activateRoomConversation(room);
+        return;
+      }
+
+      if (!roomsLoading) {
+        navigate(getChatRoute(), { replace: true });
+      }
+      return;
+    }
+
+    if (routeStateForPath.kind !== 'user') {
+      return;
+    }
+
+    const userFromLists =
+      friends.find((friend) => usernameMatches(friend, routeStateForPath.username)) ??
+      users.find((user) => usernameMatches(user, routeStateForPath.username));
+    if (userFromLists) {
+      if (canChatWithUser(userFromLists)) {
+        activateUserConversation(userFromLists);
+      } else {
+        navigate(getFriendsRoute(), { replace: true });
+      }
+      return;
+    }
+
+    if (usersLoading && !usersError) {
+      return;
+    }
+
+    apiClient
+      .get<User>(`/users/${encodeURIComponent(routeStateForPath.username)}`)
+      .then((response) => {
+        if (!active) {
+          return;
+        }
+
+        if (canChatWithUser(response.data)) {
+          activateUserConversation(response.data);
+        } else {
+          navigate(getFriendsRoute(), { replace: true });
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to resolve chat route user:', error);
+        if (active) {
+          navigate(getFriendsRoute(), { replace: true });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    activateRoomConversation,
+    activateUserConversation,
+    currentUser?.id,
+    friends,
+    location.pathname,
+    navigate,
+    rooms,
+    roomsLoading,
+    users,
+    usersError,
+    usersLoading,
+  ]);
 
   const setFriendActionPending = (key: string, pending: boolean) => {
     setFriendActionKeys((currentKeys) =>
@@ -2288,6 +2795,7 @@ export default function ChatPage() {
   };
 
   const handleOpenRequestsPanel = () => {
+    navigateIfNeeded(getRequestsRoute());
     setMainView('requests');
     setProfileMenuOpen(false);
     void Promise.all([
@@ -2385,41 +2893,13 @@ export default function ChatPage() {
       return;
     }
 
-    if (selectedUserIdRef.current !== null) {
-      stopTyping(selectedUserIdRef.current);
-    }
-
-    setSelectedRoom(null);
-    selectedRoomIdRef.current = null;
-    setSelectedUser(user);
-    selectedUserIdRef.current = user.id;
-    setMainView('chat');
-    setProfileMenuOpen(false);
-    viewedProfileUsernameRef.current = '';
-    setViewedProfileUser(null);
-    setDetailsOpen(shouldOpenConversationDetailsByDefault());
-    hideRemoteTyping();
-    void loadMessages(user.id);
-    void markConversationAsRead(user.id);
+    navigateIfNeeded(getUserChatRoute(user.username));
+    activateUserConversation(user);
   };
 
   const handleRoomSelect = (room: ChatRoom) => {
-    if (selectedUserIdRef.current !== null) {
-      stopTyping(selectedUserIdRef.current);
-    }
-
-    setSelectedUser(null);
-    selectedUserIdRef.current = null;
-    setSelectedRoom(room);
-    selectedRoomIdRef.current = room.id;
-    setMainView('chat');
-    setProfileMenuOpen(false);
-    viewedProfileUsernameRef.current = '';
-    setViewedProfileUser(null);
-    setDetailsOpen(shouldOpenConversationDetailsByDefault());
-    hideRemoteTyping();
-    void loadRoomMessages(room.id);
-    void markRoomAsRead(room.id);
+    navigateIfNeeded(getRoomChatRoute(room.id));
+    activateRoomConversation(room);
   };
 
   const handleUserSearchChange = (value: string) => {
@@ -2479,6 +2959,7 @@ export default function ChatPage() {
   };
 
   const handleOpenFriendsPanel = () => {
+    navigateIfNeeded(getFriendsRoute());
     setMainView('friends');
     setProfileMenuOpen(false);
 
@@ -2503,6 +2984,7 @@ export default function ChatPage() {
   };
 
   const handleOpenCreateGroup = () => {
+    navigateIfNeeded(getChatRoute());
     setMainView('chat');
     setProfileMenuOpen(false);
     setCreateGroupOpen(true);
@@ -2558,6 +3040,7 @@ export default function ChatPage() {
       selectedUserIdRef.current = null;
       setSelectedRoom(room);
       selectedRoomIdRef.current = room.id;
+      navigateIfNeeded(getRoomChatRoute(room.id));
       setDetailsOpen(shouldOpenConversationDetailsByDefault());
       resetMessagePagination();
       setMessages([]);
@@ -3055,10 +3538,15 @@ export default function ChatPage() {
             onClick={() => setMediaViewerMessage(message)}
             aria-label="Open image preview"
           >
-            <img src={mediaUrl} alt={message.content || 'Shared image'} />
+            <img
+              src={mediaUrl}
+              alt={message.content || 'Shared image'}
+              onLoad={handleMessageAssetLoaded}
+              onError={handleMessageAssetLoaded}
+            />
           </button>
           {message.content ? (
-            <div className="message-media-caption">{message.content}</div>
+            <div className="message-media-caption">{renderLinkedText(message.content)}</div>
           ) : null}
         </div>
       );
@@ -3072,15 +3560,24 @@ export default function ChatPage() {
             src={mediaUrl}
             controls
             preload="metadata"
+            onLoadedMetadata={handleMessageAssetLoaded}
+            onError={handleMessageAssetLoaded}
           />
           {message.content ? (
-            <div className="message-media-caption">{message.content}</div>
+            <div className="message-media-caption">{renderLinkedText(message.content)}</div>
           ) : null}
         </div>
       );
     }
 
-    return <div className="message-content">{message.content}</div>;
+    return (
+      <div className={`message-content ${hasLinkPreview(message.linkPreview) ? 'has-link-preview' : ''}`}>
+        {message.content ? (
+          <div className="message-text">{renderLinkedText(message.content)}</div>
+        ) : null}
+        {renderLinkPreviewCard(message.linkPreview, handleMessageAssetLoaded)}
+      </div>
+    );
   };
 
   const renderFriendshipAction = (user: User) => {
@@ -3927,7 +4424,10 @@ export default function ChatPage() {
                 ref={messagesContainerRef}
                 className="messages-container"
                 aria-busy={messagesLoading || olderMessagesLoading}
+                onPointerDown={markMessagesScrollIntent}
                 onScroll={handleMessagesScroll}
+                onTouchMove={markMessagesScrollIntent}
+                onWheel={markMessagesScrollIntent}
               >
                 {messagesLoading ? (
                   MESSAGE_SKELETON_KEYS.map((key, index) => (

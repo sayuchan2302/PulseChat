@@ -23,7 +23,7 @@ function App() {
       <Routes>
         <Route path={ROUTES.HOME} element={<GuestRoute />} />
         <Route
-          path={ROUTES.CHAT}
+          path={`${ROUTES.CHAT}/*`}
           element={
             <ProtectedRoute>
               <ChatPage />

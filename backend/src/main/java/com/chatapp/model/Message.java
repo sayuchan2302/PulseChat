@@ -61,6 +61,21 @@ public class Message {
     @Column(name = "media_duration")
     private Double mediaDuration;
 
+    @Column(name = "link_preview_url", length = 2048)
+    private String linkPreviewUrl;
+
+    @Column(name = "link_preview_title", length = 255)
+    private String linkPreviewTitle;
+
+    @Column(name = "link_preview_description", length = 500)
+    private String linkPreviewDescription;
+
+    @Column(name = "link_preview_image_url", length = 2048)
+    private String linkPreviewImageUrl;
+
+    @Column(name = "link_preview_domain", length = 255)
+    private String linkPreviewDomain;
+
     @Column(name = "client_id", length = 100)
     private String clientId;
 
