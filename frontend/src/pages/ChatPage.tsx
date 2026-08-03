@@ -7,6 +7,7 @@ import type {
   Friendship,
   FriendshipSummary,
   Message,
+  MessagePage,
   PresenceEvent,
   ReadReceiptEvent,
   TypingEvent,
@@ -26,6 +27,8 @@ const USER_SEARCH_DEBOUNCE_MS = 300;
 const REMOTE_TYPING_VISIBLE_MS = 2500;
 const OPTIMISTIC_SEND_TIMEOUT_MS = 10000;
 const MESSAGE_GROUP_THRESHOLD_MS = 5 * 60 * 1000;
+const MESSAGE_PAGE_SIZE = 30;
+const LOAD_OLDER_SCROLL_THRESHOLD = 80;
 const MIN_GROUP_MEMBERS = 3;
 const MIN_GROUP_INVITED_MEMBERS = MIN_GROUP_MEMBERS - 1;
 const BIO_MAX_LENGTH = 160;
@@ -236,6 +239,24 @@ function toDeliveredMessage(message: Message): ChatMessage {
   };
 }
 
+function getMessageTimestampValue(message: ChatMessage) {
+  const timestampValue = Date.parse(message.timestamp);
+  return Number.isNaN(timestampValue) ? 0 : timestampValue;
+}
+
+function sortMessagesByTimeline(messages: ChatMessage[]) {
+  return [...messages].sort((firstMessage, secondMessage) => {
+    const timestampDelta =
+      getMessageTimestampValue(firstMessage) - getMessageTimestampValue(secondMessage);
+
+    if (timestampDelta !== 0) {
+      return timestampDelta;
+    }
+
+    return firstMessage.id - secondMessage.id;
+  });
+}
+
 function appendOrReconcileMessage(messages: ChatMessage[], incomingMessage: Message) {
   const deliveredMessage = toDeliveredMessage(incomingMessage);
   const existingMessageIndex = messages.findIndex((message) => message.id === incomingMessage.id);
@@ -279,21 +300,36 @@ function mergeServerMessagesWithPending(
   currentMessages: ChatMessage[],
   serverMessages: Message[]
 ) {
-  const deliveredMessages = serverMessages.map(toDeliveredMessage);
-  const deliveredClientIds = new Set(
-    deliveredMessages
-      .map((message) => message.clientId)
-      .filter((clientId): clientId is string => Boolean(clientId))
-  );
-  const pendingMessages = currentMessages.filter(
-    (message) =>
-      message.id < 0 &&
-      message.clientId &&
-      !deliveredClientIds.has(message.clientId) &&
-      (message.deliveryStatus === 'sending' || message.deliveryStatus === 'failed')
-  );
+  const mergedMessages = [...currentMessages];
 
-  return [...deliveredMessages, ...pendingMessages];
+  serverMessages.map(toDeliveredMessage).forEach((deliveredMessage) => {
+    const existingMessageIndex = mergedMessages.findIndex(
+      (message) => message.id === deliveredMessage.id
+    );
+
+    if (existingMessageIndex >= 0) {
+      mergedMessages[existingMessageIndex] = {
+        ...mergedMessages[existingMessageIndex],
+        ...deliveredMessage,
+      };
+      return;
+    }
+
+    if (deliveredMessage.clientId) {
+      const optimisticMessageIndex = mergedMessages.findIndex(
+        (message) => message.clientId === deliveredMessage.clientId
+      );
+
+      if (optimisticMessageIndex >= 0) {
+        mergedMessages[optimisticMessageIndex] = deliveredMessage;
+        return;
+      }
+    }
+
+    mergedMessages.push(deliveredMessage);
+  });
+
+  return sortMessagesByTimeline(mergedMessages);
 }
 
 function isConversationMessage(
@@ -1043,6 +1079,8 @@ export default function ChatPage() {
   const [typingUserId, setTypingUserId] = useState<number | null>(null);
   const [usersLoading, setUsersLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [usersError, setUsersError] = useState('');
   const [roomsError, setRoomsError] = useState('');
   const [messagesError, setMessagesError] = useState('');
@@ -1087,6 +1125,11 @@ export default function ChatPage() {
   const optimisticMessageIdRef = useRef(0);
   const hasConnectedRef = useRef(false);
   const hasLoadedInitialUsersRef = useRef(false);
+  const olderMessagesLoadingRef = useRef(false);
+  const hasMoreMessagesRef = useRef(false);
+  const nextMessageBeforeRef = useRef<number | null>(null);
+  const skipNextAutoScrollRef = useRef(false);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
   const selectedUserId = selectedUser?.id ?? null;
@@ -1097,6 +1140,22 @@ export default function ChatPage() {
       behavior,
       block: 'end',
     });
+  }, []);
+
+  const resetMessagePagination = useCallback(() => {
+    olderMessagesLoadingRef.current = false;
+    hasMoreMessagesRef.current = false;
+    nextMessageBeforeRef.current = null;
+    skipNextAutoScrollRef.current = false;
+    setOlderMessagesLoading(false);
+    setHasMoreMessages(false);
+  }, []);
+
+  const applyMessagePagination = useCallback((page: MessagePage) => {
+    const nextBefore = page.nextBefore ?? null;
+    hasMoreMessagesRef.current = page.hasMore;
+    nextMessageBeforeRef.current = nextBefore;
+    setHasMoreMessages(page.hasMore);
   }, []);
 
   const getNextOptimisticMessageId = () => {
@@ -1139,6 +1198,7 @@ export default function ChatPage() {
         } else if (!search || updatedSelectedUser) {
           selectedUserIdRef.current = null;
           setSelectedUser(null);
+          resetMessagePagination();
           setMessages([]);
           setMessageInput('');
         }
@@ -1153,7 +1213,7 @@ export default function ChatPage() {
         setUsersLoading(false);
       }
     }
-  }, []);
+  }, [resetMessagePagination]);
 
   const loadIncomingFriendRequests = useCallback(async (options: LoadOptions = {}) => {
     if (!options.silent) {
@@ -1217,17 +1277,23 @@ export default function ChatPage() {
 
   const loadMessages = useCallback(async (userId: number, options: LoadOptions = {}) => {
     if (!options.silent) {
+      resetMessagePagination();
       setMessages([]);
       setMessagesLoading(true);
     }
     setMessagesError('');
 
     try {
-      const response = await apiClient.get<Message[]>(`/messages/${userId}`);
+      const response = await apiClient.get<MessagePage>(`/messages/${userId}`, {
+        params: { size: MESSAGE_PAGE_SIZE },
+      });
       if (selectedUserIdRef.current === userId) {
         setMessages((currentMessages) =>
-          mergeServerMessagesWithPending(currentMessages, response.data)
+          mergeServerMessagesWithPending(options.silent ? currentMessages : [], response.data.items)
         );
+        if (!options.silent) {
+          applyMessagePagination(response.data);
+        }
       }
     } catch (error) {
       console.error('Failed to load messages:', error);
@@ -1239,21 +1305,27 @@ export default function ChatPage() {
         setMessagesLoading(false);
       }
     }
-  }, []);
+  }, [applyMessagePagination, resetMessagePagination]);
 
   const loadRoomMessages = useCallback(async (roomId: number, options: LoadOptions = {}) => {
     if (!options.silent) {
+      resetMessagePagination();
       setMessages([]);
       setMessagesLoading(true);
     }
     setMessagesError('');
 
     try {
-      const response = await apiClient.get<Message[]>(`/rooms/${roomId}/messages`);
+      const response = await apiClient.get<MessagePage>(`/rooms/${roomId}/messages`, {
+        params: { size: MESSAGE_PAGE_SIZE },
+      });
       if (selectedRoomIdRef.current === roomId) {
         setMessages((currentMessages) =>
-          mergeServerMessagesWithPending(currentMessages, response.data)
+          mergeServerMessagesWithPending(options.silent ? currentMessages : [], response.data.items)
         );
+        if (!options.silent) {
+          applyMessagePagination(response.data);
+        }
       }
     } catch (error) {
       console.error('Failed to load room messages:', error);
@@ -1265,7 +1337,86 @@ export default function ChatPage() {
         setMessagesLoading(false);
       }
     }
-  }, []);
+  }, [applyMessagePagination, resetMessagePagination]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (
+      olderMessagesLoadingRef.current ||
+      !hasMoreMessagesRef.current ||
+      nextMessageBeforeRef.current === null
+    ) {
+      return;
+    }
+
+    const selectedUserIdForLoad = selectedUserIdRef.current;
+    const selectedRoomIdForLoad = selectedRoomIdRef.current;
+    if (selectedUserIdForLoad === null && selectedRoomIdForLoad === null) {
+      return;
+    }
+
+    const container = messagesContainerRef.current;
+    const previousScrollHeight = container?.scrollHeight ?? 0;
+    const previousScrollTop = container?.scrollTop ?? 0;
+    const before = nextMessageBeforeRef.current;
+
+    olderMessagesLoadingRef.current = true;
+    setOlderMessagesLoading(true);
+    setMessagesError('');
+
+    try {
+      const response =
+        selectedUserIdForLoad !== null
+          ? await apiClient.get<MessagePage>(`/messages/${selectedUserIdForLoad}`, {
+              params: { before, size: MESSAGE_PAGE_SIZE },
+            })
+          : await apiClient.get<MessagePage>(`/rooms/${selectedRoomIdForLoad}/messages`, {
+              params: { before, size: MESSAGE_PAGE_SIZE },
+            });
+
+      if (
+        selectedUserIdRef.current !== selectedUserIdForLoad ||
+        selectedRoomIdRef.current !== selectedRoomIdForLoad
+      ) {
+        return;
+      }
+
+      skipNextAutoScrollRef.current = true;
+      setMessages((currentMessages) =>
+        mergeServerMessagesWithPending(currentMessages, response.data.items)
+      );
+      applyMessagePagination(response.data);
+
+      window.requestAnimationFrame(() => {
+        const currentContainer = messagesContainerRef.current;
+        if (!currentContainer) {
+          return;
+        }
+
+        currentContainer.scrollTop =
+          currentContainer.scrollHeight - previousScrollHeight + previousScrollTop;
+      });
+    } catch (error) {
+      console.error('Failed to load older messages:', error);
+      if (
+        selectedUserIdRef.current === selectedUserIdForLoad &&
+        selectedRoomIdRef.current === selectedRoomIdForLoad
+      ) {
+        setMessagesError('Unable to load older messages.');
+      }
+    } finally {
+      olderMessagesLoadingRef.current = false;
+      setOlderMessagesLoading(false);
+    }
+  }, [applyMessagePagination]);
+
+  const handleMessagesScroll = () => {
+    const container = messagesContainerRef.current;
+    if (!container || container.scrollTop > LOAD_OLDER_SCROLL_THRESHOLD) {
+      return;
+    }
+
+    void loadOlderMessages();
+  };
 
   useEffect(() => {
     const user = localStorage.getItem('user');
@@ -1564,7 +1715,16 @@ export default function ChatPage() {
   ]);
 
   useEffect(() => {
-    if ((selectedUserId === null && selectedRoomId === null) || messagesLoading) {
+    if (
+      (selectedUserId === null && selectedRoomId === null) ||
+      messagesLoading ||
+      olderMessagesLoading
+    ) {
+      return;
+    }
+
+    if (skipNextAutoScrollRef.current) {
+      skipNextAutoScrollRef.current = false;
       return;
     }
 
@@ -1572,6 +1732,7 @@ export default function ChatPage() {
   }, [
     messages.length,
     messagesLoading,
+    olderMessagesLoading,
     scrollToLatestMessage,
     selectedRoomId,
     selectedUserId,
@@ -2048,6 +2209,7 @@ export default function ChatPage() {
       setSelectedRoom(room);
       selectedRoomIdRef.current = room.id;
       setDetailsOpen(shouldOpenConversationDetailsByDefault());
+      resetMessagePagination();
       setMessages([]);
       setMessageInput('');
       setCreateGroupOpen(false);
@@ -3207,7 +3369,12 @@ export default function ChatPage() {
                 </button>
               </div>
 
-              <div className="messages-container" aria-busy={messagesLoading}>
+              <div
+                ref={messagesContainerRef}
+                className="messages-container"
+                aria-busy={messagesLoading || olderMessagesLoading}
+                onScroll={handleMessagesScroll}
+              >
                 {messagesLoading ? (
                   MESSAGE_SKELETON_KEYS.map((key, index) => (
                     <div
@@ -3238,53 +3405,65 @@ export default function ChatPage() {
                 ) : messages.length === 0 ? (
                   <div className="message-state">No messages yet.</div>
                 ) : (
-                  messageListItems.map((item) => {
-                    if (item.type === 'date') {
+                  <>
+                    {hasMoreMessages ? (
+                      <button
+                        type="button"
+                        className="older-messages-btn"
+                        onClick={() => void loadOlderMessages()}
+                        disabled={olderMessagesLoading}
+                      >
+                        {olderMessagesLoading ? 'Loading older messages...' : 'Load older messages'}
+                      </button>
+                    ) : null}
+                    {messageListItems.map((item) => {
+                      if (item.type === 'date') {
+                        return (
+                          <div key={item.key} className="message-date-divider">
+                            <span>{item.label}</span>
+                          </div>
+                        );
+                      }
+
+                      const { message, groupedWithPrevious, groupedWithNext, showSender } = item;
+                      const isSentByCurrentUser = message.senderId === currentUser?.id;
+
                       return (
-                        <div key={item.key} className="message-date-divider">
-                          <span>{item.label}</span>
+                        <div
+                          key={item.key}
+                          className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${message.deliveryStatus ?? ''} ${groupedWithPrevious ? 'grouped-with-previous' : ''} ${groupedWithNext ? 'grouped-with-next' : ''}`}
+                        >
+                          {showSender ? (
+                            <div className="message-sender">
+                              {getMessageSenderName(message, selectedRoom)}
+                            </div>
+                          ) : null}
+                          <div className="message-content">{message.content}</div>
+                          {!groupedWithNext || message.deliveryStatus === 'failed' ? (
+                            <div className="message-time">
+                              <span>{formatMessageTime(message.timestamp)}</span>
+                              {isSentByCurrentUser ? (
+                                <>
+                                  <span className={`message-read-status ${message.deliveryStatus ?? ''}`}>
+                                    {getDeliveryStatusLabel(message)}
+                                  </span>
+                                  {message.deliveryStatus === 'failed' ? (
+                                    <button
+                                      type="button"
+                                      className="message-retry-btn"
+                                      onClick={() => handleRetryMessage(message)}
+                                    >
+                                      Retry
+                                    </button>
+                                  ) : null}
+                                </>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                       );
-                    }
-
-                    const { message, groupedWithPrevious, groupedWithNext, showSender } = item;
-                    const isSentByCurrentUser = message.senderId === currentUser?.id;
-
-                    return (
-                      <div
-                        key={item.key}
-                        className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${message.deliveryStatus ?? ''} ${groupedWithPrevious ? 'grouped-with-previous' : ''} ${groupedWithNext ? 'grouped-with-next' : ''}`}
-                      >
-                        {showSender ? (
-                          <div className="message-sender">
-                            {getMessageSenderName(message, selectedRoom)}
-                          </div>
-                        ) : null}
-                        <div className="message-content">{message.content}</div>
-                        {!groupedWithNext || message.deliveryStatus === 'failed' ? (
-                          <div className="message-time">
-                            <span>{formatMessageTime(message.timestamp)}</span>
-                            {isSentByCurrentUser ? (
-                              <>
-                                <span className={`message-read-status ${message.deliveryStatus ?? ''}`}>
-                                  {getDeliveryStatusLabel(message)}
-                                </span>
-                                {message.deliveryStatus === 'failed' ? (
-                                  <button
-                                    type="button"
-                                    className="message-retry-btn"
-                                    onClick={() => handleRetryMessage(message)}
-                                  >
-                                    Retry
-                                  </button>
-                                ) : null}
-                              </>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })
+                    })}
+                  </>
                 )}
                 {!messagesLoading && selectedUser && typingUserId === selectedUser.id ? (
                   <div className="typing-indicator">

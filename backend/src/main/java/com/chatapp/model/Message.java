@@ -14,8 +14,10 @@ import java.time.LocalDateTime;
         name = "messages",
         indexes = {
                 @Index(name = "idx_messages_conversation_timestamp", columnList = "sender_id, receiver_id, timestamp"),
+                @Index(name = "idx_messages_sender_receiver_id", columnList = "sender_id, receiver_id, id"),
                 @Index(name = "idx_messages_unread_receiver_sender", columnList = "receiver_id, read, sender_id"),
                 @Index(name = "idx_messages_room_timestamp", columnList = "chat_room_id, timestamp"),
+                @Index(name = "idx_messages_room_id", columnList = "chat_room_id, id"),
                 @Index(name = "uk_messages_sender_client", columnList = "sender_id, client_id", unique = true)
         }
 )

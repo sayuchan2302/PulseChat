@@ -3,6 +3,7 @@ package com.chatapp.controller;
 import com.chatapp.dto.request.CreateChatRoomRequest;
 import com.chatapp.dto.request.SendRoomMessageRequest;
 import com.chatapp.dto.response.ChatRoomResponse;
+import com.chatapp.dto.response.MessagePageResponse;
 import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.service.ChatRoomService;
 import com.chatapp.service.MessageService;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -50,11 +52,13 @@ public class ChatRoomController {
     }
 
     @GetMapping("/{roomId}/messages")
-    public List<MessageResponse> getRoomMessages(
+    public MessagePageResponse getRoomMessages(
             Authentication authentication,
-            @PathVariable Long roomId
+            @PathVariable Long roomId,
+            @RequestParam(required = false) Long before,
+            @RequestParam(required = false) Integer size
     ) {
-        return messageService.getRoomMessages(authentication.getName(), roomId);
+        return messageService.getRoomMessages(authentication.getName(), roomId, before, size);
     }
 
     @PatchMapping("/{roomId}/read")

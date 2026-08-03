@@ -1454,6 +1454,37 @@ button.main-list-item {
   background: var(--gray-50);
 }
 
+.older-messages-btn {
+  align-self: center;
+  min-height: 30px;
+  padding: 6px 12px;
+  border: 1px solid var(--purple-100);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--purple-700);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 2px 8px rgba(147, 51, 234, 0.08);
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.older-messages-btn:hover:not(:disabled) {
+  border-color: var(--purple-200);
+  background: var(--purple-50);
+}
+
+.older-messages-btn:disabled {
+  cursor: wait;
+  color: var(--gray-500);
+  background: var(--purple-50);
+}
+
+.older-messages-btn:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 2px;
+}
+
 .message {
   display: flex;
   flex-direction: column;

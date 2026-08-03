@@ -38,6 +38,12 @@ export interface Message {
   clientId?: string | null;
 }
 
+export interface MessagePage {
+  items: Message[];
+  hasMore: boolean;
+  nextBefore?: number | null;
+}
+
 export interface PresenceEvent {
   userId: number;
   username: string;

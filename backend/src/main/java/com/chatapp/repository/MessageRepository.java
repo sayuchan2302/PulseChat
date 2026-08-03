@@ -1,6 +1,7 @@
 package com.chatapp.repository;
 
 import com.chatapp.model.Message;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -24,13 +25,21 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 
     @Query("""
             select m from Message m
-            where (m.sender.id = :currentUserId and m.receiver.id = :otherUserId)
-               or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
-            order by m.timestamp asc
+            join fetch m.sender
+            left join fetch m.receiver
+            where m.chatRoom is null
+              and (
+                  (m.sender.id = :currentUserId and m.receiver.id = :otherUserId)
+                  or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
+              )
+              and (:before is null or m.id < :before)
+            order by m.id desc
             """)
-    List<Message> findConversation(
+    List<Message> findConversationPage(
             @Param("currentUserId") Long currentUserId,
-            @Param("otherUserId") Long otherUserId
+            @Param("otherUserId") Long otherUserId,
+            @Param("before") Long before,
+            Pageable pageable
     );
 
     @Query("""
@@ -109,5 +118,18 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 
     Optional<Message> findBySenderIdAndClientId(Long senderId, String clientId);
 
-    List<Message> findByChatRoomIdOrderByTimestampAsc(Long chatRoomId);
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            join fetch m.chatRoom
+            left join fetch m.receiver
+            where m.chatRoom.id = :roomId
+              and (:before is null or m.id < :before)
+            order by m.id desc
+            """)
+    List<Message> findRoomMessagePage(
+            @Param("roomId") Long roomId,
+            @Param("before") Long before,
+            Pageable pageable
+    );
 }

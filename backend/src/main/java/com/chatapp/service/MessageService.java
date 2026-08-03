@@ -2,6 +2,7 @@ package com.chatapp.service;
 
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.request.SendRoomMessageRequest;
+import com.chatapp.dto.response.MessagePageResponse;
 import com.chatapp.dto.response.ReadReceiptResponse;
 import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.dto.response.UnreadCountResponse;
@@ -12,22 +13,32 @@ import com.chatapp.model.Message;
 import com.chatapp.model.User;
 import com.chatapp.repository.MessageRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.Comparator;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class MessageService {
+    private static final int DEFAULT_PAGE_SIZE = 30;
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final MessageRepository messageRepository;
     private final UserService userService;
     private final ChatRoomService chatRoomService;
     private final FriendshipService friendshipService;
 
     @Transactional(readOnly = true)
-    public List<MessageResponse> getConversation(String currentUsername, Long otherUserId) {
+    public MessagePageResponse getConversation(
+            String currentUsername,
+            Long otherUserId,
+            Long before,
+            Integer size
+    ) {
         User currentUser = userService.findByUsername(currentUsername);
         User otherUser = userService.findById(otherUserId);
 
@@ -37,10 +48,15 @@ public class MessageService {
 
         validateFriends(currentUser, otherUser);
 
-        return messageRepository.findConversation(currentUser.getId(), otherUser.getId())
-                .stream()
-                .map(MessageResponse::from)
-                .toList();
+        int pageSize = normalizePageSize(size);
+        List<Message> messages = messageRepository.findConversationPage(
+                currentUser.getId(),
+                otherUser.getId(),
+                before,
+                PageRequest.of(0, pageSize + 1)
+        );
+
+        return toMessagePage(messages, pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -54,13 +70,17 @@ public class MessageService {
     }
 
     @Transactional(readOnly = true)
-    public List<MessageResponse> getRoomMessages(String currentUsername, Long roomId) {
+    public MessagePageResponse getRoomMessages(String currentUsername, Long roomId, Long before, Integer size) {
         chatRoomService.findGroupRoomForMember(currentUsername, roomId);
 
-        return messageRepository.findByChatRoomIdOrderByTimestampAsc(roomId)
-                .stream()
-                .map(MessageResponse::from)
-                .toList();
+        int pageSize = normalizePageSize(size);
+        List<Message> messages = messageRepository.findRoomMessagePage(
+                roomId,
+                before,
+                PageRequest.of(0, pageSize + 1)
+        );
+
+        return toMessagePage(messages, pageSize);
     }
 
     @Transactional
@@ -139,6 +159,29 @@ public class MessageService {
         if (!friendshipService.areFriends(firstUser, secondUser)) {
             throw new AppException(ErrorCode.FRIENDSHIP_REQUIRED);
         }
+    }
+
+    private int normalizePageSize(Integer size) {
+        if (size == null) {
+            return DEFAULT_PAGE_SIZE;
+        }
+
+        return Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+    }
+
+    private MessagePageResponse toMessagePage(List<Message> newestFirstMessages, int pageSize) {
+        boolean hasMore = newestFirstMessages.size() > pageSize;
+        List<Message> pageMessages = hasMore
+                ? newestFirstMessages.subList(0, pageSize)
+                : newestFirstMessages;
+
+        List<MessageResponse> items = pageMessages.stream()
+                .sorted(Comparator.comparing(Message::getId))
+                .map(MessageResponse::from)
+                .toList();
+        Long nextBefore = hasMore && !items.isEmpty() ? items.get(0).id() : null;
+
+        return new MessagePageResponse(items, hasMore, nextBefore);
     }
 
     @Transactional

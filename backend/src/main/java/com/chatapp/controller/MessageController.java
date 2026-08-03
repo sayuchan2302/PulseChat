@@ -1,6 +1,7 @@
 package com.chatapp.controller;
 
 import com.chatapp.dto.request.SendMessageRequest;
+import com.chatapp.dto.response.MessagePageResponse;
 import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.dto.response.ReadReceiptResponse;
 import com.chatapp.dto.response.UnreadCountResponse;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -32,8 +34,13 @@ public class MessageController {
     }
 
     @GetMapping("/{userId}")
-    public List<MessageResponse> getConversation(Authentication authentication, @PathVariable Long userId) {
-        return messageService.getConversation(authentication.getName(), userId);
+    public MessagePageResponse getConversation(
+            Authentication authentication,
+            @PathVariable Long userId,
+            @RequestParam(required = false) Long before,
+            @RequestParam(required = false) Integer size
+    ) {
+        return messageService.getConversation(authentication.getName(), userId, before, size);
     }
 
     @PatchMapping("/{userId}/read")
