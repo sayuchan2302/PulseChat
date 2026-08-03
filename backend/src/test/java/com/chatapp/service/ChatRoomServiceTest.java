@@ -5,14 +5,21 @@ import com.chatapp.dto.response.ChatRoomResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.ChatRoom;
+import com.chatapp.model.ChatRoomReadState;
+import com.chatapp.model.Message;
 import com.chatapp.model.User;
+import com.chatapp.repository.ChatRoomReadStateRepository;
 import com.chatapp.repository.ChatRoomRepository;
+import com.chatapp.repository.MessageRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,6 +33,12 @@ import static org.mockito.Mockito.when;
 class ChatRoomServiceTest {
     @Mock
     private ChatRoomRepository chatRoomRepository;
+
+    @Mock
+    private ChatRoomReadStateRepository chatRoomReadStateRepository;
+
+    @Mock
+    private MessageRepository messageRepository;
 
     @Mock
     private UserService userService;
@@ -91,6 +104,51 @@ class ChatRoomServiceTest {
         assertEquals(3, response.participants().size());
     }
 
+    @Test
+    void listGroupsIncludesLatestMessageAndUnreadCount() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        ChatRoom olderRoom = room(10L, "Older room", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice);
+        ChatRoom activeRoom = room(20L, "Active room", LocalDateTime.of(2026, 8, 1, 8, 0), sayu, alice);
+        Message latestMessage = message(100L, activeRoom, alice, "Newest group message", LocalDateTime.of(2026, 8, 1, 11, 0));
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findDistinctByParticipantsIdAndTypeOrderByCreatedAtDesc(1L, ChatRoom.RoomType.GROUP))
+                .thenReturn(List.of(olderRoom, activeRoom));
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L, 20L))).thenReturn(List.of(latestMessage));
+        when(messageRepository.countUnreadRoomMessages(1L, List.of(10L, 20L)))
+                .thenReturn(List.of(roomUnreadCount(20L, 2)));
+
+        List<ChatRoomResponse> responses = chatRoomService.listGroups("sayu");
+
+        assertEquals(20L, responses.get(0).id());
+        assertEquals("Newest group message", responses.get(0).lastMessageContent());
+        assertEquals(LocalDateTime.of(2026, 8, 1, 11, 0), responses.get(0).lastMessageAt());
+        assertEquals(2L, responses.get(0).lastMessageSenderId());
+        assertEquals("alice", responses.get(0).lastMessageSenderName());
+        assertEquals(2, responses.get(0).unreadCount());
+    }
+
+    @Test
+    void markGroupAsReadCreatesReadStateAndReturnsRoomWithZeroUnreadCount() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice);
+        Message latestMessage = message(100L, room, alice, "Latest", LocalDateTime.of(2026, 8, 1, 11, 0));
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+        when(chatRoomReadStateRepository.findByChatRoomIdAndUserId(10L, 1L)).thenReturn(Optional.empty());
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of(latestMessage));
+
+        ChatRoomResponse response = chatRoomService.markGroupAsRead("sayu", 10L);
+
+        assertEquals(10L, response.id());
+        assertEquals("Latest", response.lastMessageContent());
+        assertEquals(0, response.unreadCount());
+        verify(chatRoomReadStateRepository).saveAndFlush(any(ChatRoomReadState.class));
+    }
+
     private User user(Long id, String username) {
         User user = new User();
         user.setId(id);
@@ -99,5 +157,40 @@ class ChatRoomServiceTest {
         user.setEmail(username + "@example.com");
         user.setOnline(false);
         return user;
+    }
+
+    private ChatRoom room(Long id, String name, LocalDateTime createdAt, User... participants) {
+        ChatRoom room = new ChatRoom();
+        room.setId(id);
+        room.setName(name);
+        room.setType(ChatRoom.RoomType.GROUP);
+        room.setCreatedAt(createdAt);
+        room.getParticipants().addAll(List.of(participants));
+        return room;
+    }
+
+    private Message message(Long id, ChatRoom room, User sender, String content, LocalDateTime timestamp) {
+        Message message = new Message();
+        message.setId(id);
+        message.setChatRoom(room);
+        message.setSender(sender);
+        message.setContent(content);
+        message.setTimestamp(timestamp);
+        message.setRead(false);
+        return message;
+    }
+
+    private MessageRepository.RoomUnreadCountProjection roomUnreadCount(Long roomId, long unreadCount) {
+        return new MessageRepository.RoomUnreadCountProjection() {
+            @Override
+            public Long getRoomId() {
+                return roomId;
+            }
+
+            @Override
+            public long getUnreadCount() {
+                return unreadCount;
+            }
+        };
     }
 }

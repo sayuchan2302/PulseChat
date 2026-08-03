@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ROUTES } from '../config/constants';
+import { API_BASE_URL, ROUTES } from '../config/constants';
 import type {
   ChatRoom,
   ConnectionStatus,
@@ -25,8 +25,13 @@ const STOP_TYPING_DELAY_MS = 1500;
 const USER_SEARCH_DEBOUNCE_MS = 300;
 const REMOTE_TYPING_VISIBLE_MS = 2500;
 const OPTIMISTIC_SEND_TIMEOUT_MS = 10000;
+const MESSAGE_GROUP_THRESHOLD_MS = 5 * 60 * 1000;
 const MIN_GROUP_MEMBERS = 3;
 const MIN_GROUP_INVITED_MEMBERS = MIN_GROUP_MEMBERS - 1;
+const MAX_AVATAR_SIZE_BYTES = 2 * 1024 * 1024;
+const MAX_AVATAR_SIZE_MB = MAX_AVATAR_SIZE_BYTES / 1024 / 1024;
+const ACCEPTED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const AVATAR_ACCEPT = ACCEPTED_AVATAR_TYPES.join(',');
 const USER_SKELETON_KEYS = ['user-skeleton-1', 'user-skeleton-2', 'user-skeleton-3'];
 const MESSAGE_SKELETON_KEYS = [
   'message-skeleton-1',
@@ -62,6 +67,23 @@ type MainView = 'chat' | 'friends' | 'requests';
 type HeaderIconProps = {
   className?: string;
 };
+
+type MessageDateDividerItem = {
+  type: 'date';
+  key: string;
+  label: string;
+};
+
+type MessageBubbleItem = {
+  type: 'message';
+  key: string;
+  message: ChatMessage;
+  groupedWithPrevious: boolean;
+  groupedWithNext: boolean;
+  showSender: boolean;
+};
+
+type MessageListItem = MessageDateDividerItem | MessageBubbleItem;
 
 function FriendsIcon({ className }: HeaderIconProps) {
   return (
@@ -167,6 +189,45 @@ function ProfileIcon({ className }: HeaderIconProps) {
   );
 }
 
+function InfoIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
+    </svg>
+  );
+}
+
+function CloseIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  );
+}
+
 function toDeliveredMessage(message: Message): ChatMessage {
   return {
     ...message,
@@ -206,9 +267,11 @@ function appendOptimisticMessage(messages: ChatMessage[], optimisticMessage: Cha
 
 function appendOrUpdateRoom(rooms: ChatRoom[], incomingRoom: ChatRoom) {
   const existingRoom = rooms.some((room) => room.id === incomingRoom.id);
-  return existingRoom
+  const nextRooms = existingRoom
     ? rooms.map((room) => (room.id === incomingRoom.id ? incomingRoom : room))
     : [incomingRoom, ...rooms];
+
+  return sortRoomsByChatActivity(nextRooms);
 }
 
 function mergeServerMessagesWithPending(
@@ -264,6 +327,30 @@ function applyPresenceToUser(user: User, presence: PresenceEvent) {
   return user.id === presence.userId ? { ...user, online: presence.online } : user;
 }
 
+function applyProfileToUser(user: User, updatedUser: User) {
+  if (user.id !== updatedUser.id) {
+    return user;
+  }
+
+  return {
+    ...user,
+    ...updatedUser,
+    unreadCount: user.unreadCount ?? updatedUser.unreadCount,
+    friendshipStatus: user.friendshipStatus ?? updatedUser.friendshipStatus,
+    friendshipId: user.friendshipId ?? updatedUser.friendshipId,
+    lastMessageContent: user.lastMessageContent ?? updatedUser.lastMessageContent,
+    lastMessageAt: user.lastMessageAt ?? updatedUser.lastMessageAt,
+    lastMessageSenderId: user.lastMessageSenderId ?? updatedUser.lastMessageSenderId,
+  };
+}
+
+function applyProfileToRoom(room: ChatRoom, updatedUser: User) {
+  return {
+    ...room,
+    participants: room.participants.map((participant) => applyProfileToUser(participant, updatedUser)),
+  };
+}
+
 function isTypingFromSelectedUser(typing: TypingEvent, selectedUserId: number | null) {
   return selectedUserId !== null && typing.senderId === selectedUserId;
 }
@@ -287,6 +374,10 @@ function incrementUnreadCount(users: User[], senderId: number) {
 
 function resetUnreadCount(users: User[], userId: number) {
   return users.map((user) => (user.id === userId ? { ...user, unreadCount: 0 } : user));
+}
+
+function resetRoomUnreadCount(rooms: ChatRoom[], roomId: number) {
+  return rooms.map((room) => (room.id === roomId ? { ...room, unreadCount: 0 } : room));
 }
 
 function applyReadReceipt(messages: ChatMessage[], receipt: ReadReceiptEvent) {
@@ -388,6 +479,38 @@ function getUserInitial(user: User | null) {
   return getUserDisplayName(user).charAt(0).toUpperCase() || '?';
 }
 
+function getAvatarUrl(avatar?: string | null) {
+  const trimmedAvatar = avatar?.trim();
+  if (!trimmedAvatar) {
+    return '';
+  }
+
+  if (/^(https?:|blob:|data:)/i.test(trimmedAvatar)) {
+    return trimmedAvatar;
+  }
+
+  const baseUrl = new URL(
+    API_BASE_URL,
+    typeof window === 'undefined' ? 'http://localhost' : window.location.origin
+  );
+  const apiPath = baseUrl.pathname.replace(/\/$/, '');
+  const assetPath = trimmedAvatar.startsWith('/') ? trimmedAvatar : `/${trimmedAvatar}`;
+  const resolvedPath =
+    apiPath && !assetPath.startsWith(`${apiPath}/`) ? `${apiPath}${assetPath}` : assetPath;
+
+  return `${baseUrl.origin}${resolvedPath}`;
+}
+
+function renderUserAvatar(user: User | null, className = 'user-avatar') {
+  const avatarUrl = getAvatarUrl(user?.avatar);
+
+  return (
+    <div className={className}>
+      {avatarUrl ? <img src={avatarUrl} alt="" /> : getUserInitial(user)}
+    </div>
+  );
+}
+
 function shouldShowUsername(user: User) {
   return getUserDisplayName(user) !== user.username;
 }
@@ -408,6 +531,24 @@ function getRoomMemberSummary(room: ChatRoom, currentUserId?: number | null) {
   return remainingCount > 0
     ? `${visibleNames.join(', ')} +${remainingCount}`
     : visibleNames.join(', ');
+}
+
+function sortParticipantsForDetails(participants: User[]) {
+  return [...participants].sort((left, right) => {
+    if (left.online !== right.online) {
+      return left.online ? -1 : 1;
+    }
+
+    return getUserDisplayName(left).localeCompare(getUserDisplayName(right));
+  });
+}
+
+function shouldOpenConversationDetailsByDefault() {
+  if (typeof window === 'undefined') {
+    return true;
+  }
+
+  return !window.matchMedia('(max-width: 768px)').matches;
 }
 
 function getMessageSenderName(message: ChatMessage, selectedRoom: ChatRoom | null) {
@@ -461,6 +602,80 @@ function getTimestampValue(timestamp?: string) {
 
   const value = Date.parse(timestamp);
   return Number.isNaN(value) ? 0 : value;
+}
+
+function getRoomActivityTimestamp(room: ChatRoom) {
+  return getTimestampValue(room.lastMessageAt) || getTimestampValue(room.createdAt);
+}
+
+function compareRoomsByChatActivity(firstRoom: ChatRoom, secondRoom: ChatRoom) {
+  const activityDifference =
+    getRoomActivityTimestamp(secondRoom) - getRoomActivityTimestamp(firstRoom);
+
+  if (activityDifference !== 0) {
+    return activityDifference;
+  }
+
+  return firstRoom.name.localeCompare(secondRoom.name);
+}
+
+function sortRoomsByChatActivity(rooms: ChatRoom[]) {
+  return [...rooms].sort(compareRoomsByChatActivity);
+}
+
+function shouldUseMessageAsRoomPreview(room: ChatRoom, message: Message) {
+  return getTimestampValue(message.timestamp) >= getTimestampValue(room.lastMessageAt);
+}
+
+function getMessageSenderDisplayName(message: Message) {
+  return message.senderFullName?.trim() || message.senderUsername || 'Unknown';
+}
+
+function applyRoomPreviewToRoom(room: ChatRoom, message: Message) {
+  if (message.chatRoomId !== room.id || !shouldUseMessageAsRoomPreview(room, message)) {
+    return room;
+  }
+
+  return {
+    ...room,
+    lastMessageContent: message.content,
+    lastMessageAt: message.timestamp,
+    lastMessageSenderId: message.senderId,
+    lastMessageSenderName: getMessageSenderDisplayName(message),
+  };
+}
+
+function applyRoomPreviewToRooms(
+  rooms: ChatRoom[],
+  message: Message,
+  currentUserId: number | null,
+  selectedRoomId: number | null
+) {
+  if (!message.chatRoomId) {
+    return rooms;
+  }
+
+  let didUpdate = false;
+  const nextRooms = rooms.map((room) => {
+    if (room.id !== message.chatRoomId) {
+      return room;
+    }
+
+    const withPreview = applyRoomPreviewToRoom(room, message);
+    const shouldIncrementUnread =
+      message.senderId !== currentUserId && room.id !== selectedRoomId;
+    const nextRoom = {
+      ...withPreview,
+      unreadCount: shouldIncrementUnread
+        ? (withPreview.unreadCount ?? 0) + 1
+        : withPreview.unreadCount ?? 0,
+    };
+
+    didUpdate ||= nextRoom !== room;
+    return nextRoom;
+  });
+
+  return didUpdate ? sortRoomsByChatActivity(nextRooms) : rooms;
 }
 
 function shouldUseMessageAsPreview(user: User, message: Message) {
@@ -542,6 +757,149 @@ function getConversationPreviewText(user: User, currentUserId: number | null) {
   return `${getFriendshipStatusLabel(user)}${username}`;
 }
 
+function getRoomPreviewText(room: ChatRoom, currentUserId: number | null) {
+  const content = room.lastMessageContent?.trim();
+  if (!content) {
+    return getRoomMemberSummary(room, currentUserId);
+  }
+
+  if (room.lastMessageSenderId === currentUserId) {
+    return `You: ${content}`;
+  }
+
+  const senderName = room.lastMessageSenderName?.trim();
+  return senderName ? `${senderName}: ${content}` : content;
+}
+
+function hasPrivateConversation(user: User) {
+  return Boolean(user.lastMessageAt || user.lastMessageContent?.trim() || (user.unreadCount ?? 0) > 0);
+}
+
+function matchesFriendSearch(user: User, query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  return (
+    getUserDisplayName(user).toLowerCase().includes(normalizedQuery) ||
+    user.username.toLowerCase().includes(normalizedQuery)
+  );
+}
+
+function getLocalDateKeyFromDate(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getLocalDateKey(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return timestamp;
+  }
+
+  return getLocalDateKeyFromDate(date);
+}
+
+function formatMessageDateDivider(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  const dateKey = getLocalDateKey(timestamp);
+
+  if (dateKey === getLocalDateKeyFromDate(today)) {
+    return 'Today';
+  }
+
+  if (dateKey === getLocalDateKeyFromDate(yesterday)) {
+    return 'Yesterday';
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric',
+  }).format(date);
+}
+
+function formatMessageTime(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function shouldGroupAdjacentMessages(firstMessage: ChatMessage | undefined, secondMessage: ChatMessage | undefined) {
+  if (!firstMessage || !secondMessage || firstMessage.senderId !== secondMessage.senderId) {
+    return false;
+  }
+
+  if (getLocalDateKey(firstMessage.timestamp) !== getLocalDateKey(secondMessage.timestamp)) {
+    return false;
+  }
+
+  const firstTimestamp = getTimestampValue(firstMessage.timestamp);
+  const secondTimestamp = getTimestampValue(secondMessage.timestamp);
+  if (!firstTimestamp || !secondTimestamp) {
+    return false;
+  }
+
+  return secondTimestamp - firstTimestamp <= MESSAGE_GROUP_THRESHOLD_MS;
+}
+
+function buildMessageListItems(
+  messages: ChatMessage[],
+  selectedRoom: ChatRoom | null,
+  currentUserId: number | null
+): MessageListItem[] {
+  const items: MessageListItem[] = [];
+  let previousDateKey = '';
+
+  messages.forEach((message, index) => {
+    const dateKey = getLocalDateKey(message.timestamp);
+    if (dateKey !== previousDateKey) {
+      items.push({
+        type: 'date',
+        key: `date-${dateKey}-${message.id}`,
+        label: formatMessageDateDivider(message.timestamp),
+      });
+      previousDateKey = dateKey;
+    }
+
+    const previousMessage = messages[index - 1];
+    const nextMessage = messages[index + 1];
+    const groupedWithPrevious = shouldGroupAdjacentMessages(previousMessage, message);
+    const groupedWithNext = shouldGroupAdjacentMessages(message, nextMessage);
+
+    items.push({
+      type: 'message',
+      key: `${message.clientId ?? message.id}`,
+      message,
+      groupedWithPrevious,
+      groupedWithNext,
+      showSender: Boolean(
+        selectedRoom &&
+          message.senderId !== currentUserId &&
+          !groupedWithPrevious
+      ),
+    });
+  });
+
+  return items;
+}
+
 export default function ChatPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [friends, setFriends] = useState<User[]>([]);
@@ -559,11 +917,13 @@ export default function ChatPage() {
   const [messagesError, setMessagesError] = useState('');
   const [friendRequestsError, setFriendRequestsError] = useState('');
   const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [friendSearchQuery, setFriendSearchQuery] = useState('');
   const [roomsLoading, setRoomsLoading] = useState(true);
   const [friendRequestsLoading, setFriendRequestsLoading] = useState(true);
   const [mainView, setMainView] = useState<MainView>('chat');
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [incomingFriendRequests, setIncomingFriendRequests] = useState<Friendship[]>([]);
   const [friendSummary, setFriendSummary] = useState<FriendshipSummary>({
     incomingCount: 0,
@@ -574,6 +934,12 @@ export default function ChatPage() {
   const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<number[]>([]);
   const [groupCreating, setGroupCreating] = useState(false);
   const [groupError, setGroupError] = useState('');
+  const [profileFullName, setProfileFullName] = useState('');
+  const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null);
+  const [profileAvatarPreview, setProfileAvatarPreview] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [detailsOpen, setDetailsOpen] = useState(shouldOpenConversationDetailsByDefault);
   const currentUserIdRef = useRef<number | null>(null);
   const selectedUserIdRef = useRef<number | null>(null);
   const selectedRoomIdRef = useRef<number | null>(null);
@@ -693,10 +1059,11 @@ export default function ChatPage() {
 
     try {
       const response = await apiClient.get<ChatRoom[]>('/rooms');
-      setRooms(response.data);
+      const nextRooms = sortRoomsByChatActivity(response.data);
+      setRooms(nextRooms);
       setSelectedRoom((currentSelectedRoom) =>
         currentSelectedRoom
-          ? response.data.find((room) => room.id === currentSelectedRoom.id) ?? currentSelectedRoom
+          ? nextRooms.find((room) => room.id === currentSelectedRoom.id) ?? currentSelectedRoom
           : null
       );
     } catch (error) {
@@ -782,6 +1149,12 @@ export default function ChatPage() {
     }
   }, [navigate]);
 
+  useEffect(() => () => {
+    if (profileAvatarPreview.startsWith('blob:')) {
+      URL.revokeObjectURL(profileAvatarPreview);
+    }
+  }, [profileAvatarPreview]);
+
   useEffect(() => {
     if (!currentUser?.id) {
       return;
@@ -849,6 +1222,32 @@ export default function ChatPage() {
           }
 
           if (incomingMessage.chatRoomId) {
+            setRooms((currentRooms) =>
+              applyRoomPreviewToRooms(
+                currentRooms,
+                incomingMessage,
+                currentUserIdRef.current,
+                selectedRoomIdRef.current
+              )
+            );
+            setSelectedRoom((currentSelectedRoom) => {
+              if (!currentSelectedRoom || currentSelectedRoom.id !== incomingMessage.chatRoomId) {
+                return currentSelectedRoom;
+              }
+
+              return {
+                ...applyRoomPreviewToRoom(currentSelectedRoom, incomingMessage),
+                unreadCount: 0,
+              };
+            });
+
+            if (
+              incomingMessage.senderId !== currentUserIdRef.current &&
+              incomingMessage.chatRoomId === selectedRoomIdRef.current
+            ) {
+              void markRoomAsRead(incomingMessage.chatRoomId);
+            }
+
             return;
           }
 
@@ -972,6 +1371,11 @@ export default function ChatPage() {
                 selectedUserIdRef.current === selectedUserIdForResync
               ) {
                 void markConversationAsRead(selectedUserIdForResync);
+              } else if (
+                selectedRoomIdForResync !== null &&
+                selectedRoomIdRef.current === selectedRoomIdForResync
+              ) {
+                void markRoomAsRead(selectedRoomIdForResync);
               }
             })
             .catch((error) => {
@@ -1151,6 +1555,24 @@ export default function ChatPage() {
       const response = await apiClient.post<Message>(`/rooms/${roomId}/messages`, payload);
       clearOptimisticSendTimeout(payload.clientId);
       setMessages((currentMessages) => appendOrReconcileMessage(currentMessages, response.data));
+      setRooms((currentRooms) =>
+        applyRoomPreviewToRooms(
+          currentRooms,
+          response.data,
+          currentUserIdRef.current,
+          selectedRoomIdRef.current
+        )
+      );
+      setSelectedRoom((currentSelectedRoom) => {
+        if (!currentSelectedRoom || currentSelectedRoom.id !== response.data.chatRoomId) {
+          return currentSelectedRoom;
+        }
+
+        return {
+          ...applyRoomPreviewToRoom(currentSelectedRoom, response.data),
+          unreadCount: 0,
+        };
+      });
     } catch (error) {
       console.error('Failed to send group message:', error);
       clearOptimisticSendTimeout(payload.clientId);
@@ -1173,6 +1595,23 @@ export default function ChatPage() {
       } catch (error) {
         console.error('Failed to mark conversation as read:', error);
       }
+    }
+  };
+
+  const markRoomAsRead = async (roomId: number) => {
+    setRooms((currentRooms) => resetRoomUnreadCount(currentRooms, roomId));
+    setSelectedRoom((currentSelectedRoom) =>
+      currentSelectedRoom?.id === roomId ? { ...currentSelectedRoom, unreadCount: 0 } : currentSelectedRoom
+    );
+
+    try {
+      const response = await apiClient.patch<ChatRoom>(`/rooms/${roomId}/read`);
+      setRooms((currentRooms) => appendOrUpdateRoom(currentRooms, response.data));
+      setSelectedRoom((currentSelectedRoom) =>
+        currentSelectedRoom?.id === roomId ? response.data : currentSelectedRoom
+      );
+    } catch (error) {
+      console.error('Failed to mark group as read:', error);
     }
   };
 
@@ -1284,6 +1723,7 @@ export default function ChatPage() {
     selectedUserIdRef.current = user.id;
     setMainView('chat');
     setProfileMenuOpen(false);
+    setDetailsOpen(shouldOpenConversationDetailsByDefault());
     hideRemoteTyping();
     void loadMessages(user.id);
     void markConversationAsRead(user.id);
@@ -1300,8 +1740,10 @@ export default function ChatPage() {
     selectedRoomIdRef.current = room.id;
     setMainView('chat');
     setProfileMenuOpen(false);
+    setDetailsOpen(shouldOpenConversationDetailsByDefault());
     hideRemoteTyping();
     void loadRoomMessages(room.id);
+    void markRoomAsRead(room.id);
   };
 
   const handleUserSearchChange = (value: string) => {
@@ -1314,6 +1756,14 @@ export default function ChatPage() {
     userSearchQueryRef.current = '';
     setUserSearchQuery('');
     setUsersError('');
+  };
+
+  const handleFriendSearchChange = (value: string) => {
+    setFriendSearchQuery(value);
+  };
+
+  const handleClearFriendSearch = () => {
+    setFriendSearchQuery('');
   };
 
   const handleOpenFriendsPanel = () => {
@@ -1329,6 +1779,15 @@ export default function ChatPage() {
 
   const handleToggleProfileMenu = () => {
     setProfileMenuOpen((currentOpen) => !currentOpen);
+  };
+
+  const handleToggleConversationDetails = () => {
+    setDetailsOpen((currentOpen) => !currentOpen);
+    setProfileMenuOpen(false);
+  };
+
+  const handleCloseConversationDetails = () => {
+    setDetailsOpen(false);
   };
 
   const handleOpenCreateGroup = () => {
@@ -1387,6 +1846,7 @@ export default function ChatPage() {
       selectedUserIdRef.current = null;
       setSelectedRoom(room);
       selectedRoomIdRef.current = room.id;
+      setDetailsOpen(shouldOpenConversationDetailsByDefault());
       setMessages([]);
       setMessageInput('');
       setCreateGroupOpen(false);
@@ -1487,6 +1947,22 @@ export default function ChatPage() {
       };
 
       setMessages((currentMessages) => appendOptimisticMessage(currentMessages, optimisticMessage));
+      setRooms((currentRooms) =>
+        applyRoomPreviewToRooms(
+          currentRooms,
+          optimisticMessage,
+          currentUser.id,
+          selectedRoom.id
+        )
+      );
+      setSelectedRoom((currentSelectedRoom) =>
+        currentSelectedRoom?.id === selectedRoom.id
+          ? {
+              ...applyRoomPreviewToRoom(currentSelectedRoom, optimisticMessage),
+              unreadCount: 0,
+            }
+          : currentSelectedRoom
+      );
       void sendOptimisticRoomMessage(selectedRoom.id, payload);
     }
   };
@@ -1522,6 +1998,108 @@ export default function ChatPage() {
     void sendOptimisticMessage(payload);
   };
 
+  const applyUpdatedCurrentUserProfile = (updatedUser: User) => {
+    const nextCurrentUser = currentUser
+      ? { ...applyProfileToUser(currentUser, updatedUser), online: currentUser.online }
+      : updatedUser;
+
+    setCurrentUser(nextCurrentUser);
+    currentUserIdRef.current = nextCurrentUser.id;
+    localStorage.setItem('user', JSON.stringify(nextCurrentUser));
+    setUsers((currentUsers) =>
+      currentUsers.map((user) => applyProfileToUser(user, nextCurrentUser))
+    );
+    setFriends((currentFriends) =>
+      currentFriends.map((friend) => applyProfileToUser(friend, nextCurrentUser))
+    );
+    setSelectedUser((currentSelectedUser) =>
+      currentSelectedUser ? applyProfileToUser(currentSelectedUser, nextCurrentUser) : null
+    );
+    setRooms((currentRooms) =>
+      currentRooms.map((room) => applyProfileToRoom(room, nextCurrentUser))
+    );
+    setSelectedRoom((currentSelectedRoom) =>
+      currentSelectedRoom ? applyProfileToRoom(currentSelectedRoom, nextCurrentUser) : null
+    );
+  };
+
+  const handleOpenProfileEditor = () => {
+    setProfileFullName(currentUser?.fullName ?? '');
+    setProfileAvatarFile(null);
+    setProfileAvatarPreview(getAvatarUrl(currentUser?.avatar));
+    setProfileError('');
+    setProfileMenuOpen(false);
+    setProfileEditorOpen(true);
+  };
+
+  const handleCloseProfileEditor = () => {
+    if (profileSaving) {
+      return;
+    }
+
+    setProfileEditorOpen(false);
+    setProfileAvatarFile(null);
+    setProfileAvatarPreview('');
+    setProfileError('');
+  };
+
+  const handleProfileAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (!ACCEPTED_AVATAR_TYPES.includes(file.type)) {
+      setProfileAvatarFile(null);
+      setProfileError('Choose a JPG, PNG, GIF, or WebP image.');
+      event.currentTarget.value = '';
+      return;
+    }
+
+    if (file.size > MAX_AVATAR_SIZE_BYTES) {
+      setProfileAvatarFile(null);
+      setProfileError(`Avatar must be ${MAX_AVATAR_SIZE_MB}MB or smaller.`);
+      event.currentTarget.value = '';
+      return;
+    }
+
+    setProfileAvatarFile(file);
+    setProfileAvatarPreview(URL.createObjectURL(file));
+    setProfileError('');
+  };
+
+  const handleUpdateProfile = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const fullName = profileFullName.trim();
+
+    if (!fullName) {
+      setProfileError('Full name is required.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('fullName', fullName);
+    if (profileAvatarFile) {
+      formData.append('avatar', profileAvatarFile);
+    }
+
+    setProfileSaving(true);
+    setProfileError('');
+
+    try {
+      const response = await apiClient.patch<User>('/users/me', formData);
+      applyUpdatedCurrentUserProfile(response.data);
+      setProfileEditorOpen(false);
+      setProfileAvatarFile(null);
+      setProfileAvatarPreview('');
+    } catch (error) {
+      console.error('Failed to update profile:', error);
+      setProfileError('Unable to update profile.');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
   const handleLogout = () => {
     if (selectedUserIdRef.current !== null) {
       stopTyping(selectedUserIdRef.current);
@@ -1536,7 +2114,12 @@ export default function ChatPage() {
   const currentUserDisplayName = getUserDisplayName(currentUser) || 'Profile';
   const currentUserOnline = Boolean(currentUser?.online);
   const normalizedUserSearchQuery = userSearchQuery.trim();
+  const normalizedFriendSearchQuery = friendSearchQuery.trim();
   const hasUserSearch = Boolean(normalizedUserSearchQuery);
+  const conversationUsers = users.filter(hasPrivateConversation);
+  const filteredFriends = friends.filter((friend) =>
+    matchesFriendSearch(friend, normalizedFriendSearchQuery)
+  );
   const friendRequestBadgeCount = friendSummary.incomingCount;
   const usersEmptyMessage = normalizedUserSearchQuery
     ? `No username matches "${normalizedUserSearchQuery}".`
@@ -1554,6 +2137,7 @@ export default function ChatPage() {
     : `${selectedInvitedMemberCount} of ${MIN_GROUP_INVITED_MEMBERS} friends selected`;
   const canCreateGroup = Boolean(groupName.trim()) && hasMinimumInvitedMembers && !groupCreating;
   const sidebarBusy = hasUserSearch ? usersLoading : usersLoading || roomsLoading;
+  const messageListItems = buildMessageListItems(messages, selectedRoom, currentUser?.id ?? null);
 
   const renderFriendshipAction = (user: User) => {
     if (!hasUserSearch) {
@@ -1612,9 +2196,7 @@ export default function ChatPage() {
 
     return (
       <>
-        <div className="user-avatar">
-          {getUserInitial(user)}
-        </div>
+        {renderUserAvatar(user)}
         <div className="user-info">
           <div className="user-title-row">
             <div className="user-name">{getUserDisplayName(user)}</div>
@@ -1645,7 +2227,7 @@ export default function ChatPage() {
     const unreadCount = user.unreadCount ?? 0;
     const showConversationPreview = !hasUserSearch && canChatWithUser(user);
 
-    if (canChatWithUser(user)) {
+    if (canChatWithUser(user) && !hasUserSearch) {
       return (
         <button
           type="button"
@@ -1670,27 +2252,37 @@ export default function ChatPage() {
     );
   };
 
-  const renderRoomItem = (room: ChatRoom) => (
-    <button
-      type="button"
-      key={`room-${room.id}`}
-      className={`user-item room-item ${selectedRoom?.id === room.id ? 'active' : ''}`}
-      onClick={() => handleRoomSelect(room)}
-    >
-      <div className="user-avatar room-avatar">
-        {getRoomInitial(room)}
-      </div>
-      <div className="user-info">
-        <div className="user-name">{room.name}</div>
-        <div className="user-meta">
-          <span className="user-status">{room.participants.length} members</span>
-          <span className="user-username">
-            {getRoomMemberSummary(room, currentUser?.id)}
-          </span>
+  const renderRoomItem = (room: ChatRoom) => {
+    const unreadCount = room.unreadCount ?? 0;
+    const sidebarTime = formatSidebarTime(room.lastMessageAt);
+
+    return (
+      <button
+        type="button"
+        key={`room-${room.id}`}
+        className={`user-item room-item ${selectedRoom?.id === room.id ? 'active' : ''} ${unreadCount > 0 ? 'unread' : ''}`}
+        onClick={() => handleRoomSelect(room)}
+      >
+        <div className="user-avatar room-avatar">
+          {getRoomInitial(room)}
         </div>
-      </div>
-    </button>
-  );
+        <div className="user-info">
+          <div className="user-title-row">
+            <div className="user-name">{room.name}</div>
+            {sidebarTime ? <span className="user-time">{sidebarTime}</span> : null}
+          </div>
+          <div className="user-preview-row">
+            <span className="user-preview">
+              {getRoomPreviewText(room, currentUser?.id ?? null)}
+            </span>
+          </div>
+        </div>
+        {unreadCount > 0 ? (
+          <div className="unread-badge">{unreadCount}</div>
+        ) : null}
+      </button>
+    );
+  };
 
   const renderSidebarSkeletons = () =>
     USER_SKELETON_KEYS.map((key) => (
@@ -1731,7 +2323,7 @@ export default function ChatPage() {
   };
 
   const renderSidebarChatList = () => {
-    const hasAnyConversation = users.length > 0 || rooms.length > 0;
+    const hasAnyConversation = conversationUsers.length > 0 || rooms.length > 0;
 
     if (sidebarBusy && !hasAnyConversation) {
       return renderSidebarSkeletons();
@@ -1740,9 +2332,9 @@ export default function ChatPage() {
     if (!sidebarBusy && !usersError && !roomsError && !hasAnyConversation) {
       return (
         <div className="list-state empty-groups-state">
-          <span>No chats yet. Search username to add friends or create a group.</span>
-          <button type="button" className="retry-btn" onClick={handleOpenCreateGroup}>
-            Create group
+          <span>No conversations yet. Open Friends to start a new chat.</span>
+          <button type="button" className="retry-btn" onClick={handleOpenFriendsPanel}>
+            Open friends
           </button>
         </div>
       );
@@ -1758,7 +2350,7 @@ export default function ChatPage() {
             </button>
           </div>
         ) : (
-          users.map(renderUserItem)
+          conversationUsers.map(renderUserItem)
         )}
         {roomsError && rooms.length === 0 ? (
           <div className="list-state error-state">
@@ -1782,9 +2374,7 @@ export default function ChatPage() {
       onClick={() => handleUserSelect(user)}
     >
       <div className="main-list-avatar-wrap">
-        <div className="user-avatar">
-          {getUserInitial(user)}
-        </div>
+        {renderUserAvatar(user)}
         <span
           className={`main-list-presence-dot ${user.online ? 'online' : 'offline'}`}
           aria-hidden="true"
@@ -1849,6 +2439,31 @@ export default function ChatPage() {
           </button>
         </div>
 
+        {friends.length > 0 ? (
+          <div className="main-panel-search" role="search">
+            <input
+              type="search"
+              value={friendSearchQuery}
+              onChange={(event) => handleFriendSearchChange(event.target.value)}
+              className="main-panel-search-input"
+              placeholder="Search friends by name or username"
+              aria-label="Search friends by name or username"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {friendSearchQuery ? (
+              <button
+                type="button"
+                className="main-panel-search-clear"
+                onClick={handleClearFriendSearch}
+                aria-label="Clear friend search"
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
         {usersLoading && friends.length === 0 ? (
           renderMainPanelSkeletons()
         ) : usersError && friends.length === 0 ? (
@@ -1870,9 +2485,17 @@ export default function ChatPage() {
             <strong>No friends yet</strong>
             <span>Search username in the sidebar to add friends.</span>
           </div>
+        ) : filteredFriends.length === 0 ? (
+          <div className="main-panel-state panel-empty-state">
+            <span className="panel-empty-icon">
+              <FriendsIcon className="panel-heading-svg" />
+            </span>
+            <strong>No matching friends</strong>
+            <span>Try another name or username.</span>
+          </div>
         ) : (
           <div className="main-list">
-            {friends.map(renderMainFriendItem)}
+            {filteredFriends.map(renderMainFriendItem)}
           </div>
         )}
       </section>
@@ -1885,9 +2508,7 @@ export default function ChatPage() {
     return (
       <div key={friendship.id} className="main-list-item request-main-item">
         <div className="main-list-avatar-wrap">
-          <div className="user-avatar">
-            {getUserInitial(friendship.requester)}
-          </div>
+          {renderUserAvatar(friendship.requester)}
         </div>
         <div className="main-list-copy">
           <strong>{requesterName}</strong>
@@ -1984,6 +2605,119 @@ export default function ChatPage() {
     </section>
   );
 
+  const renderDetailsMemberItem = (user: User) => {
+    const isCurrentUser = user.id === currentUser?.id;
+    const presenceLabel = isCurrentUser
+      ? `You - ${user.online ? 'Online' : 'Offline'}`
+      : user.online
+        ? 'Online'
+        : 'Offline';
+
+    return (
+      <div key={user.id} className="details-member-item">
+        {renderUserAvatar(user, 'user-avatar small-avatar')}
+        <div className="details-member-copy">
+          <strong>{getUserDisplayName(user)}</strong>
+          {shouldShowUsername(user) ? <span>@{user.username}</span> : null}
+        </div>
+        <span className={`details-presence ${user.online ? 'online' : 'offline'}`}>
+          {presenceLabel}
+        </span>
+      </div>
+    );
+  };
+
+  const renderConversationDetails = () => {
+    if (selectedUser) {
+      return (
+        <aside
+          id="conversation-details"
+          className="details-sidebar"
+          aria-label="Conversation details"
+        >
+          <div className="details-header">
+            <h3>Details</h3>
+            <button
+              type="button"
+              className="details-close-btn"
+              onClick={handleCloseConversationDetails}
+              aria-label="Close conversation details"
+              title="Close details"
+            >
+              <CloseIcon className="details-close-icon" />
+            </button>
+          </div>
+
+          <div className="details-profile">
+            {renderUserAvatar(selectedUser, 'user-avatar details-avatar')}
+            <h4>{getUserDisplayName(selectedUser)}</h4>
+            {shouldShowUsername(selectedUser) ? <span>@{selectedUser.username}</span> : null}
+            <span className={`details-status ${selectedUser.online ? 'online' : 'offline'}`}>
+              {selectedUser.online ? 'Online' : 'Offline'}
+            </span>
+          </div>
+
+          <section className="details-section" aria-labelledby="private-details-title">
+            <h4 id="private-details-title">Account</h4>
+            <div className="details-row">
+              <span>Username</span>
+              <strong>@{selectedUser.username}</strong>
+            </div>
+            <div className="details-row">
+              <span>Friendship</span>
+              <strong>Friend</strong>
+            </div>
+          </section>
+        </aside>
+      );
+    }
+
+    if (selectedRoom) {
+      const sortedParticipants = sortParticipantsForDetails(selectedRoom.participants);
+
+      return (
+        <aside
+          id="conversation-details"
+          className="details-sidebar"
+          aria-label="Conversation details"
+        >
+          <div className="details-header">
+            <h3>Details</h3>
+            <button
+              type="button"
+              className="details-close-btn"
+              onClick={handleCloseConversationDetails}
+              aria-label="Close conversation details"
+              title="Close details"
+            >
+              <CloseIcon className="details-close-icon" />
+            </button>
+          </div>
+
+          <div className="details-profile">
+            <div className="user-avatar room-avatar details-avatar">
+              {getRoomInitial(selectedRoom)}
+            </div>
+            <h4>{selectedRoom.name}</h4>
+            <span>{selectedRoom.participants.length} members</span>
+          </div>
+
+          <section className="details-section" aria-labelledby="group-members-title">
+            <div className="details-section-heading">
+              <h4 id="group-members-title">Members</h4>
+              <span>{selectedRoom.participants.length}</span>
+            </div>
+            <div className="details-member-list">
+              {sortedParticipants.map(renderDetailsMemberItem)}
+            </div>
+          </section>
+        </aside>
+      );
+    }
+
+    return null;
+  };
+
   return (
     <div className="chat-page">
       <header className="chat-header">
@@ -2038,9 +2772,7 @@ export default function ChatPage() {
             {profileMenuOpen ? (
               <div className="profile-dropdown" role="menu">
                 <div className="profile-summary">
-                  <div className="user-avatar small-avatar">
-                    {getUserInitial(currentUser)}
-                  </div>
+                  {renderUserAvatar(currentUser, 'user-avatar small-avatar')}
                   <div className="profile-copy">
                     <strong>{currentUserDisplayName}</strong>
                     {currentUser?.username ? <span>@{currentUser.username}</span> : null}
@@ -2054,6 +2786,14 @@ export default function ChatPage() {
                   <span className="account-status-dot" aria-hidden="true" />
                   {currentUserOnline ? 'Online' : 'Offline'}
                 </span>
+                <button
+                  type="button"
+                  onClick={handleOpenProfileEditor}
+                  className="profile-edit-btn"
+                  role="menuitem"
+                >
+                  Edit profile
+                </button>
                 <button
                   type="button"
                   onClick={handleLogout}
@@ -2120,10 +2860,14 @@ export default function ChatPage() {
             <>
               <div className="chat-area-header">
                 <div className="selected-user">
-                  <div className="user-avatar">
-                    {selectedRoom ? getRoomInitial(selectedRoom) : getUserInitial(selectedUser!)}
-                  </div>
-                  <div>
+                  {selectedRoom ? (
+                    <div className="user-avatar room-avatar">
+                      {getRoomInitial(selectedRoom)}
+                    </div>
+                  ) : (
+                    renderUserAvatar(selectedUser)
+                  )}
+                  <div className="selected-user-copy">
                     <div className="user-name">{selectedConversationName}</div>
                     {selectedRoom ? (
                       <div className="user-meta">
@@ -2146,6 +2890,17 @@ export default function ChatPage() {
                     ) : null}
                   </div>
                 </div>
+                <button
+                  type="button"
+                  className={`conversation-details-toggle ${detailsOpen ? 'active' : ''}`}
+                  onClick={handleToggleConversationDetails}
+                  aria-label={detailsOpen ? 'Hide conversation details' : 'Show conversation details'}
+                  aria-expanded={detailsOpen}
+                  aria-controls="conversation-details"
+                  title={detailsOpen ? 'Hide details' : 'Show details'}
+                >
+                  <InfoIcon className="conversation-details-icon" />
+                </button>
               </div>
 
               <div className="messages-container" aria-busy={messagesLoading}>
@@ -2179,38 +2934,53 @@ export default function ChatPage() {
                 ) : messages.length === 0 ? (
                   <div className="message-state">No messages yet.</div>
                 ) : (
-                  messages.map((message) => (
-                    <div
-                      key={message.clientId ?? message.id}
-                      className={`message ${message.senderId === currentUser?.id ? 'sent' : 'received'} ${message.deliveryStatus ?? ''}`}
-                    >
-                      {selectedRoom && message.senderId !== currentUser?.id ? (
-                        <div className="message-sender">
-                          {getMessageSenderName(message, selectedRoom)}
+                  messageListItems.map((item) => {
+                    if (item.type === 'date') {
+                      return (
+                        <div key={item.key} className="message-date-divider">
+                          <span>{item.label}</span>
                         </div>
-                      ) : null}
-                      <div className="message-content">{message.content}</div>
-                      <div className="message-time">
-                        <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
-                        {message.senderId === currentUser?.id ? (
-                          <>
-                            <span className={`message-read-status ${message.deliveryStatus ?? ''}`}>
-                              {getDeliveryStatusLabel(message)}
-                            </span>
-                            {message.deliveryStatus === 'failed' ? (
-                              <button
-                                type="button"
-                                className="message-retry-btn"
-                                onClick={() => handleRetryMessage(message)}
-                              >
-                                Retry
-                              </button>
+                      );
+                    }
+
+                    const { message, groupedWithPrevious, groupedWithNext, showSender } = item;
+                    const isSentByCurrentUser = message.senderId === currentUser?.id;
+
+                    return (
+                      <div
+                        key={item.key}
+                        className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${message.deliveryStatus ?? ''} ${groupedWithPrevious ? 'grouped-with-previous' : ''} ${groupedWithNext ? 'grouped-with-next' : ''}`}
+                      >
+                        {showSender ? (
+                          <div className="message-sender">
+                            {getMessageSenderName(message, selectedRoom)}
+                          </div>
+                        ) : null}
+                        <div className="message-content">{message.content}</div>
+                        {!groupedWithNext || message.deliveryStatus === 'failed' ? (
+                          <div className="message-time">
+                            <span>{formatMessageTime(message.timestamp)}</span>
+                            {isSentByCurrentUser ? (
+                              <>
+                                <span className={`message-read-status ${message.deliveryStatus ?? ''}`}>
+                                  {getDeliveryStatusLabel(message)}
+                                </span>
+                                {message.deliveryStatus === 'failed' ? (
+                                  <button
+                                    type="button"
+                                    className="message-retry-btn"
+                                    onClick={() => handleRetryMessage(message)}
+                                  >
+                                    Retry
+                                  </button>
+                                ) : null}
+                              </>
                             ) : null}
-                          </>
+                          </div>
                         ) : null}
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
                 {!messagesLoading && selectedUser && typingUserId === selectedUser.id ? (
                   <div className="typing-indicator">
@@ -2240,7 +3010,102 @@ export default function ChatPage() {
             </div>
           )}
         </main>
+
+        {mainView === 'chat' && selectedConversationOpen && detailsOpen ? (
+          <>
+            <button
+              type="button"
+              className="details-backdrop"
+              onClick={handleCloseConversationDetails}
+              aria-label="Close conversation details"
+            />
+            {renderConversationDetails()}
+          </>
+        ) : null}
       </div>
+
+      {profileEditorOpen ? (
+        <div className="modal-backdrop">
+          <div
+            className="group-modal profile-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-profile-title"
+          >
+            <form onSubmit={handleUpdateProfile} className="group-form profile-form">
+              <div className="group-modal-header">
+                <div>
+                  <h3 id="edit-profile-title">Edit profile</h3>
+                  <p>@{currentUser?.username}</p>
+                </div>
+                <button
+                  type="button"
+                  className="modal-close-btn"
+                  onClick={handleCloseProfileEditor}
+                  aria-label="Close edit profile"
+                  disabled={profileSaving}
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="profile-avatar-editor">
+                <div className="user-avatar profile-avatar-preview">
+                  {profileAvatarPreview ? (
+                    <img src={profileAvatarPreview} alt="" />
+                  ) : (
+                    getUserInitial(currentUser)
+                  )}
+                </div>
+                <div className="profile-avatar-actions">
+                  <label className="avatar-upload-btn">
+                    <input
+                      type="file"
+                      accept={AVATAR_ACCEPT}
+                      onChange={handleProfileAvatarChange}
+                      disabled={profileSaving}
+                    />
+                    Change avatar
+                  </label>
+                  <small>JPG, PNG, GIF, or WebP. Max {MAX_AVATAR_SIZE_MB}MB.</small>
+                </div>
+              </div>
+
+              <label className="group-field">
+                <span>Full name</span>
+                <input
+                  type="text"
+                  value={profileFullName}
+                  onChange={(event) => {
+                    setProfileFullName(event.target.value);
+                    setProfileError('');
+                  }}
+                  placeholder="Ngoc Thinh"
+                  maxLength={100}
+                  autoFocus
+                  disabled={profileSaving}
+                />
+              </label>
+
+              {profileError ? <div className="group-error">{profileError}</div> : null}
+
+              <div className="group-modal-actions">
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  onClick={handleCloseProfileEditor}
+                  disabled={profileSaving}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="send-btn" disabled={profileSaving}>
+                  {profileSaving ? 'Saving' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
 
       {createGroupOpen ? (
         <div className="modal-backdrop">
@@ -2297,7 +3162,7 @@ export default function ChatPage() {
                           checked={selectedGroupMemberIds.includes(user.id)}
                           onChange={() => handleToggleGroupMember(user.id)}
                         />
-                        <span className="user-avatar small-avatar">{getUserInitial(user)}</span>
+                        {renderUserAvatar(user, 'user-avatar small-avatar')}
                         <span className="group-member-copy">
                           <span>{getUserDisplayName(user)}</span>
                           {shouldShowUsername(user) ? <small>@{user.username}</small> : null}

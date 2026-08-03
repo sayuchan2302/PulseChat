@@ -15,6 +15,10 @@ export const apiClient = axios.create({
 // Request interceptor for adding auth token
 apiClient.interceptors.request.use(
   (config) => {
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+    }
+
     const token = localStorage.getItem('token');
     if (token && !isAuthEndpoint(config.url)) {
       config.headers.Authorization = `Bearer ${token}`;

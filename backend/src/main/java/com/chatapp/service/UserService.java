@@ -9,6 +9,7 @@ import com.chatapp.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -16,6 +17,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserService {
     private final UserRepository userRepository;
+    private final LocalAvatarStorageService localAvatarStorageService;
 
     @Transactional(readOnly = true)
     public List<UserResponse> listOtherUsers(String currentUsername) {
@@ -51,6 +53,21 @@ public class UserService {
     }
 
     @Transactional
+    public UserResponse updateProfile(String username, String fullName, MultipartFile avatarFile) {
+        User user = findByUsername(username);
+
+        if (fullName != null) {
+            user.setFullName(normalizeFullName(fullName));
+        }
+
+        if (avatarFile != null && !avatarFile.isEmpty()) {
+            user.setAvatar(localAvatarStorageService.storeAvatar(avatarFile));
+        }
+
+        return UserResponse.from(userRepository.save(user));
+    }
+
+    @Transactional
     public PresenceResponse updateOnlineStatus(String username, boolean online) {
         User user = findByUsername(username);
         user.setOnline(online);
@@ -70,5 +87,10 @@ public class UserService {
 
     private String normalizeSearchQuery(String query) {
         return query == null ? "" : query.trim();
+    }
+
+    private String normalizeFullName(String fullName) {
+        String normalized = fullName.trim();
+        return normalized.isBlank() ? null : normalized;
     }
 }

@@ -17,6 +17,8 @@ backend/*.iws
 backend/.env
 backend/.env.local
 backend/.env.production
+backend/uploads/
+uploads/
 
 # IDE
 .vscode/

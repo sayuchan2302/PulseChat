@@ -12,6 +12,12 @@ public enum ErrorCode {
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AUTH_003", "Invalid username or password"),
 
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_001", "User not found"),
+    INVALID_AVATAR_FILE(
+            HttpStatus.BAD_REQUEST,
+            "USER_002",
+            "Avatar must be a JPG, PNG, GIF, or WebP image up to 2MB"
+    ),
+    AVATAR_UPLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "USER_003", "Unable to upload avatar"),
 
     FRIENDSHIP_NOT_FOUND(HttpStatus.NOT_FOUND, "FRIENDSHIP_001", "Friend request not found"),
     FRIENDSHIP_ACCESS_DENIED(HttpStatus.FORBIDDEN, "FRIENDSHIP_002", "You cannot update this friend request"),

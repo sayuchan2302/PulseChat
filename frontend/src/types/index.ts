@@ -80,6 +80,11 @@ export interface ChatRoom {
   name: string;
   type: 'private' | 'group';
   participants: User[];
+  unreadCount?: number;
+  lastMessageContent?: string;
+  lastMessageAt?: string;
+  lastMessageSenderId?: number;
+  lastMessageSenderName?: string;
   createdAt: string;
 }
 

@@ -16,6 +16,12 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
         long getUnreadCount();
     }
 
+    interface RoomUnreadCountProjection {
+        Long getRoomId();
+
+        long getUnreadCount();
+    }
+
     @Query("""
             select m from Message m
             where (m.sender.id = :currentUserId and m.receiver.id = :otherUserId)
@@ -51,6 +57,19 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     );
 
     @Query("""
+            select m from Message m
+            join fetch m.sender
+            join fetch m.chatRoom
+            where m.id in (
+                select max(latest.id)
+                from Message latest
+                where latest.chatRoom.id in :roomIds
+                group by latest.chatRoom.id
+            )
+            """)
+    List<Message> findLatestMessagesForRooms(@Param("roomIds") List<Long> roomIds);
+
+    @Query("""
             select m.sender.id as userId, count(m) as unreadCount
             from Message m
             where m.receiver.id = :receiverId
@@ -58,6 +77,22 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             group by m.sender.id
             """)
     List<UnreadCountProjection> countUnreadMessagesGroupedBySender(@Param("receiverId") Long receiverId);
+
+    @Query("""
+            select m.chatRoom.id as roomId, count(m) as unreadCount
+            from Message m
+            left join ChatRoomReadState readState
+              on readState.chatRoom = m.chatRoom
+             and readState.user.id = :currentUserId
+            where m.chatRoom.id in :roomIds
+              and m.sender.id <> :currentUserId
+              and (readState.id is null or m.timestamp > readState.lastReadAt)
+            group by m.chatRoom.id
+            """)
+    List<RoomUnreadCountProjection> countUnreadRoomMessages(
+            @Param("currentUserId") Long currentUserId,
+            @Param("roomIds") List<Long> roomIds
+    );
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
