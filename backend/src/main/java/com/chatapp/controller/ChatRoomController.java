@@ -66,6 +66,47 @@ public class ChatRoomController {
         return messageService.getRoomMessages(authentication.getName(), roomId, before, size);
     }
 
+    @GetMapping("/{roomId}/media")
+    public MessagePageResponse getRoomMedia(
+            Authentication authentication,
+            @PathVariable Long roomId,
+            @RequestParam(required = false) Long before,
+            @RequestParam(required = false) Integer size
+    ) {
+        return messageService.getRoomMedia(authentication.getName(), roomId, before, size);
+    }
+
+    @GetMapping("/{roomId}/links")
+    public MessagePageResponse getRoomLinks(
+            Authentication authentication,
+            @PathVariable Long roomId,
+            @RequestParam(required = false) Long before,
+            @RequestParam(required = false) Integer size
+    ) {
+        return messageService.getRoomLinks(authentication.getName(), roomId, before, size);
+    }
+
+    @GetMapping("/{roomId}/search")
+    public MessagePageResponse searchRoom(
+            Authentication authentication,
+            @PathVariable Long roomId,
+            @RequestParam String query,
+            @RequestParam(required = false) Long before,
+            @RequestParam(required = false) Integer size
+    ) {
+        return messageService.searchRoom(authentication.getName(), roomId, query, before, size);
+    }
+
+    @GetMapping("/{roomId}/around/{messageId}")
+    public MessagePageResponse getRoomAroundMessage(
+            Authentication authentication,
+            @PathVariable Long roomId,
+            @PathVariable Long messageId,
+            @RequestParam(required = false) Integer size
+    ) {
+        return messageService.getRoomAroundMessage(authentication.getName(), roomId, messageId, size);
+    }
+
     @PatchMapping("/{roomId}/read")
     public ChatRoomResponse markRoomAsRead(
             Authentication authentication,

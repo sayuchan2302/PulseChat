@@ -1,6 +1,7 @@
 package com.chatapp.repository;
 
 import com.chatapp.model.Message;
+import com.chatapp.model.Message.MessageType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -39,6 +40,132 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             @Param("currentUserId") Long currentUserId,
             @Param("otherUserId") Long otherUserId,
             @Param("before") Long before,
+            Pageable pageable
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            left join fetch m.receiver
+            where m.chatRoom is null
+              and (
+                  (m.sender.id = :currentUserId and m.receiver.id = :otherUserId)
+                  or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
+              )
+              and m.recalled = false
+              and m.mediaUrl is not null
+              and m.type in :mediaTypes
+              and (:before is null or m.id < :before)
+            order by m.id desc
+            """)
+    List<Message> findConversationMediaPage(
+            @Param("currentUserId") Long currentUserId,
+            @Param("otherUserId") Long otherUserId,
+            @Param("mediaTypes") List<MessageType> mediaTypes,
+            @Param("before") Long before,
+            Pageable pageable
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            left join fetch m.receiver
+            where m.chatRoom is null
+              and (
+                  (m.sender.id = :currentUserId and m.receiver.id = :otherUserId)
+                  or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
+              )
+              and m.recalled = false
+              and m.linkPreviewUrl is not null
+              and (:before is null or m.id < :before)
+            order by m.id desc
+            """)
+    List<Message> findConversationLinkPage(
+            @Param("currentUserId") Long currentUserId,
+            @Param("otherUserId") Long otherUserId,
+            @Param("before") Long before,
+            Pageable pageable
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            left join fetch m.receiver
+            where m.chatRoom is null
+              and (
+                  (m.sender.id = :currentUserId and m.receiver.id = :otherUserId)
+                  or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
+              )
+              and m.recalled = false
+              and (
+                  lower(m.content) like :queryPattern
+                  or lower(coalesce(m.linkPreviewTitle, '')) like :queryPattern
+                  or lower(coalesce(m.linkPreviewDescription, '')) like :queryPattern
+                  or lower(coalesce(m.linkPreviewDomain, '')) like :queryPattern
+              )
+              and (:before is null or m.id < :before)
+            order by m.id desc
+            """)
+    List<Message> findConversationSearchPage(
+            @Param("currentUserId") Long currentUserId,
+            @Param("otherUserId") Long otherUserId,
+            @Param("queryPattern") String queryPattern,
+            @Param("before") Long before,
+            Pageable pageable
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            left join fetch m.receiver
+            where m.chatRoom is null
+              and m.id = :messageId
+              and (
+                  (m.sender.id = :currentUserId and m.receiver.id = :otherUserId)
+                  or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
+              )
+            """)
+    Optional<Message> findConversationMessageById(
+            @Param("currentUserId") Long currentUserId,
+            @Param("otherUserId") Long otherUserId,
+            @Param("messageId") Long messageId
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            left join fetch m.receiver
+            where m.chatRoom is null
+              and (
+                  (m.sender.id = :currentUserId and m.receiver.id = :otherUserId)
+                  or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
+              )
+              and m.id < :anchorId
+            order by m.id desc
+            """)
+    List<Message> findConversationMessagesBefore(
+            @Param("currentUserId") Long currentUserId,
+            @Param("otherUserId") Long otherUserId,
+            @Param("anchorId") Long anchorId,
+            Pageable pageable
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            left join fetch m.receiver
+            where m.chatRoom is null
+              and (
+                  (m.sender.id = :currentUserId and m.receiver.id = :otherUserId)
+                  or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
+              )
+              and m.id > :anchorId
+            order by m.id asc
+            """)
+    List<Message> findConversationMessagesAfter(
+            @Param("currentUserId") Long currentUserId,
+            @Param("otherUserId") Long otherUserId,
+            @Param("anchorId") Long anchorId,
             Pageable pageable
     );
 
@@ -130,6 +257,108 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     List<Message> findRoomMessagePage(
             @Param("roomId") Long roomId,
             @Param("before") Long before,
+            Pageable pageable
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            join fetch m.chatRoom
+            left join fetch m.receiver
+            where m.chatRoom.id = :roomId
+              and m.recalled = false
+              and m.mediaUrl is not null
+              and m.type in :mediaTypes
+              and (:before is null or m.id < :before)
+            order by m.id desc
+            """)
+    List<Message> findRoomMediaPage(
+            @Param("roomId") Long roomId,
+            @Param("mediaTypes") List<MessageType> mediaTypes,
+            @Param("before") Long before,
+            Pageable pageable
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            join fetch m.chatRoom
+            left join fetch m.receiver
+            where m.chatRoom.id = :roomId
+              and m.recalled = false
+              and m.linkPreviewUrl is not null
+              and (:before is null or m.id < :before)
+            order by m.id desc
+            """)
+    List<Message> findRoomLinkPage(
+            @Param("roomId") Long roomId,
+            @Param("before") Long before,
+            Pageable pageable
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            join fetch m.chatRoom
+            left join fetch m.receiver
+            where m.chatRoom.id = :roomId
+              and m.recalled = false
+              and (
+                  lower(m.content) like :queryPattern
+                  or lower(coalesce(m.linkPreviewTitle, '')) like :queryPattern
+                  or lower(coalesce(m.linkPreviewDescription, '')) like :queryPattern
+                  or lower(coalesce(m.linkPreviewDomain, '')) like :queryPattern
+              )
+              and (:before is null or m.id < :before)
+            order by m.id desc
+            """)
+    List<Message> findRoomSearchPage(
+            @Param("roomId") Long roomId,
+            @Param("queryPattern") String queryPattern,
+            @Param("before") Long before,
+            Pageable pageable
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            join fetch m.chatRoom
+            left join fetch m.receiver
+            where m.chatRoom.id = :roomId
+              and m.id = :messageId
+            """)
+    Optional<Message> findRoomMessageById(
+            @Param("roomId") Long roomId,
+            @Param("messageId") Long messageId
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            join fetch m.chatRoom
+            left join fetch m.receiver
+            where m.chatRoom.id = :roomId
+              and m.id < :anchorId
+            order by m.id desc
+            """)
+    List<Message> findRoomMessagesBefore(
+            @Param("roomId") Long roomId,
+            @Param("anchorId") Long anchorId,
+            Pageable pageable
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            join fetch m.chatRoom
+            left join fetch m.receiver
+            where m.chatRoom.id = :roomId
+              and m.id > :anchorId
+            order by m.id asc
+            """)
+    List<Message> findRoomMessagesAfter(
+            @Param("roomId") Long roomId,
+            @Param("anchorId") Long anchorId,
             Pageable pageable
     );
 }

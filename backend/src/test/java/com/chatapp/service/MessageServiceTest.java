@@ -126,6 +126,253 @@ class MessageServiceTest {
     }
 
     @Test
+    void getConversationMediaRequiresAcceptedFriendship() {
+        User currentUser = user(1L, "sayu");
+        User otherUser = user(2L, "thinh");
+        when(userService.findByUsername("sayu")).thenReturn(currentUser);
+        when(userService.findById(otherUser.getId())).thenReturn(otherUser);
+        when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(false);
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> messageService.getConversationMedia("sayu", otherUser.getId(), null, 12)
+        );
+
+        assertEquals(ErrorCode.FRIENDSHIP_REQUIRED, exception.getErrorCode());
+        verify(messageRepository, never()).findConversationMediaPage(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void getConversationMediaReturnsNewestPageWithCursor() {
+        User currentUser = user(1L, "sayu");
+        User otherUser = user(2L, "thinh");
+        when(userService.findByUsername("sayu")).thenReturn(currentUser);
+        when(userService.findById(otherUser.getId())).thenReturn(otherUser);
+        when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(true);
+        when(messageRepository.findConversationMediaPage(
+                eq(1L),
+                eq(2L),
+                eq(List.of(MessageType.IMAGE, MessageType.VIDEO)),
+                eq(10L),
+                any(Pageable.class)
+        )).thenReturn(List.of(
+                mediaMessage(9L, currentUser, otherUser, MessageType.IMAGE),
+                mediaMessage(8L, otherUser, currentUser, MessageType.VIDEO),
+                mediaMessage(7L, currentUser, otherUser, MessageType.IMAGE)
+        ));
+
+        MessagePageResponse page = messageService.getConversationMedia("sayu", otherUser.getId(), 10L, 2);
+
+        assertTrue(page.hasMore());
+        assertEquals(8L, page.nextBefore());
+        assertEquals(List.of(9L, 8L), page.items().stream().map(message -> message.id()).toList());
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(messageRepository).findConversationMediaPage(
+                eq(1L),
+                eq(2L),
+                eq(List.of(MessageType.IMAGE, MessageType.VIDEO)),
+                eq(10L),
+                pageableCaptor.capture()
+        );
+        assertEquals(3, pageableCaptor.getValue().getPageSize());
+    }
+
+    @Test
+    void getConversationLinksReturnsNewestPageWithCursor() {
+        User currentUser = user(1L, "sayu");
+        User otherUser = user(2L, "thinh");
+        when(userService.findByUsername("sayu")).thenReturn(currentUser);
+        when(userService.findById(otherUser.getId())).thenReturn(otherUser);
+        when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(true);
+        when(messageRepository.findConversationLinkPage(eq(1L), eq(2L), isNull(), any(Pageable.class)))
+                .thenReturn(List.of(
+                        linkMessage(6L, currentUser, otherUser),
+                        linkMessage(5L, otherUser, currentUser)
+                ));
+
+        MessagePageResponse page = messageService.getConversationLinks("sayu", otherUser.getId(), null, 2);
+
+        assertFalse(page.hasMore());
+        assertNull(page.nextBefore());
+        assertEquals(List.of(6L, 5L), page.items().stream().map(message -> message.id()).toList());
+    }
+
+    @Test
+    void getRoomMediaRequiresMembership() {
+        AppException accessDenied = new AppException(ErrorCode.ROOM_ACCESS_DENIED);
+        when(chatRoomService.findGroupRoomForMember("sayu", 10L)).thenThrow(accessDenied);
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> messageService.getRoomMedia("sayu", 10L, null, 12)
+        );
+
+        assertEquals(ErrorCode.ROOM_ACCESS_DENIED, exception.getErrorCode());
+        verify(messageRepository, never()).findRoomMediaPage(any(), any(), any(), any());
+    }
+
+    @Test
+    void getRoomLinksReturnsNewestPageWithCursor() {
+        ChatRoom room = room(10L, "Team");
+        User sender = user(1L, "sayu");
+        when(chatRoomService.findGroupRoomForMember("sayu", room.getId())).thenReturn(room);
+        when(messageRepository.findRoomLinkPage(eq(room.getId()), eq(20L), any(Pageable.class)))
+                .thenReturn(List.of(
+                        roomLinkMessage(19L, sender, room),
+                        roomLinkMessage(18L, sender, room),
+                        roomLinkMessage(17L, sender, room)
+                ));
+
+        MessagePageResponse page = messageService.getRoomLinks("sayu", room.getId(), 20L, 2);
+
+        assertTrue(page.hasMore());
+        assertEquals(18L, page.nextBefore());
+        assertEquals(List.of(19L, 18L), page.items().stream().map(message -> message.id()).toList());
+    }
+
+    @Test
+    void searchConversationRequiresAcceptedFriendship() {
+        User currentUser = user(1L, "sayu");
+        User otherUser = user(2L, "thinh");
+        when(userService.findByUsername("sayu")).thenReturn(currentUser);
+        when(userService.findById(otherUser.getId())).thenReturn(otherUser);
+        when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(false);
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> messageService.searchConversation("sayu", otherUser.getId(), "hello", null, 12)
+        );
+
+        assertEquals(ErrorCode.FRIENDSHIP_REQUIRED, exception.getErrorCode());
+        verify(messageRepository, never()).findConversationSearchPage(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void searchConversationReturnsNewestPageWithCursor() {
+        User currentUser = user(1L, "sayu");
+        User otherUser = user(2L, "thinh");
+        when(userService.findByUsername("sayu")).thenReturn(currentUser);
+        when(userService.findById(otherUser.getId())).thenReturn(otherUser);
+        when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(true);
+        when(messageRepository.findConversationSearchPage(
+                eq(1L),
+                eq(2L),
+                eq("%hello%"),
+                eq(12L),
+                any(Pageable.class)
+        )).thenReturn(List.of(
+                privateMessage(11L, "hello newer", currentUser, otherUser),
+                privateMessage(10L, "hello older", otherUser, currentUser),
+                privateMessage(9L, "hello oldest", currentUser, otherUser)
+        ));
+
+        MessagePageResponse page = messageService.searchConversation("sayu", otherUser.getId(), " Hello ", 12L, 2);
+
+        assertTrue(page.hasMore());
+        assertEquals(10L, page.nextBefore());
+        assertEquals(List.of(11L, 10L), page.items().stream().map(message -> message.id()).toList());
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(messageRepository).findConversationSearchPage(
+                eq(1L),
+                eq(2L),
+                eq("%hello%"),
+                eq(12L),
+                pageableCaptor.capture()
+        );
+        assertEquals(3, pageableCaptor.getValue().getPageSize());
+    }
+
+    @Test
+    void searchRoomRequiresMembership() {
+        AppException accessDenied = new AppException(ErrorCode.ROOM_ACCESS_DENIED);
+        when(chatRoomService.findGroupRoomForMember("sayu", 10L)).thenThrow(accessDenied);
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> messageService.searchRoom("sayu", 10L, "hello", null, 12)
+        );
+
+        assertEquals(ErrorCode.ROOM_ACCESS_DENIED, exception.getErrorCode());
+        verify(messageRepository, never()).findRoomSearchPage(any(), any(), any(), any());
+    }
+
+    @Test
+    void getConversationAroundMessageReturnsContextAndOlderCursor() {
+        User currentUser = user(1L, "sayu");
+        User otherUser = user(2L, "thinh");
+        Message anchor = privateMessage(10L, "anchor", currentUser, otherUser);
+        when(userService.findByUsername("sayu")).thenReturn(currentUser);
+        when(userService.findById(otherUser.getId())).thenReturn(otherUser);
+        when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(true);
+        when(messageRepository.findConversationMessageById(1L, 2L, anchor.getId())).thenReturn(Optional.of(anchor));
+        when(messageRepository.findConversationMessagesBefore(eq(1L), eq(2L), eq(anchor.getId()), any(Pageable.class)))
+                .thenReturn(List.of(
+                        privateMessage(9L, "before 9", otherUser, currentUser),
+                        privateMessage(8L, "before 8", currentUser, otherUser),
+                        privateMessage(7L, "before 7", otherUser, currentUser)
+                ));
+        when(messageRepository.findConversationMessagesAfter(eq(1L), eq(2L), eq(anchor.getId()), any(Pageable.class)))
+                .thenReturn(List.of(
+                        privateMessage(11L, "after 11", otherUser, currentUser),
+                        privateMessage(12L, "after 12", currentUser, otherUser)
+                ));
+
+        MessagePageResponse page = messageService.getConversationAroundMessage(
+                "sayu",
+                otherUser.getId(),
+                anchor.getId(),
+                5
+        );
+
+        assertTrue(page.hasMore());
+        assertEquals(8L, page.nextBefore());
+        assertEquals(List.of(8L, 9L, 10L, 11L, 12L), page.items().stream().map(message -> message.id()).toList());
+    }
+
+    @Test
+    void getConversationAroundMessageRequiresMessageInConversation() {
+        User currentUser = user(1L, "sayu");
+        User otherUser = user(2L, "thinh");
+        when(userService.findByUsername("sayu")).thenReturn(currentUser);
+        when(userService.findById(otherUser.getId())).thenReturn(otherUser);
+        when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(true);
+        when(messageRepository.findConversationMessageById(1L, 2L, 30L)).thenReturn(Optional.empty());
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> messageService.getConversationAroundMessage("sayu", otherUser.getId(), 30L, 30)
+        );
+
+        assertEquals(ErrorCode.MESSAGE_NOT_FOUND, exception.getErrorCode());
+        verify(messageRepository, never()).findConversationMessagesBefore(any(), any(), any(), any());
+        verify(messageRepository, never()).findConversationMessagesAfter(any(), any(), any(), any());
+    }
+
+    @Test
+    void getRoomAroundMessageReturnsContext() {
+        ChatRoom room = room(10L, "Team");
+        User sender = user(1L, "sayu");
+        Message anchor = roomMessage(15L, "anchor", sender, room);
+        when(chatRoomService.findGroupRoomForMember("sayu", room.getId())).thenReturn(room);
+        when(messageRepository.findRoomMessageById(room.getId(), anchor.getId())).thenReturn(Optional.of(anchor));
+        when(messageRepository.findRoomMessagesBefore(eq(room.getId()), eq(anchor.getId()), any(Pageable.class)))
+                .thenReturn(List.of(roomMessage(14L, "before", sender, room)));
+        when(messageRepository.findRoomMessagesAfter(eq(room.getId()), eq(anchor.getId()), any(Pageable.class)))
+                .thenReturn(List.of(
+                        roomMessage(16L, "after", sender, room),
+                        roomMessage(17L, "after newer", sender, room)
+                ));
+
+        MessagePageResponse page = messageService.getRoomAroundMessage("sayu", room.getId(), anchor.getId(), 4);
+
+        assertFalse(page.hasMore());
+        assertNull(page.nextBefore());
+        assertEquals(List.of(14L, 15L, 16L, 17L), page.items().stream().map(message -> message.id()).toList());
+    }
+
+    @Test
     void sendImageMessageSavesMediaMetadata() {
         User sender = user(1L, "sayu");
         User receiver = user(2L, "thinh");
@@ -366,6 +613,35 @@ class MessageServiceTest {
         Message message = baseMessage(id, content, sender);
         message.setChatRoom(room);
         return message;
+    }
+
+    private static Message mediaMessage(Long id, User sender, User receiver, MessageType type) {
+        Message message = privateMessage(id, "Shared media", sender, receiver);
+        message.setType(type);
+        message.setMediaUrl("https://example.com/media-" + id);
+        message.setMediaPublicId("chat-app/messages/media-" + id);
+        message.setMediaResourceType(type == MessageType.IMAGE ? "image" : "video");
+        return message;
+    }
+
+    private static Message linkMessage(Long id, User sender, User receiver) {
+        Message message = privateMessage(id, "https://example.com/post-" + id, sender, receiver);
+        applyLinkPreview(message, id);
+        return message;
+    }
+
+    private static Message roomLinkMessage(Long id, User sender, ChatRoom room) {
+        Message message = roomMessage(id, "https://example.com/post-" + id, sender, room);
+        applyLinkPreview(message, id);
+        return message;
+    }
+
+    private static void applyLinkPreview(Message message, Long id) {
+        message.setLinkPreviewUrl("https://example.com/post-" + id);
+        message.setLinkPreviewTitle("Post " + id);
+        message.setLinkPreviewDescription("A useful link");
+        message.setLinkPreviewImageUrl("https://example.com/post-" + id + ".jpg");
+        message.setLinkPreviewDomain("example.com");
     }
 
     private static MediaAttachmentRequest media(

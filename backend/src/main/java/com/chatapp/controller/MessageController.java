@@ -49,6 +49,47 @@ public class MessageController {
         return messageService.getConversation(authentication.getName(), userId, before, size);
     }
 
+    @GetMapping("/{userId}/media")
+    public MessagePageResponse getConversationMedia(
+            Authentication authentication,
+            @PathVariable Long userId,
+            @RequestParam(required = false) Long before,
+            @RequestParam(required = false) Integer size
+    ) {
+        return messageService.getConversationMedia(authentication.getName(), userId, before, size);
+    }
+
+    @GetMapping("/{userId}/links")
+    public MessagePageResponse getConversationLinks(
+            Authentication authentication,
+            @PathVariable Long userId,
+            @RequestParam(required = false) Long before,
+            @RequestParam(required = false) Integer size
+    ) {
+        return messageService.getConversationLinks(authentication.getName(), userId, before, size);
+    }
+
+    @GetMapping("/{userId}/search")
+    public MessagePageResponse searchConversation(
+            Authentication authentication,
+            @PathVariable Long userId,
+            @RequestParam String query,
+            @RequestParam(required = false) Long before,
+            @RequestParam(required = false) Integer size
+    ) {
+        return messageService.searchConversation(authentication.getName(), userId, query, before, size);
+    }
+
+    @GetMapping("/{userId}/around/{messageId}")
+    public MessagePageResponse getConversationAroundMessage(
+            Authentication authentication,
+            @PathVariable Long userId,
+            @PathVariable Long messageId,
+            @RequestParam(required = false) Integer size
+    ) {
+        return messageService.getConversationAroundMessage(authentication.getName(), userId, messageId, size);
+    }
+
     @PatchMapping("/{userId}/read")
     public ReadReceiptResponse markConversationAsRead(Authentication authentication, @PathVariable Long userId) {
         return messageService.markConversationAsRead(authentication.getName(), userId);

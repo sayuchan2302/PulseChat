@@ -33,7 +33,14 @@ const REMOTE_TYPING_VISIBLE_MS = 2500;
 const OPTIMISTIC_SEND_TIMEOUT_MS = 10000;
 const MESSAGE_GROUP_THRESHOLD_MS = 5 * 60 * 1000;
 const MESSAGE_PAGE_SIZE = 30;
+const SHARED_CONTENT_PAGE_SIZE = 12;
+const MESSAGE_SEARCH_PAGE_SIZE = 12;
+const MESSAGE_AROUND_PAGE_SIZE = 30;
+const MESSAGE_SEARCH_DEBOUNCE_MS = 300;
+const MESSAGE_JUMP_HIGHLIGHT_MS = 2200;
 const LOAD_OLDER_SCROLL_THRESHOLD = 80;
+const READ_BOTTOM_THRESHOLD = 96;
+const AUTO_SCROLL_BOTTOM_THRESHOLD = 180;
 const MIN_GROUP_MEMBERS = 3;
 const MIN_GROUP_INVITED_MEMBERS = MIN_GROUP_MEMBERS - 1;
 const BIO_MAX_LENGTH = 160;
@@ -181,6 +188,15 @@ type LoadOptions = {
 };
 
 type MainView = 'chat' | 'friends' | 'requests';
+type SharedContentKind = 'media' | 'links';
+type SharedContentLoadOptions = {
+  reset?: boolean;
+};
+type SharedContentPredicate = (message: Message) => boolean;
+type MessageSearchLoadOptions = {
+  reset?: boolean;
+  query?: string;
+};
 
 type ChatRouteState =
   | { kind: 'chat' }
@@ -200,6 +216,11 @@ type MessageDateDividerItem = {
   label: string;
 };
 
+type MessageUnreadDividerItem = {
+  type: 'unread';
+  key: string;
+};
+
 type MessageBubbleItem = {
   type: 'message';
   key: string;
@@ -209,7 +230,14 @@ type MessageBubbleItem = {
   showSender: boolean;
 };
 
-type MessageListItem = MessageDateDividerItem | MessageBubbleItem;
+type MessageListItem = MessageDateDividerItem | MessageUnreadDividerItem | MessageBubbleItem;
+type SidebarConversationItem =
+  | { type: 'user'; user: User }
+  | { type: 'room'; room: ChatRoom };
+type PendingReadConversation =
+  | { type: 'user'; id: number; unreadCount: number }
+  | { type: 'room'; id: number; unreadCount: number }
+  | null;
 
 function FriendsIcon({ className }: HeaderIconProps) {
   return (
@@ -331,6 +359,45 @@ function InfoIcon({ className }: HeaderIconProps) {
       <circle cx="12" cy="12" r="10" />
       <path d="M12 16v-4" />
       <path d="M12 8h.01" />
+    </svg>
+  );
+}
+
+function SearchIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </svg>
+  );
+}
+
+function JumpIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M7 17 17 7" />
+      <path d="M9 7h8v8" />
+      <path d="M5 5v14h14" />
     </svg>
   );
 }
@@ -473,6 +540,24 @@ function MoreIcon({ className }: HeaderIconProps) {
       <circle cx="12" cy="12" r="1" />
       <circle cx="19" cy="12" r="1" />
       <circle cx="5" cy="12" r="1" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <polyline points="6 9 12 15 18 9" />
     </svg>
   );
 }
@@ -746,6 +831,38 @@ function applyReadReceipt(messages: ChatMessage[], receipt: ReadReceiptEvent) {
   );
 }
 
+function isMessagesContainerNearBottom(container: HTMLElement | null, threshold = READ_BOTTOM_THRESHOLD) {
+  if (!container) {
+    return false;
+  }
+
+  return container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
+}
+
+function isUnreadMessageForCurrentUser(message: ChatMessage, currentUserId: number | null) {
+  return currentUserId !== null && message.id > 0 && message.senderId !== currentUserId;
+}
+
+function getUnreadDividerCandidateId(
+  messages: ChatMessage[],
+  unreadCount: number,
+  currentUserId: number | null
+) {
+  if (unreadCount <= 0) {
+    return null;
+  }
+
+  const incomingMessages = messages.filter((message) =>
+    isUnreadMessageForCurrentUser(message, currentUserId)
+  );
+  if (incomingMessages.length === 0) {
+    return messages.find((message) => message.id > 0)?.id ?? null;
+  }
+
+  const unreadStartIndex = Math.max(incomingMessages.length - unreadCount, 0);
+  return incomingMessages[unreadStartIndex]?.id ?? incomingMessages[0]?.id ?? null;
+}
+
 function createClientId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -847,6 +964,34 @@ function getMessagePreviewContent(message: Message) {
   }
 
   return '';
+}
+
+function getMessageSearchPreview(message: Message) {
+  const content = getMessagePreviewContent(message);
+  if (content) {
+    return content;
+  }
+
+  const previewTitle = message.linkPreview?.title?.trim();
+  if (previewTitle) {
+    return previewTitle;
+  }
+
+  return 'Message';
+}
+
+function messageMatchesSearchQuery(message: Message, query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery || message.recalled) {
+    return false;
+  }
+
+  return [
+    message.content,
+    message.linkPreview?.title,
+    message.linkPreview?.description,
+    message.linkPreview?.domain,
+  ].some((value) => value?.toLowerCase().includes(normalizedQuery));
 }
 
 function applyMediaPayload(message: ChatMessage, media?: MediaAttachment): ChatMessage {
@@ -1170,6 +1315,85 @@ function hasLinkPreview(preview?: LinkPreview | null) {
   return Boolean(preview?.url);
 }
 
+function isSharedMediaMessage(message: Message) {
+  return !message.recalled && isMediaMessage(message) && Boolean(message.mediaUrl?.trim());
+}
+
+function isSharedLinkMessage(message: Message) {
+  return !message.recalled && hasLinkPreview(message.linkPreview);
+}
+
+function mergeSharedContentPage(
+  currentMessages: ChatMessage[],
+  pageMessages: Message[],
+  reset: boolean
+) {
+  const deliveredMessages = pageMessages.map(toDeliveredMessage);
+  if (reset) {
+    return deliveredMessages;
+  }
+
+  const existingIds = new Set(currentMessages.map((message) => message.id));
+  return [
+    ...currentMessages,
+    ...deliveredMessages.filter((message) => !existingIds.has(message.id)),
+  ];
+}
+
+function prependSharedContentItem(
+  currentMessages: ChatMessage[],
+  incomingMessage: Message,
+  shouldInclude: SharedContentPredicate
+) {
+  if (!shouldInclude(incomingMessage)) {
+    return currentMessages;
+  }
+
+  const deliveredMessage = toDeliveredMessage(incomingMessage);
+  return [
+    deliveredMessage,
+    ...currentMessages.filter((message) => message.id !== deliveredMessage.id),
+  ];
+}
+
+function updateKnownSharedContentItem(
+  currentMessages: ChatMessage[],
+  incomingMessage: Message,
+  shouldInclude: SharedContentPredicate
+) {
+  const existingMessageIndex = currentMessages.findIndex((message) => message.id === incomingMessage.id);
+  if (existingMessageIndex < 0) {
+    return currentMessages;
+  }
+
+  if (!shouldInclude(incomingMessage)) {
+    return currentMessages.filter((message) => message.id !== incomingMessage.id);
+  }
+
+  const deliveredMessage = toDeliveredMessage(incomingMessage);
+  return currentMessages.map((message, index) =>
+    index === existingMessageIndex ? { ...message, ...deliveredMessage } : message
+  );
+}
+
+function getLinkPreviewDomain(preview?: LinkPreview | null) {
+  const explicitDomain = preview?.domain?.trim();
+  if (explicitDomain) {
+    return explicitDomain;
+  }
+
+  const url = preview?.url?.trim();
+  if (!url) {
+    return '';
+  }
+
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
 function renderLinkPreviewCard(preview?: LinkPreview | null, onImageLoad?: () => void) {
   const url = preview?.url;
   if (!url) {
@@ -1401,6 +1625,44 @@ function compareRoomsByChatActivity(firstRoom: ChatRoom, secondRoom: ChatRoom) {
 
 function sortRoomsByChatActivity(rooms: ChatRoom[]) {
   return [...rooms].sort(compareRoomsByChatActivity);
+}
+
+function getUserActivityTimestamp(user: User) {
+  return getTimestampValue(user.lastMessageAt);
+}
+
+function getSidebarConversationActivityTimestamp(item: SidebarConversationItem) {
+  return item.type === 'user'
+    ? getUserActivityTimestamp(item.user)
+    : getRoomActivityTimestamp(item.room);
+}
+
+function getSidebarConversationLabel(item: SidebarConversationItem) {
+  return item.type === 'user' ? getUserDisplayName(item.user) : item.room.name;
+}
+
+function compareSidebarConversationItems(
+  firstItem: SidebarConversationItem,
+  secondItem: SidebarConversationItem
+) {
+  const activityDifference =
+    getSidebarConversationActivityTimestamp(secondItem) -
+    getSidebarConversationActivityTimestamp(firstItem);
+
+  if (activityDifference !== 0) {
+    return activityDifference;
+  }
+
+  return getSidebarConversationLabel(firstItem).localeCompare(
+    getSidebarConversationLabel(secondItem)
+  );
+}
+
+function buildSidebarConversationItems(users: User[], rooms: ChatRoom[]) {
+  return [
+    ...users.map((user) => ({ type: 'user' as const, user })),
+    ...rooms.map((room) => ({ type: 'room' as const, room })),
+  ].sort(compareSidebarConversationItems);
 }
 
 function shouldUseMessageAsRoomPreview(room: ChatRoom, message: Message) {
@@ -1642,7 +1904,8 @@ function shouldGroupAdjacentMessages(firstMessage: ChatMessage | undefined, seco
 function buildMessageListItems(
   messages: ChatMessage[],
   selectedRoom: ChatRoom | null,
-  currentUserId: number | null
+  currentUserId: number | null,
+  unreadDividerMessageId: number | null
 ): MessageListItem[] {
   const items: MessageListItem[] = [];
   let previousDateKey = '';
@@ -1656,6 +1919,13 @@ function buildMessageListItems(
         label: formatMessageDateDivider(message.timestamp),
       });
       previousDateKey = dateKey;
+    }
+
+    if (unreadDividerMessageId !== null && message.id === unreadDividerMessageId) {
+      items.push({
+        type: 'unread',
+        key: `unread-${message.id}`,
+      });
     }
 
     const previousMessage = messages[index - 1];
@@ -1731,6 +2001,28 @@ export default function ChatPage() {
   );
   const [groupSettingsPendingAction, setGroupSettingsPendingAction] = useState<string | null>(null);
   const [groupSettingsError, setGroupSettingsError] = useState('');
+  const [groupMembersExpanded, setGroupMembersExpanded] = useState(false);
+  const [messageSearchExpanded, setMessageSearchExpanded] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState('');
+  const [messageSearchItems, setMessageSearchItems] = useState<ChatMessage[]>([]);
+  const [messageSearchLoading, setMessageSearchLoading] = useState(false);
+  const [messageSearchError, setMessageSearchError] = useState('');
+  const [messageSearchHasMore, setMessageSearchHasMore] = useState(false);
+  const [messageSearchNextBefore, setMessageSearchNextBefore] = useState<number | null>(null);
+  const [sharedMediaExpanded, setSharedMediaExpanded] = useState(false);
+  const [sharedLinksExpanded, setSharedLinksExpanded] = useState(false);
+  const [sharedMediaLoaded, setSharedMediaLoaded] = useState(false);
+  const [sharedLinksLoaded, setSharedLinksLoaded] = useState(false);
+  const [sharedMediaItems, setSharedMediaItems] = useState<ChatMessage[]>([]);
+  const [sharedLinkItems, setSharedLinkItems] = useState<ChatMessage[]>([]);
+  const [sharedMediaLoading, setSharedMediaLoading] = useState(false);
+  const [sharedLinksLoading, setSharedLinksLoading] = useState(false);
+  const [sharedMediaError, setSharedMediaError] = useState('');
+  const [sharedLinksError, setSharedLinksError] = useState('');
+  const [sharedMediaHasMore, setSharedMediaHasMore] = useState(false);
+  const [sharedLinksHasMore, setSharedLinksHasMore] = useState(false);
+  const [sharedMediaNextBefore, setSharedMediaNextBefore] = useState<number | null>(null);
+  const [sharedLinksNextBefore, setSharedLinksNextBefore] = useState<number | null>(null);
   const [profileFullName, setProfileFullName] = useState('');
   const [profileBio, setProfileBio] = useState('');
   const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null);
@@ -1742,13 +2034,19 @@ export default function ChatPage() {
   const [viewedProfileError, setViewedProfileError] = useState('');
   const [profileActionError, setProfileActionError] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(shouldOpenConversationDetailsByDefault);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
+  const [unreadDividerMessageId, setUnreadDividerMessageIdState] = useState<number | null>(null);
   const currentUserIdRef = useRef<number | null>(null);
   const selectedUserIdRef = useRef<number | null>(null);
   const selectedRoomIdRef = useRef<number | null>(null);
+  const unreadDividerMessageIdRef = useRef<number | null>(null);
+  const pendingReadConversationRef = useRef<PendingReadConversation>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const userSearchQueryRef = useRef('');
+  const messageSearchQueryRef = useRef('');
+  const messageSearchRequestedQueryRef = useRef('');
   const viewedProfileUsernameRef = useRef('');
   const optimisticMessageIdRef = useRef(0);
   const hasConnectedRef = useRef(false);
@@ -1761,8 +2059,11 @@ export default function ChatPage() {
   const blockOlderMessagesAutoLoadRef = useRef(false);
   const hasUserInteractedWithMessagesRef = useRef(false);
   const releaseInitialScrollBlockFrameRef = useRef<number | null>(null);
+  const messageJumpHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const messageJumpFrameRef = useRef<number | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const unreadDividerRef = useRef<HTMLDivElement | null>(null);
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const messageInputSelectionRef = useRef({ start: 0, end: 0 });
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1845,6 +2146,82 @@ export default function ChatPage() {
     [forceScrollToLatestMessage]
   );
 
+  const setUnreadDividerMessageId = useCallback((messageId: number | null) => {
+    unreadDividerMessageIdRef.current = messageId;
+    setUnreadDividerMessageIdState(messageId);
+  }, []);
+
+  const scrollToUnreadDivider = useCallback(() => {
+    const divider = unreadDividerRef.current;
+    if (!divider) {
+      return false;
+    }
+
+    divider.scrollIntoView({
+      behavior: 'auto',
+      block: 'start',
+    });
+    return true;
+  }, []);
+
+  const clearPendingReadConversation = useCallback(() => {
+    pendingReadConversationRef.current = null;
+    setUnreadDividerMessageId(null);
+  }, [setUnreadDividerMessageId]);
+
+  const preparePendingReadConversation = useCallback((
+    type: NonNullable<PendingReadConversation>['type'],
+    id: number,
+    unreadCount: number
+  ) => {
+    if (unreadCount <= 0) {
+      clearPendingReadConversation();
+      return;
+    }
+
+    pendingReadConversationRef.current = { type, id, unreadCount };
+    setUnreadDividerMessageId(null);
+  }, [clearPendingReadConversation, setUnreadDividerMessageId]);
+
+  const applyPendingUnreadDivider = useCallback((
+    pageMessages: Message[],
+    type: NonNullable<PendingReadConversation>['type'],
+    id: number
+  ) => {
+    const pendingConversation = pendingReadConversationRef.current;
+    if (
+      !pendingConversation ||
+      pendingConversation.type !== type ||
+      pendingConversation.id !== id
+    ) {
+      return;
+    }
+
+    const dividerMessageId = getUnreadDividerCandidateId(
+      pageMessages.map(toDeliveredMessage),
+      pendingConversation.unreadCount,
+      currentUserIdRef.current
+    );
+    setUnreadDividerMessageId(dividerMessageId);
+  }, [setUnreadDividerMessageId]);
+
+  const addPendingUnreadMessage = useCallback((
+    type: NonNullable<PendingReadConversation>['type'],
+    id: number,
+    message: Message
+  ) => {
+    const pendingConversation = pendingReadConversationRef.current;
+    const unreadCount =
+      pendingConversation?.type === type && pendingConversation.id === id
+        ? pendingConversation.unreadCount + 1
+        : 1;
+
+    pendingReadConversationRef.current = { type, id, unreadCount };
+    if (unreadDividerMessageIdRef.current === null && message.id > 0) {
+      setUnreadDividerMessageId(message.id);
+    }
+  }, [setUnreadDividerMessageId]);
+
   const resetMessagePagination = useCallback(() => {
     olderMessagesLoadingRef.current = false;
     hasMoreMessagesRef.current = false;
@@ -1863,6 +2240,143 @@ export default function ChatPage() {
     hasMoreMessagesRef.current = page.hasMore;
     nextMessageBeforeRef.current = nextBefore;
     setHasMoreMessages(page.hasMore);
+  }, []);
+
+  const resetSharedContentState = useCallback(() => {
+    setSharedMediaExpanded(false);
+    setSharedLinksExpanded(false);
+    setSharedMediaLoaded(false);
+    setSharedLinksLoaded(false);
+    setSharedMediaItems([]);
+    setSharedLinkItems([]);
+    setSharedMediaLoading(false);
+    setSharedLinksLoading(false);
+    setSharedMediaError('');
+    setSharedLinksError('');
+    setSharedMediaHasMore(false);
+    setSharedLinksHasMore(false);
+    setSharedMediaNextBefore(null);
+    setSharedLinksNextBefore(null);
+  }, []);
+
+  const resetMessageSearchState = useCallback(() => {
+    messageSearchQueryRef.current = '';
+    messageSearchRequestedQueryRef.current = '';
+    setMessageSearchExpanded(false);
+    setMessageSearchQuery('');
+    setMessageSearchItems([]);
+    setMessageSearchLoading(false);
+    setMessageSearchError('');
+    setMessageSearchHasMore(false);
+    setMessageSearchNextBefore(null);
+    setHighlightedMessageId(null);
+  }, []);
+
+  const clearMessageJumpEffects = useCallback(() => {
+    if (messageJumpHighlightTimeoutRef.current) {
+      clearTimeout(messageJumpHighlightTimeoutRef.current);
+      messageJumpHighlightTimeoutRef.current = null;
+    }
+
+    if (messageJumpFrameRef.current !== null) {
+      window.cancelAnimationFrame(messageJumpFrameRef.current);
+      messageJumpFrameRef.current = null;
+    }
+  }, []);
+
+  const scrollToMessageById = useCallback((messageId: number) => {
+    const container = messagesContainerRef.current;
+    const messageElement = container?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
+    if (!messageElement) {
+      return;
+    }
+
+    messageElement.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+    });
+  }, []);
+
+  const highlightMessageById = useCallback(
+    (messageId: number) => {
+      clearMessageJumpEffects();
+      setHighlightedMessageId(messageId);
+      messageJumpFrameRef.current = window.requestAnimationFrame(() => {
+        messageJumpFrameRef.current = window.requestAnimationFrame(() => {
+          scrollToMessageById(messageId);
+          messageJumpFrameRef.current = null;
+        });
+      });
+      messageJumpHighlightTimeoutRef.current = setTimeout(() => {
+        setHighlightedMessageId((currentMessageId) =>
+          currentMessageId === messageId ? null : currentMessageId
+        );
+        messageJumpHighlightTimeoutRef.current = null;
+      }, MESSAGE_JUMP_HIGHLIGHT_MS);
+    },
+    [clearMessageJumpEffects, scrollToMessageById]
+  );
+
+  const addIncomingSharedContent = useCallback((incomingMessage: Message) => {
+    if (
+      !isActiveConversationMessage(
+        incomingMessage,
+        currentUserIdRef.current,
+        selectedUserIdRef.current,
+        selectedRoomIdRef.current
+      )
+    ) {
+      return;
+    }
+
+    setSharedMediaItems((currentMessages) =>
+      prependSharedContentItem(currentMessages, incomingMessage, isSharedMediaMessage)
+    );
+    setSharedLinkItems((currentMessages) =>
+      prependSharedContentItem(currentMessages, incomingMessage, isSharedLinkMessage)
+    );
+
+    const currentSearchQuery = messageSearchQueryRef.current.trim();
+    if (currentSearchQuery) {
+      setMessageSearchItems((currentMessages) =>
+        prependSharedContentItem(
+          currentMessages,
+          incomingMessage,
+          (message) => messageMatchesSearchQuery(message, currentSearchQuery)
+        )
+      );
+    }
+  }, []);
+
+  const updateSharedContentFromMessage = useCallback((updatedMessage: Message) => {
+    if (
+      !isActiveConversationMessage(
+        updatedMessage,
+        currentUserIdRef.current,
+        selectedUserIdRef.current,
+        selectedRoomIdRef.current
+      )
+    ) {
+      return;
+    }
+
+    setSharedMediaItems((currentMessages) =>
+      updateKnownSharedContentItem(currentMessages, updatedMessage, isSharedMediaMessage)
+    );
+    setSharedLinkItems((currentMessages) =>
+      updateKnownSharedContentItem(currentMessages, updatedMessage, isSharedLinkMessage)
+    );
+
+    const currentSearchQuery = messageSearchQueryRef.current.trim();
+    if (currentSearchQuery) {
+      setMessageSearchItems((currentMessages) =>
+        updateKnownSharedContentItem(
+          currentMessages,
+          updatedMessage,
+          (message) => messageMatchesSearchQuery(message, currentSearchQuery)
+        )
+      );
+    }
   }, []);
 
   const getNextOptimisticMessageId = () => {
@@ -2031,6 +2545,7 @@ export default function ChatPage() {
         );
         if (!options.silent) {
           applyMessagePagination(response.data);
+          applyPendingUnreadDivider(response.data.items, 'user', userId);
         }
       }
     } catch (error) {
@@ -2043,7 +2558,7 @@ export default function ChatPage() {
         setMessagesLoading(false);
       }
     }
-  }, [applyMessagePagination, resetMessagePagination]);
+  }, [applyMessagePagination, applyPendingUnreadDivider, resetMessagePagination]);
 
   const loadRoomMessages = useCallback(async (roomId: number, options: LoadOptions = {}) => {
     if (!options.silent) {
@@ -2063,6 +2578,7 @@ export default function ChatPage() {
         );
         if (!options.silent) {
           applyMessagePagination(response.data);
+          applyPendingUnreadDivider(response.data.items, 'room', roomId);
         }
       }
     } catch (error) {
@@ -2075,7 +2591,7 @@ export default function ChatPage() {
         setMessagesLoading(false);
       }
     }
-  }, [applyMessagePagination, resetMessagePagination]);
+  }, [applyMessagePagination, applyPendingUnreadDivider, resetMessagePagination]);
 
   const loadOlderMessages = useCallback(async () => {
     if (
@@ -2147,6 +2663,262 @@ export default function ChatPage() {
     }
   }, [applyMessagePagination]);
 
+  const loadSharedContent = useCallback(async (
+    kind: SharedContentKind,
+    options: SharedContentLoadOptions = {}
+  ) => {
+    const selectedUserIdForLoad = selectedUserIdRef.current;
+    const selectedRoomIdForLoad = selectedRoomIdRef.current;
+    if (selectedUserIdForLoad === null && selectedRoomIdForLoad === null) {
+      return;
+    }
+
+    const isMediaContent = kind === 'media';
+    const loading = isMediaContent ? sharedMediaLoading : sharedLinksLoading;
+    const hasMore = isMediaContent ? sharedMediaHasMore : sharedLinksHasMore;
+    const nextBefore = isMediaContent ? sharedMediaNextBefore : sharedLinksNextBefore;
+    const before = options.reset ? null : nextBefore;
+
+    if (loading || (!options.reset && (!hasMore || before === null))) {
+      return;
+    }
+
+    if (isMediaContent) {
+      setSharedMediaLoading(true);
+      setSharedMediaError('');
+    } else {
+      setSharedLinksLoading(true);
+      setSharedLinksError('');
+    }
+
+    try {
+      const endpoint =
+        selectedUserIdForLoad !== null
+          ? `/messages/${selectedUserIdForLoad}/${kind}`
+          : `/rooms/${selectedRoomIdForLoad}/${kind}`;
+      const response = await apiClient.get<MessagePage>(endpoint, {
+        params: {
+          size: SHARED_CONTENT_PAGE_SIZE,
+          ...(before === null ? {} : { before }),
+        },
+      });
+
+      if (
+        selectedUserIdRef.current !== selectedUserIdForLoad ||
+        selectedRoomIdRef.current !== selectedRoomIdForLoad
+      ) {
+        return;
+      }
+
+      const predicate = isMediaContent ? isSharedMediaMessage : isSharedLinkMessage;
+      const pageItems = response.data.items.filter(predicate);
+      if (isMediaContent) {
+        setSharedMediaItems((currentMessages) =>
+          mergeSharedContentPage(currentMessages, pageItems, Boolean(options.reset))
+        );
+        setSharedMediaHasMore(response.data.hasMore);
+        setSharedMediaNextBefore(response.data.nextBefore ?? null);
+        setSharedMediaLoaded(true);
+      } else {
+        setSharedLinkItems((currentMessages) =>
+          mergeSharedContentPage(currentMessages, pageItems, Boolean(options.reset))
+        );
+        setSharedLinksHasMore(response.data.hasMore);
+        setSharedLinksNextBefore(response.data.nextBefore ?? null);
+        setSharedLinksLoaded(true);
+      }
+    } catch (error) {
+      console.error(`Failed to load shared ${kind}:`, error);
+      if (
+        selectedUserIdRef.current === selectedUserIdForLoad &&
+        selectedRoomIdRef.current === selectedRoomIdForLoad
+      ) {
+        if (isMediaContent) {
+          setSharedMediaError('Unable to load shared media.');
+          setSharedMediaLoaded(true);
+        } else {
+          setSharedLinksError('Unable to load shared links.');
+          setSharedLinksLoaded(true);
+        }
+      }
+    } finally {
+      if (
+        selectedUserIdRef.current === selectedUserIdForLoad &&
+        selectedRoomIdRef.current === selectedRoomIdForLoad
+      ) {
+        if (isMediaContent) {
+          setSharedMediaLoading(false);
+        } else {
+          setSharedLinksLoading(false);
+        }
+      }
+    }
+  }, [
+    sharedLinksHasMore,
+    sharedLinksLoading,
+    sharedLinksNextBefore,
+    sharedMediaHasMore,
+    sharedMediaLoading,
+    sharedMediaNextBefore,
+  ]);
+
+  const loadMessageSearch = useCallback(async (options: MessageSearchLoadOptions = {}) => {
+    const selectedUserIdForLoad = selectedUserIdRef.current;
+    const selectedRoomIdForLoad = selectedRoomIdRef.current;
+    const query = (options.query ?? messageSearchQueryRef.current).trim();
+    if (selectedUserIdForLoad === null && selectedRoomIdForLoad === null) {
+      return;
+    }
+
+    if (!query) {
+      messageSearchRequestedQueryRef.current = '';
+      setMessageSearchItems([]);
+      setMessageSearchError('');
+      setMessageSearchHasMore(false);
+      setMessageSearchNextBefore(null);
+      return;
+    }
+
+    const before = options.reset ? null : messageSearchNextBefore;
+    if (messageSearchLoading || (!options.reset && (!messageSearchHasMore || before === null))) {
+      return;
+    }
+
+    setMessageSearchLoading(true);
+    setMessageSearchError('');
+
+    try {
+      const endpoint =
+        selectedUserIdForLoad !== null
+          ? `/messages/${selectedUserIdForLoad}/search`
+          : `/rooms/${selectedRoomIdForLoad}/search`;
+      const response = await apiClient.get<MessagePage>(endpoint, {
+        params: {
+          query,
+          size: MESSAGE_SEARCH_PAGE_SIZE,
+          ...(before === null ? {} : { before }),
+        },
+      });
+
+      if (
+        selectedUserIdRef.current !== selectedUserIdForLoad ||
+        selectedRoomIdRef.current !== selectedRoomIdForLoad ||
+        messageSearchQueryRef.current.trim() !== query
+      ) {
+        return;
+      }
+
+      setMessageSearchItems((currentMessages) =>
+        mergeSharedContentPage(currentMessages, response.data.items, Boolean(options.reset))
+      );
+      setMessageSearchHasMore(response.data.hasMore);
+      setMessageSearchNextBefore(response.data.nextBefore ?? null);
+    } catch (error) {
+      console.error('Failed to search messages:', error);
+      if (
+        selectedUserIdRef.current === selectedUserIdForLoad &&
+        selectedRoomIdRef.current === selectedRoomIdForLoad &&
+        messageSearchQueryRef.current.trim() === query
+      ) {
+        setMessageSearchError('Unable to search messages.');
+      }
+    } finally {
+      if (
+        selectedUserIdRef.current === selectedUserIdForLoad &&
+        selectedRoomIdRef.current === selectedRoomIdForLoad &&
+        messageSearchQueryRef.current.trim() === query
+      ) {
+        setMessageSearchLoading(false);
+      }
+    }
+  }, [messageSearchHasMore, messageSearchLoading, messageSearchNextBefore]);
+
+  useEffect(() => {
+    resetSharedContentState();
+  }, [resetSharedContentState, selectedRoomId, selectedUserId]);
+
+  useEffect(() => {
+    clearMessageJumpEffects();
+    resetMessageSearchState();
+  }, [clearMessageJumpEffects, resetMessageSearchState, selectedRoomId, selectedUserId]);
+
+  useEffect(() => {
+    if (
+      (selectedUserId === null && selectedRoomId === null) ||
+      !sharedMediaExpanded ||
+      sharedMediaLoaded ||
+      sharedMediaLoading
+    ) {
+      return;
+    }
+
+    void loadSharedContent('media', { reset: true });
+  }, [
+    loadSharedContent,
+    selectedRoomId,
+    selectedUserId,
+    sharedMediaExpanded,
+    sharedMediaLoaded,
+    sharedMediaLoading,
+  ]);
+
+  useEffect(() => {
+    if (
+      (selectedUserId === null && selectedRoomId === null) ||
+      !sharedLinksExpanded ||
+      sharedLinksLoaded ||
+      sharedLinksLoading
+    ) {
+      return;
+    }
+
+    void loadSharedContent('links', { reset: true });
+  }, [
+    loadSharedContent,
+    selectedRoomId,
+    selectedUserId,
+    sharedLinksExpanded,
+    sharedLinksLoaded,
+    sharedLinksLoading,
+  ]);
+
+  useEffect(() => {
+    if (
+      (selectedUserId === null && selectedRoomId === null) ||
+      !messageSearchExpanded
+    ) {
+      return undefined;
+    }
+
+    const query = messageSearchQuery.trim();
+    messageSearchQueryRef.current = messageSearchQuery;
+    if (!query) {
+      setMessageSearchItems([]);
+      setMessageSearchError('');
+      setMessageSearchHasMore(false);
+      setMessageSearchNextBefore(null);
+      setMessageSearchLoading(false);
+      return undefined;
+    }
+
+    if (messageSearchRequestedQueryRef.current === query) {
+      return undefined;
+    }
+
+    const timeout = setTimeout(() => {
+      messageSearchRequestedQueryRef.current = query;
+      void loadMessageSearch({ reset: true, query });
+    }, MESSAGE_SEARCH_DEBOUNCE_MS);
+
+    return () => clearTimeout(timeout);
+  }, [
+    loadMessageSearch,
+    messageSearchExpanded,
+    messageSearchQuery,
+    selectedRoomId,
+    selectedUserId,
+  ]);
+
   const markMessagesScrollIntent = useCallback(() => {
     hasUserInteractedWithMessagesRef.current = true;
   }, []);
@@ -2154,6 +2926,7 @@ export default function ChatPage() {
   const handleMessageAssetLoaded = useCallback(() => {
     if (
       hasUserInteractedWithMessagesRef.current ||
+      pendingReadConversationRef.current ||
       (selectedUserIdRef.current === null && selectedRoomIdRef.current === null)
     ) {
       return;
@@ -2167,6 +2940,10 @@ export default function ChatPage() {
 
   const handleMessagesScroll = () => {
     const container = messagesContainerRef.current;
+    if (container) {
+      completePendingReadIfAtBottom();
+    }
+
     if (
       !container ||
       !hasUserInteractedWithMessagesRef.current ||
@@ -2184,6 +2961,10 @@ export default function ChatPage() {
   useEffect(() => () => {
     clearInitialScrollBlockRelease();
   }, [clearInitialScrollBlockRelease]);
+
+  useEffect(() => () => {
+    clearMessageJumpEffects();
+  }, [clearMessageJumpEffects]);
 
   useEffect(() => {
     if (!('scrollRestoration' in window.history)) {
@@ -2409,6 +3190,36 @@ export default function ChatPage() {
     }
   }, []);
 
+  const flushPendingReadConversation = useCallback(() => {
+    const pendingConversation = pendingReadConversationRef.current;
+    if (!pendingConversation) {
+      return false;
+    }
+
+    pendingReadConversationRef.current = null;
+    setUnreadDividerMessageId(null);
+
+    if (pendingConversation.type === 'user') {
+      void markConversationAsRead(pendingConversation.id);
+    } else {
+      void markRoomAsRead(pendingConversation.id);
+    }
+
+    return true;
+  }, [markConversationAsRead, markRoomAsRead, setUnreadDividerMessageId]);
+
+  const completePendingReadIfAtBottom = useCallback(() => {
+    if (!pendingReadConversationRef.current) {
+      return false;
+    }
+
+    if (!isMessagesContainerNearBottom(messagesContainerRef.current, READ_BOTTOM_THRESHOLD)) {
+      return false;
+    }
+
+    return flushPendingReadConversation();
+  }, [flushPendingReadConversation]);
+
   const applyRoomMembershipUpdate = useCallback((room: ChatRoom) => {
     if (!isRoomParticipant(room, currentUserIdRef.current)) {
       setRooms((currentRooms) => currentRooms.filter((currentRoom) => currentRoom.id !== room.id));
@@ -2434,6 +3245,7 @@ export default function ChatPage() {
 
   const applyMessageUpdate = useCallback((updatedMessage: Message) => {
     setMessages((currentMessages) => mergeKnownMessageUpdate(currentMessages, updatedMessage));
+    updateSharedContentFromMessage(updatedMessage);
     setReplyingToMessage((currentReplyingMessage) =>
       currentReplyingMessage?.id === updatedMessage.id
         ? { ...currentReplyingMessage, ...toDeliveredMessage(updatedMessage) }
@@ -2473,7 +3285,7 @@ export default function ChatPage() {
         ? applyConversationPreviewToUser(currentSelectedUser, updatedMessage, currentUserIdRef.current)
         : null
     );
-  }, []);
+  }, [updateSharedContentFromMessage]);
 
   useEffect(() => {
     if (!currentUser?.id) {
@@ -2490,13 +3302,34 @@ export default function ChatPage() {
             return;
           }
 
+          const currentUserId = currentUserIdRef.current;
+          const selectedUserIdForMessage = selectedUserIdRef.current;
+          const selectedRoomIdForMessage = selectedRoomIdRef.current;
+          const isIncomingFromOther = incomingMessage.senderId !== currentUserId;
+          const isActiveMessage = isActiveConversationMessage(
+            incomingMessage,
+            currentUserId,
+            selectedUserIdForMessage,
+            selectedRoomIdForMessage
+          );
+          const wasAtBottomBeforeMessage =
+            isActiveMessage &&
+            isMessagesContainerNearBottom(
+              messagesContainerRef.current,
+              AUTO_SCROLL_BOTTOM_THRESHOLD
+            );
+          const canMarkActiveIncomingAsRead =
+            isIncomingFromOther &&
+            wasAtBottomBeforeMessage &&
+            pendingReadConversationRef.current === null;
+
           setMessages((currentMessages) => {
             if (
               !isActiveConversationMessage(
                 incomingMessage,
-                currentUserIdRef.current,
-                selectedUserIdRef.current,
-                selectedRoomIdRef.current
+                currentUserId,
+                selectedUserIdForMessage,
+                selectedRoomIdForMessage
               )
             ) {
               return currentMessages;
@@ -2504,18 +3337,25 @@ export default function ChatPage() {
 
             return appendOrReconcileMessage(currentMessages, incomingMessage);
           });
+          addIncomingSharedContent(incomingMessage);
 
           if (incomingMessage.clientId) {
             clearOptimisticSendTimeout(incomingMessage.clientId);
           }
 
           if (incomingMessage.chatRoomId) {
+            const isActiveRoomMessage = incomingMessage.chatRoomId === selectedRoomIdForMessage;
+            const selectedRoomIdForPreview =
+              isActiveRoomMessage && isIncomingFromOther && !canMarkActiveIncomingAsRead
+                ? null
+                : selectedRoomIdForMessage;
+
             setRooms((currentRooms) =>
               applyRoomPreviewToRooms(
                 currentRooms,
                 incomingMessage,
-                currentUserIdRef.current,
-                selectedRoomIdRef.current
+                currentUserId,
+                selectedRoomIdForPreview
               )
             );
             setSelectedRoom((currentSelectedRoom) => {
@@ -2523,17 +3363,25 @@ export default function ChatPage() {
                 return currentSelectedRoom;
               }
 
+              const withPreview = applyRoomPreviewToRoom(currentSelectedRoom, incomingMessage);
               return {
-                ...applyRoomPreviewToRoom(currentSelectedRoom, incomingMessage),
-                unreadCount: 0,
+                ...withPreview,
+                unreadCount:
+                  isIncomingFromOther && !canMarkActiveIncomingAsRead
+                    ? (withPreview.unreadCount ?? 0) + 1
+                    : 0,
               };
             });
 
             if (
-              incomingMessage.senderId !== currentUserIdRef.current &&
-              incomingMessage.chatRoomId === selectedRoomIdRef.current
+              isIncomingFromOther &&
+              incomingMessage.chatRoomId === selectedRoomIdForMessage
             ) {
-              void markRoomAsRead(incomingMessage.chatRoomId);
+              if (canMarkActiveIncomingAsRead) {
+                void markRoomAsRead(incomingMessage.chatRoomId);
+              } else {
+                addPendingUnreadMessage('room', incomingMessage.chatRoomId, incomingMessage);
+              }
             }
 
             return;
@@ -2543,7 +3391,7 @@ export default function ChatPage() {
             applyConversationPreviewToUsers(
               currentUsers,
               incomingMessage,
-              currentUserIdRef.current,
+              currentUserId,
               !userSearchQueryRef.current.trim()
             )
           );
@@ -2551,7 +3399,7 @@ export default function ChatPage() {
             applyConversationPreviewToUsers(
               currentFriends,
               incomingMessage,
-              currentUserIdRef.current,
+              currentUserId,
               true
             )
           );
@@ -2560,20 +3408,34 @@ export default function ChatPage() {
               ? applyConversationPreviewToUser(
                 currentSelectedUser,
                 incomingMessage,
-                currentUserIdRef.current
+                currentUserId
               )
               : null
           );
 
           if (
-            incomingMessage.senderId !== currentUserIdRef.current &&
-            incomingMessage.senderId === selectedUserIdRef.current
+            isIncomingFromOther &&
+            incomingMessage.senderId === selectedUserIdForMessage
           ) {
-            markConversationAsRead(incomingMessage.senderId);
+            if (canMarkActiveIncomingAsRead) {
+              markConversationAsRead(incomingMessage.senderId);
+            } else {
+              addPendingUnreadMessage('user', incomingMessage.senderId, incomingMessage);
+              setUsers((currentUsers) => incrementUnreadCount(currentUsers, incomingMessage.senderId));
+              setFriends((currentFriends) => incrementUnreadCount(currentFriends, incomingMessage.senderId));
+              setSelectedUser((currentSelectedUser) =>
+                currentSelectedUser?.id === incomingMessage.senderId
+                  ? {
+                    ...currentSelectedUser,
+                    unreadCount: (currentSelectedUser.unreadCount ?? 0) + 1,
+                  }
+                  : currentSelectedUser
+              );
+            }
             return;
           }
 
-          if (incomingMessage.senderId !== currentUserIdRef.current) {
+          if (isIncomingFromOther) {
             setUsers((currentUsers) => incrementUnreadCount(currentUsers, incomingMessage.senderId));
             setFriends((currentFriends) => incrementUnreadCount(currentFriends, incomingMessage.senderId));
           }
@@ -2656,12 +3518,14 @@ export default function ChatPage() {
             .then(() => {
               if (
                 selectedUserIdForResync !== null &&
-                selectedUserIdRef.current === selectedUserIdForResync
+                selectedUserIdRef.current === selectedUserIdForResync &&
+                isMessagesContainerNearBottom(messagesContainerRef.current, READ_BOTTOM_THRESHOLD)
               ) {
                 void markConversationAsRead(selectedUserIdForResync);
               } else if (
                 selectedRoomIdForResync !== null &&
-                selectedRoomIdRef.current === selectedRoomIdForResync
+                selectedRoomIdRef.current === selectedRoomIdForResync &&
+                isMessagesContainerNearBottom(messagesContainerRef.current, READ_BOTTOM_THRESHOLD)
               ) {
                 void markRoomAsRead(selectedRoomIdForResync);
               }
@@ -2713,6 +3577,8 @@ export default function ChatPage() {
     clearOptimisticSendTimeouts,
     clearRemoteTypingTimeout,
     clearTypingTimeout,
+    addIncomingSharedContent,
+    addPendingUnreadMessage,
     applyMessageUpdate,
     applyRoomMembershipUpdate,
     currentUser?.id,
@@ -2744,23 +3610,47 @@ export default function ChatPage() {
 
     const isInitialScroll = pendingInitialMessageScrollRef.current;
     if (isInitialScroll) {
-      forceScrollToLatestMessage();
+      const scrolledToUnread =
+        unreadDividerMessageIdRef.current !== null && scrollToUnreadDivider();
+      if (!scrolledToUnread) {
+        forceScrollToLatestMessage();
+      }
+
       pendingInitialMessageScrollRef.current = false;
       releaseInitialScrollBlock();
+      window.requestAnimationFrame(() => {
+        completePendingReadIfAtBottom();
+      });
+      return;
+    }
+
+    const container = messagesContainerRef.current;
+    const shouldAutoScroll =
+      (!hasUserInteractedWithMessagesRef.current && !pendingReadConversationRef.current) ||
+      isMessagesContainerNearBottom(container, AUTO_SCROLL_BOTTOM_THRESHOLD);
+
+    if (!shouldAutoScroll) {
+      completePendingReadIfAtBottom();
       return;
     }
 
     scrollToLatestMessage('smooth');
+    window.requestAnimationFrame(() => {
+      completePendingReadIfAtBottom();
+    });
   }, [
+    completePendingReadIfAtBottom,
     forceScrollToLatestMessage,
     releaseInitialScrollBlock,
     messages.length,
     messagesLoading,
     olderMessagesLoading,
     scrollToLatestMessage,
+    scrollToUnreadDivider,
     selectedRoomId,
     selectedUserId,
     typingUserId,
+    unreadDividerMessageId,
   ]);
 
   const sendOptimisticMessage = async (payload: SendMessagePayload) => {
@@ -2790,6 +3680,7 @@ export default function ChatPage() {
           ? applyConversationPreviewToUser(currentSelectedUser, response.data, currentUserIdRef.current)
           : null
       );
+      addIncomingSharedContent(response.data);
     } catch (error) {
       console.error('Failed to send message:', error);
       clearOptimisticSendTimeout(payload.clientId);
@@ -2829,6 +3720,7 @@ export default function ChatPage() {
           unreadCount: 0,
         };
       });
+      addIncomingSharedContent(response.data);
     } catch (error) {
       console.error('Failed to send group message:', error);
       clearOptimisticSendTimeout(payload.clientId);
@@ -2853,6 +3745,7 @@ export default function ChatPage() {
     setSelectedRoom(null);
     setMainView('chat');
     resetMessagePagination();
+    clearPendingReadConversation();
     setMessages([]);
     setMessageInput('');
     setProfileMenuOpen(false);
@@ -2860,7 +3753,7 @@ export default function ChatPage() {
     setViewedProfileUser(null);
     setDetailsOpen(shouldOpenConversationDetailsByDefault());
     hideRemoteTyping();
-  }, [hideRemoteTyping, resetMessagePagination, stopTyping]);
+  }, [clearPendingReadConversation, hideRemoteTyping, resetMessagePagination, stopTyping]);
 
   const activateUserConversation = useCallback((user: User) => {
     if (!canChatWithUser(user)) {
@@ -2886,13 +3779,15 @@ export default function ChatPage() {
     setDetailsOpen(shouldOpenConversationDetailsByDefault());
     hideRemoteTyping();
 
+    const unreadCount = user.unreadCount ?? 0;
+    if (conversationChanged || unreadCount > 0) {
+      preparePendingReadConversation('user', user.id, unreadCount);
+    }
+
     if (conversationChanged) {
       void loadMessages(user.id);
     }
-    if (conversationChanged || (user.unreadCount ?? 0) > 0) {
-      void markConversationAsRead(user.id);
-    }
-  }, [hideRemoteTyping, loadMessages, markConversationAsRead, stopTyping]);
+  }, [hideRemoteTyping, loadMessages, preparePendingReadConversation, stopTyping]);
 
   const activateRoomConversation = useCallback((room: ChatRoom) => {
     const previousSelectedUserId = selectedUserIdRef.current;
@@ -2914,13 +3809,15 @@ export default function ChatPage() {
     setDetailsOpen(shouldOpenConversationDetailsByDefault());
     hideRemoteTyping();
 
+    const unreadCount = room.unreadCount ?? 0;
+    if (conversationChanged || unreadCount > 0) {
+      preparePendingReadConversation('room', room.id, unreadCount);
+    }
+
     if (conversationChanged) {
       void loadRoomMessages(room.id);
     }
-    if (conversationChanged || (room.unreadCount ?? 0) > 0) {
-      void markRoomAsRead(room.id);
-    }
-  }, [hideRemoteTyping, loadRoomMessages, markRoomAsRead, stopTyping]);
+  }, [hideRemoteTyping, loadRoomMessages, preparePendingReadConversation, stopTyping]);
 
   useEffect(() => {
     if (!currentUser?.id) {
@@ -3872,6 +4769,61 @@ export default function ChatPage() {
     void sendOptimisticMessage(payload);
   };
 
+  const handleMessageSearchChange = (value: string) => {
+    messageSearchQueryRef.current = value;
+    messageSearchRequestedQueryRef.current = '';
+    setMessageSearchQuery(value);
+  };
+
+  const handleClearMessageSearch = () => {
+    messageSearchQueryRef.current = '';
+    messageSearchRequestedQueryRef.current = '';
+    setMessageSearchQuery('');
+    setMessageSearchItems([]);
+    setMessageSearchError('');
+    setMessageSearchHasMore(false);
+    setMessageSearchNextBefore(null);
+  };
+
+  const handleJumpToMessage = async (messageId: number) => {
+    const selectedUserIdForJump = selectedUserIdRef.current;
+    const selectedRoomIdForJump = selectedRoomIdRef.current;
+    if (messageId <= 0 || (selectedUserIdForJump === null && selectedRoomIdForJump === null)) {
+      return;
+    }
+
+    setMessageSearchError('');
+    setMessagesError('');
+
+    try {
+      const endpoint =
+        selectedUserIdForJump !== null
+          ? `/messages/${selectedUserIdForJump}/around/${messageId}`
+          : `/rooms/${selectedRoomIdForJump}/around/${messageId}`;
+      const response = await apiClient.get<MessagePage>(endpoint, {
+        params: { size: MESSAGE_AROUND_PAGE_SIZE },
+      });
+
+      if (
+        selectedUserIdRef.current !== selectedUserIdForJump ||
+        selectedRoomIdRef.current !== selectedRoomIdForJump
+      ) {
+        return;
+      }
+
+      skipNextAutoScrollRef.current = true;
+      pendingInitialMessageScrollRef.current = false;
+      blockOlderMessagesAutoLoadRef.current = true;
+      setMessages(mergeServerMessagesWithPending([], response.data.items));
+      applyMessagePagination(response.data);
+      highlightMessageById(messageId);
+      releaseInitialScrollBlock();
+    } catch (error) {
+      console.error('Failed to jump to message:', error);
+      setMessageSearchError('Unable to open message.');
+    }
+  };
+
   const applyUpdatedCurrentUserProfile = (updatedUser: User) => {
     const nextCurrentUser = currentUser
       ? { ...applyProfileToUser(currentUser, updatedUser), online: currentUser.online }
@@ -4000,6 +4952,7 @@ export default function ChatPage() {
   const normalizedFriendSearchQuery = friendSearchQuery.trim();
   const hasUserSearch = Boolean(normalizedUserSearchQuery);
   const conversationUsers = users.filter(hasPrivateConversation);
+  const sidebarConversationItems = buildSidebarConversationItems(conversationUsers, rooms);
   const filteredFriends = friends.filter((friend) =>
     matchesFriendSearch(friend, normalizedFriendSearchQuery)
   );
@@ -4065,8 +5018,14 @@ export default function ChatPage() {
     !groupSettingsSaving
   );
   const sidebarBusy = hasUserSearch ? usersLoading : usersLoading || roomsLoading;
-  const messageListItems = buildMessageListItems(messages, selectedRoom, currentUser?.id ?? null);
+  const messageListItems = buildMessageListItems(
+    messages,
+    selectedRoom,
+    currentUser?.id ?? null,
+    unreadDividerMessageId
+  );
   const mediaViewerUrl = getMediaUrl(mediaViewerMessage?.mediaUrl);
+  const mediaViewerType = mediaViewerMessage ? getMessageType(mediaViewerMessage) : 'IMAGE';
   const activeReplyPreview = createReplyFromMessage(replyingToMessage);
 
   const renderReplyQuote = (reply?: MessageReply | null) => {
@@ -4501,7 +5460,7 @@ export default function ChatPage() {
   };
 
   const renderSidebarChatList = () => {
-    const hasAnyConversation = conversationUsers.length > 0 || rooms.length > 0;
+    const hasAnyConversation = sidebarConversationItems.length > 0;
 
     if (sidebarBusy && !hasAnyConversation) {
       return renderSidebarSkeletons();
@@ -4520,16 +5479,14 @@ export default function ChatPage() {
 
     return (
       <>
-        {usersError && users.length === 0 ? (
+        {usersError && conversationUsers.length === 0 ? (
           <div className="list-state error-state">
             <span>{usersError}</span>
             <button type="button" className="retry-btn" onClick={() => void loadUsers({ search: '' })}>
               Retry
             </button>
           </div>
-        ) : (
-          conversationUsers.map(renderUserItem)
-        )}
+        ) : null}
         {roomsError && rooms.length === 0 ? (
           <div className="list-state error-state">
             <span>{roomsError}</span>
@@ -4537,8 +5494,9 @@ export default function ChatPage() {
               Retry
             </button>
           </div>
-        ) : (
-          rooms.map(renderRoomItem)
+        ) : null}
+        {sidebarConversationItems.map((item) =>
+          item.type === 'user' ? renderUserItem(item.user) : renderRoomItem(item.room)
         )}
       </>
     );
@@ -4791,9 +5749,6 @@ export default function ChatPage() {
     const canKickMember = canKickSelectedRoomMember && !isOwner && !isCurrentUser;
     const memberMenuOpen = openGroupMemberMenuId === user.id;
     const editingNickname = editingGroupMemberNicknameId === user.id;
-    const presenceLabel = isCurrentUser
-      ? `You - ${getPresenceLabel(user)}`
-      : getPresenceLabel(user);
 
     return (
       <div
@@ -4806,10 +5761,7 @@ export default function ChatPage() {
             <strong>{memberDisplayName}</strong>
             {isOwner ? <span className="details-owner-badge">Owner</span> : null}
           </div>
-          {shouldShowUsername(user) ? <span>@{user.username}</span> : null}
-          <span className={`details-presence ${user.online ? 'online' : 'offline'}`}>
-            {presenceLabel}
-          </span>
+          {user.username ? <span>@{user.username}</span> : null}
         </div>
 
         {currentUserCanManageSelectedRoom ? (
@@ -4891,6 +5843,349 @@ export default function ChatPage() {
     );
   };
 
+  const renderMessageSearchContent = () => {
+    const query = messageSearchQuery.trim();
+
+    return (
+      <div className="message-search-panel">
+        <div className="message-search-box" role="search">
+          <SearchIcon className="message-search-icon" />
+          <input
+            type="search"
+            value={messageSearchQuery}
+            onChange={(event) => handleMessageSearchChange(event.target.value)}
+            placeholder="Search messages"
+            aria-label="Search messages"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {messageSearchQuery ? (
+            <button
+              type="button"
+              className="message-search-clear"
+              onClick={handleClearMessageSearch}
+              aria-label="Clear message search"
+            >
+              ×
+            </button>
+          ) : null}
+        </div>
+
+        {messageSearchLoading && messageSearchItems.length === 0 ? (
+          <div className="message-search-list" aria-hidden="true">
+            {Array.from({ length: 3 }, (_, index) => (
+              <span key={`message-search-skeleton-${index}`} className="message-search-skeleton" />
+            ))}
+          </div>
+        ) : messageSearchError && messageSearchItems.length === 0 ? (
+          <div className="shared-content-state">
+            <span>{messageSearchError}</span>
+            {query ? (
+              <button
+                type="button"
+                className="shared-content-retry-btn"
+                onClick={() => void loadMessageSearch({ reset: true, query })}
+              >
+                Retry
+              </button>
+            ) : null}
+          </div>
+        ) : query && messageSearchItems.length === 0 && !messageSearchLoading ? (
+          <div className="details-empty-text">No matching messages.</div>
+        ) : messageSearchItems.length > 0 ? (
+          <>
+            <div className="message-search-list">
+              {messageSearchItems.map((message) => {
+                const senderName = getMessageSenderName(message, selectedRoom);
+                return (
+                  <div key={message.id} className="message-search-item">
+                    <button
+                      type="button"
+                      className="message-search-result-btn"
+                      onClick={() => void handleJumpToMessage(message.id)}
+                    >
+                      <span className="message-search-meta">
+                        {senderName} · {formatMessageTime(message.timestamp)}
+                      </span>
+                      <strong>{getMessageSearchPreview(message)}</strong>
+                    </button>
+                    <button
+                      type="button"
+                      className="message-search-jump-btn"
+                      onClick={() => void handleJumpToMessage(message.id)}
+                      aria-label="Go to message"
+                      title="Go to message"
+                    >
+                      <JumpIcon className="message-search-jump-icon" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {messageSearchError ? (
+              <div className="shared-content-inline-error">{messageSearchError}</div>
+            ) : null}
+
+            {messageSearchHasMore ? (
+              <button
+                type="button"
+                className="shared-content-load-btn"
+                disabled={messageSearchLoading}
+                onClick={() => void loadMessageSearch()}
+              >
+                {messageSearchLoading ? 'Loading' : 'Load more'}
+              </button>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderMessageSearchSection = () => (
+    <section className="details-section" aria-labelledby="message-search-title">
+      <button
+        type="button"
+        className="details-section-toggle-btn"
+        onClick={() => setMessageSearchExpanded((current) => !current)}
+        aria-expanded={messageSearchExpanded}
+        aria-controls="message-search-panel"
+      >
+        <div className="details-section-heading">
+          <h4 id="message-search-title">Search</h4>
+          {messageSearchItems.length > 0 ? <span>{messageSearchItems.length}</span> : null}
+        </div>
+        <ChevronDownIcon className={`details-toggle-icon ${messageSearchExpanded ? 'expanded' : ''}`} />
+      </button>
+      {messageSearchExpanded ? (
+        <div id="message-search-panel" className="shared-content-panel">
+          {renderMessageSearchContent()}
+        </div>
+      ) : null}
+    </section>
+  );
+
+  const renderSharedMediaContent = () => {
+    if (sharedMediaLoading && sharedMediaItems.length === 0) {
+      return (
+        <div className="shared-media-grid" aria-hidden="true">
+          {Array.from({ length: 6 }, (_, index) => (
+            <span key={`shared-media-skeleton-${index}`} className="shared-media-skeleton" />
+          ))}
+        </div>
+      );
+    }
+
+    if (sharedMediaError && sharedMediaItems.length === 0) {
+      return (
+        <div className="shared-content-state">
+          <span>{sharedMediaError}</span>
+          <button
+            type="button"
+            className="shared-content-retry-btn"
+            onClick={() => void loadSharedContent('media', { reset: true })}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+
+    if (sharedMediaItems.length === 0) {
+      return <div className="details-empty-text">No shared media yet.</div>;
+    }
+
+    return (
+      <>
+        <div className="shared-media-grid">
+          {sharedMediaItems.map((message) => {
+            const mediaUrl = getMediaUrl(message.mediaUrl);
+            if (!mediaUrl) {
+              return null;
+            }
+
+            const isVideo = getMessageType(message) === 'VIDEO';
+            return (
+              <div key={message.id} className="shared-media-card">
+                <button
+                  type="button"
+                  className="shared-media-item"
+                  onClick={() => setMediaViewerMessage(message)}
+                  aria-label={isVideo ? 'Open video preview' : 'Open image preview'}
+                  title={isVideo ? 'Video' : 'Photo'}
+                >
+                  {isVideo ? (
+                    <>
+                      <video src={mediaUrl} muted playsInline preload="metadata" />
+                      <span className="shared-media-play" aria-hidden="true" />
+                    </>
+                  ) : (
+                    <img src={mediaUrl} alt={message.content || 'Shared image'} loading="lazy" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="shared-media-jump-btn"
+                  onClick={() => void handleJumpToMessage(message.id)}
+                  aria-label="Go to message"
+                  title="Go to message"
+                >
+                  <JumpIcon className="shared-media-jump-icon" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {sharedMediaError ? <div className="shared-content-inline-error">{sharedMediaError}</div> : null}
+
+        {sharedMediaHasMore ? (
+          <button
+            type="button"
+            className="shared-content-load-btn"
+            disabled={sharedMediaLoading}
+            onClick={() => void loadSharedContent('media')}
+          >
+            {sharedMediaLoading ? 'Loading' : 'Load more'}
+          </button>
+        ) : null}
+      </>
+    );
+  };
+
+  const renderSharedLinksContent = () => {
+    if (sharedLinksLoading && sharedLinkItems.length === 0) {
+      return (
+        <div className="shared-link-list" aria-hidden="true">
+          {Array.from({ length: 3 }, (_, index) => (
+            <span key={`shared-link-skeleton-${index}`} className="shared-link-skeleton" />
+          ))}
+        </div>
+      );
+    }
+
+    if (sharedLinksError && sharedLinkItems.length === 0) {
+      return (
+        <div className="shared-content-state">
+          <span>{sharedLinksError}</span>
+          <button
+            type="button"
+            className="shared-content-retry-btn"
+            onClick={() => void loadSharedContent('links', { reset: true })}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+
+    if (sharedLinkItems.length === 0) {
+      return <div className="details-empty-text">No shared links yet.</div>;
+    }
+
+    return (
+      <>
+        <div className="shared-link-list">
+          {sharedLinkItems.map((message) => {
+            const preview = message.linkPreview;
+            const url = preview?.url?.trim();
+            if (!url) {
+              return null;
+            }
+
+            const title = preview?.title?.trim() || url;
+            const description = preview?.description?.trim() || message.content?.trim() || url;
+            const domain = getLinkPreviewDomain(preview) || 'Link';
+
+            return (
+              <div key={message.id} className="shared-link-row">
+                <a
+                  className="shared-link-item"
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span className="shared-link-domain">{domain}</span>
+                  <strong>{title}</strong>
+                  <span>{description}</span>
+                </a>
+                <button
+                  type="button"
+                  className="shared-link-jump-btn"
+                  onClick={() => void handleJumpToMessage(message.id)}
+                  aria-label="Go to message"
+                  title="Go to message"
+                >
+                  <JumpIcon className="shared-link-jump-icon" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {sharedLinksError ? <div className="shared-content-inline-error">{sharedLinksError}</div> : null}
+
+        {sharedLinksHasMore ? (
+          <button
+            type="button"
+            className="shared-content-load-btn"
+            disabled={sharedLinksLoading}
+            onClick={() => void loadSharedContent('links')}
+          >
+            {sharedLinksLoading ? 'Loading' : 'Load more'}
+          </button>
+        ) : null}
+      </>
+    );
+  };
+
+  const renderSharedContentSections = () => (
+    <>
+      <section className="details-section" aria-labelledby="shared-media-title">
+        <button
+          type="button"
+          className="details-section-toggle-btn"
+          onClick={() => setSharedMediaExpanded((current) => !current)}
+          aria-expanded={sharedMediaExpanded}
+          aria-controls="shared-media-panel"
+        >
+          <div className="details-section-heading">
+            <h4 id="shared-media-title">Media</h4>
+            {sharedMediaItems.length > 0 ? <span>{sharedMediaItems.length}</span> : null}
+          </div>
+          <ChevronDownIcon className={`details-toggle-icon ${sharedMediaExpanded ? 'expanded' : ''}`} />
+        </button>
+        {sharedMediaExpanded ? (
+          <div id="shared-media-panel" className="shared-content-panel">
+            {renderSharedMediaContent()}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="details-section" aria-labelledby="shared-links-title">
+        <button
+          type="button"
+          className="details-section-toggle-btn"
+          onClick={() => setSharedLinksExpanded((current) => !current)}
+          aria-expanded={sharedLinksExpanded}
+          aria-controls="shared-links-panel"
+        >
+          <div className="details-section-heading">
+            <h4 id="shared-links-title">Links</h4>
+            {sharedLinkItems.length > 0 ? <span>{sharedLinkItems.length}</span> : null}
+          </div>
+          <ChevronDownIcon className={`details-toggle-icon ${sharedLinksExpanded ? 'expanded' : ''}`} />
+        </button>
+        {sharedLinksExpanded ? (
+          <div id="shared-links-panel" className="shared-content-panel">
+            {renderSharedLinksContent()}
+          </div>
+        ) : null}
+      </section>
+    </>
+  );
+
   const renderConversationDetails = () => {
     if (selectedUser) {
       return (
@@ -4933,6 +6228,9 @@ export default function ChatPage() {
               <strong>Friend</strong>
             </div>
           </section>
+
+          {renderMessageSearchSection()}
+          {renderSharedContentSections()}
         </aside>
       );
     }
@@ -5010,6 +6308,9 @@ export default function ChatPage() {
             ) : null}
           </section>
 
+          {renderMessageSearchSection()}
+          {renderSharedContentSections()}
+
           {currentUserCanManageSelectedRoom ? (
             <section className="details-section" aria-labelledby="add-members-title">
               <div className="details-section-heading">
@@ -5051,13 +6352,24 @@ export default function ChatPage() {
           ) : null}
 
           <section className="details-section" aria-labelledby="group-members-title">
-            <div className="details-section-heading">
-              <h4 id="group-members-title">Members</h4>
-              <span>{selectedRoom.participants.length}</span>
-            </div>
-            <div className="details-member-list">
-              {sortedParticipants.map(renderDetailsMemberItem)}
-            </div>
+            <button
+              type="button"
+              className="details-section-toggle-btn"
+              onClick={() => setGroupMembersExpanded((current) => !current)}
+              aria-expanded={groupMembersExpanded}
+              aria-controls="group-members-list"
+            >
+              <div className="details-section-heading">
+                <h4 id="group-members-title">Members</h4>
+                <span>{selectedRoom.participants.length}</span>
+              </div>
+              <ChevronDownIcon className={`details-toggle-icon ${groupMembersExpanded ? 'expanded' : ''}`} />
+            </button>
+            {groupMembersExpanded ? (
+              <div id="group-members-list" className="details-member-list">
+                {sortedParticipants.map(renderDetailsMemberItem)}
+              </div>
+            ) : null}
           </section>
 
           <section className="details-section details-danger-zone" aria-labelledby="leave-group-title">
@@ -5316,13 +6628,26 @@ export default function ChatPage() {
                         );
                       }
 
+                      if (item.type === 'unread') {
+                        return (
+                          <div
+                            key={item.key}
+                            ref={unreadDividerRef}
+                            className="message-unread-divider"
+                          >
+                            <span>Unread messages</span>
+                          </div>
+                        );
+                      }
+
                       const { message, groupedWithPrevious, groupedWithNext, showSender } = item;
                       const isSentByCurrentUser = message.senderId === currentUser?.id;
 
                       return (
                         <div
                           key={item.key}
-                          className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${message.deliveryStatus ?? ''} ${groupedWithPrevious ? 'grouped-with-previous' : ''} ${groupedWithNext ? 'grouped-with-next' : ''}`}
+                          data-message-id={message.id > 0 ? message.id : undefined}
+                          className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${message.deliveryStatus ?? ''} ${groupedWithPrevious ? 'grouped-with-previous' : ''} ${groupedWithNext ? 'grouped-with-next' : ''} ${highlightedMessageId === message.id ? 'highlighted' : ''}`}
                         >
                           {showSender ? (
                             <div className="message-sender">
@@ -5540,21 +6865,30 @@ export default function ChatPage() {
             className="media-viewer-modal"
             role="dialog"
             aria-modal="true"
-            aria-label="Image preview"
+            aria-label={mediaViewerType === 'VIDEO' ? 'Video preview' : 'Image preview'}
             onClick={(event) => event.stopPropagation()}
           >
             <button
               type="button"
               className="media-viewer-close"
               onClick={() => setMediaViewerMessage(null)}
-              aria-label="Close image preview"
+              aria-label="Close media preview"
             >
               <CloseIcon className="media-viewer-close-icon" />
             </button>
-            <img
-              src={mediaViewerUrl}
-              alt={mediaViewerMessage?.content || 'Shared image preview'}
-            />
+            {mediaViewerType === 'VIDEO' ? (
+              <video
+                className="media-viewer-video"
+                src={mediaViewerUrl}
+                controls
+                autoPlay
+              />
+            ) : (
+              <img
+                src={mediaViewerUrl}
+                alt={mediaViewerMessage?.content || 'Shared image preview'}
+              />
+            )}
             {mediaViewerMessage?.content ? (
               <div className="media-viewer-caption">{mediaViewerMessage.content}</div>
             ) : null}
