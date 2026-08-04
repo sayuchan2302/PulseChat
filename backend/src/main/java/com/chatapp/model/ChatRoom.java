@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -15,7 +16,8 @@ import java.util.Set;
 @Table(
         name = "chat_rooms",
         indexes = {
-                @Index(name = "idx_chat_rooms_type_created", columnList = "type, created_at")
+                @Index(name = "idx_chat_rooms_type_created", columnList = "type, created_at"),
+                @Index(name = "idx_chat_rooms_owner", columnList = "owner_id")
         }
 )
 @Getter
@@ -33,6 +35,10 @@ public class ChatRoom {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private RoomType type;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id")
+    private User owner;
 
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
@@ -55,6 +61,9 @@ public class ChatRoom {
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;
+
+    @UpdateTimestamp
+    private LocalDateTime updatedAt;
 
     public enum RoomType {
         PRIVATE, GROUP

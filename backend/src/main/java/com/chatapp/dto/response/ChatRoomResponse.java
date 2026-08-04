@@ -14,6 +14,9 @@ public record ChatRoomResponse(
         String name,
         String type,
         List<UserResponse> participants,
+        Long ownerId,
+        String ownerUsername,
+        String ownerFullName,
         LocalDateTime createdAt,
         String lastMessageContent,
         LocalDateTime lastMessageAt,
@@ -26,6 +29,7 @@ public record ChatRoomResponse(
     }
 
     public static ChatRoomResponse from(ChatRoom room, Message lastMessage, long unreadCount) {
+        User owner = findEffectiveOwner(room);
         return new ChatRoomResponse(
                 room.getId(),
                 room.getName(),
@@ -35,6 +39,9 @@ public record ChatRoomResponse(
                         .sorted(Comparator.comparing(User::getUsername))
                         .map(UserResponse::from)
                         .toList(),
+                owner == null ? null : owner.getId(),
+                owner == null ? null : owner.getUsername(),
+                owner == null ? null : owner.getFullName(),
                 room.getCreatedAt(),
                 MessagePreviewFormatter.previewContent(lastMessage),
                 lastMessage == null ? null : lastMessage.getTimestamp(),
@@ -42,6 +49,17 @@ public record ChatRoomResponse(
                 lastMessage == null ? null : displayName(lastMessage.getSender()),
                 unreadCount
         );
+    }
+
+    private static User findEffectiveOwner(ChatRoom room) {
+        if (room.getOwner() != null) {
+            return room.getOwner();
+        }
+
+        return room.getParticipants()
+                .stream()
+                .min(Comparator.comparing(User::getId))
+                .orElse(null);
     }
 
     private static String displayName(User user) {

@@ -64,6 +64,9 @@ public enum ErrorCode {
                         HttpStatus.BAD_REQUEST,
                         "ROOM_004",
                         "A group chat requires at least 3 members"),
+        ROOM_OWNER_REQUIRED(HttpStatus.FORBIDDEN, "ROOM_005", "Only the group owner can update this room"),
+        ROOM_MEMBER_ALREADY_EXISTS(HttpStatus.CONFLICT, "ROOM_006", "User is already a group member"),
+        ROOM_LAST_MEMBER_CANNOT_LEAVE(HttpStatus.CONFLICT, "ROOM_007", "The last group member cannot leave"),
 
         VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "COMMON_001", "Validation failed"),
         MALFORMED_REQUEST(HttpStatus.BAD_REQUEST, "COMMON_002", "Malformed request body"),

@@ -1391,6 +1391,206 @@ button.main-list-item {
   white-space: nowrap;
 }
 
+.details-management-form,
+.details-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.details-field span {
+  color: var(--gray-700);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.details-field input {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid var(--purple-200);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--gray-800);
+  caret-color: var(--purple-600);
+  color-scheme: light;
+  font: inherit;
+  font-size: 13px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.details-field input:focus {
+  outline: none;
+  border-color: var(--purple-500);
+  box-shadow: 0 0 0 3px var(--purple-100);
+}
+
+.details-field input:disabled {
+  cursor: not-allowed;
+  background: var(--gray-100);
+  color: var(--gray-500);
+}
+
+.details-action-btn {
+  width: 100%;
+  min-height: 38px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--purple-600);
+  color: var(--white);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
+  transition: background 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.details-action-btn:hover:not(:disabled) {
+  background: var(--purple-700);
+  box-shadow: 0 8px 18px rgba(147, 51, 234, 0.18);
+  transform: translateY(-1px);
+}
+
+.details-action-btn:disabled {
+  cursor: not-allowed;
+  background: var(--gray-200);
+  color: var(--gray-500);
+  box-shadow: none;
+  transform: none;
+}
+
+.details-action-btn:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 2px;
+}
+
+.details-action-btn.danger {
+  background: #FEF2F2;
+  color: #B91C1C;
+}
+
+.details-action-btn.danger:hover:not(:disabled) {
+  background: #FEE2E2;
+  box-shadow: 0 8px 18px rgba(185, 28, 28, 0.12);
+}
+
+.details-error {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: #FEF2F2;
+  color: #991B1B;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.details-empty-text {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--purple-50);
+  color: var(--gray-500);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.details-add-member-list {
+  max-height: 180px;
+  margin-bottom: 10px;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.details-add-member-option {
+  min-width: 0;
+  padding: 8px;
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.details-add-member-option:hover {
+  background: var(--purple-50);
+}
+
+.details-add-member-option input[type='checkbox'] {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--purple-200);
+  border-radius: 5px;
+  background: var(--white);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.details-add-member-option input[type='checkbox']::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  background: var(--white);
+  transform: scale(0);
+  transition: transform 0.15s;
+}
+
+.details-add-member-option input[type='checkbox']:checked {
+  border-color: var(--purple-600);
+  background: var(--purple-600);
+}
+
+.details-add-member-option input[type='checkbox']:checked::before {
+  transform: scale(1);
+}
+
+.details-add-member-option input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 2px;
+}
+
+.details-add-member-option input[type='checkbox']:disabled {
+  cursor: not-allowed;
+  border-color: var(--gray-300);
+  background: var(--gray-100);
+}
+
+.details-add-member-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.details-add-member-copy strong,
+.details-add-member-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.details-add-member-copy strong {
+  color: var(--gray-800);
+  font-size: 13px;
+}
+
+.details-add-member-copy small {
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.details-danger-zone {
+  border-bottom: 0;
+}
+
 .details-member-list {
   display: flex;
   flex-direction: column;
@@ -1417,12 +1617,31 @@ button.main-list-item {
   gap: 2px;
 }
 
+.details-member-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .details-member-copy strong {
   color: var(--gray-800);
   font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.details-owner-badge {
+  flex: 0 0 auto;
+  max-width: 72px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--purple-50);
+  color: var(--purple-700);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.4;
 }
 
 .details-member-copy span {

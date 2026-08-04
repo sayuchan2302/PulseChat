@@ -534,6 +534,10 @@ function appendOrUpdateRoom(rooms: ChatRoom[], incomingRoom: ChatRoom) {
   return sortRoomsByChatActivity(nextRooms);
 }
 
+function isRoomParticipant(room: ChatRoom, userId: number | null) {
+  return userId !== null && room.participants.some((participant) => participant.id === userId);
+}
+
 function mergeServerMessagesWithPending(
   currentMessages: ChatMessage[],
   serverMessages: Message[]
@@ -1694,6 +1698,12 @@ export default function ChatPage() {
   const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<number[]>([]);
   const [groupCreating, setGroupCreating] = useState(false);
   const [groupError, setGroupError] = useState('');
+  const [groupSettingsName, setGroupSettingsName] = useState('');
+  const [selectedAddMemberIds, setSelectedAddMemberIds] = useState<number[]>([]);
+  const [groupSettingsPendingAction, setGroupSettingsPendingAction] = useState<
+    'rename' | 'add' | 'leave' | null
+  >(null);
+  const [groupSettingsError, setGroupSettingsError] = useState('');
   const [profileFullName, setProfileFullName] = useState('');
   const [profileBio, setProfileBio] = useState('');
   const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null);
@@ -1735,6 +1745,12 @@ export default function ChatPage() {
   const location = useLocation();
   const selectedUserId = selectedUser?.id ?? null;
   const selectedRoomId = selectedRoom?.id ?? null;
+
+  useEffect(() => {
+    setGroupSettingsName(selectedRoom?.name ?? '');
+    setSelectedAddMemberIds([]);
+    setGroupSettingsError('');
+  }, [selectedRoom?.id, selectedRoom?.name]);
 
   const clearInitialScrollBlockRelease = useCallback(() => {
     if (releaseInitialScrollBlockFrameRef.current === null) {
@@ -1932,11 +1948,22 @@ export default function ChatPage() {
       const response = await apiClient.get<ChatRoom[]>('/rooms');
       const nextRooms = sortRoomsByChatActivity(response.data);
       setRooms(nextRooms);
-      setSelectedRoom((currentSelectedRoom) =>
-        currentSelectedRoom
-          ? nextRooms.find((room) => room.id === currentSelectedRoom.id) ?? currentSelectedRoom
-          : null
-      );
+      if (
+        selectedRoomIdRef.current !== null &&
+        !nextRooms.some((room) => room.id === selectedRoomIdRef.current)
+      ) {
+        selectedRoomIdRef.current = null;
+        setSelectedRoom(null);
+        setMessages([]);
+        resetMessagePagination();
+        navigate(getChatRoute(), { replace: true });
+      } else {
+        setSelectedRoom((currentSelectedRoom) =>
+          currentSelectedRoom
+            ? nextRooms.find((room) => room.id === currentSelectedRoom.id) ?? currentSelectedRoom
+            : null
+        );
+      }
     } catch (error) {
       console.error('Failed to load rooms:', error);
       if (!options.silent) {
@@ -1947,7 +1974,7 @@ export default function ChatPage() {
         setRoomsLoading(false);
       }
     }
-  }, []);
+  }, [navigate, resetMessagePagination]);
 
   const loadMessages = useCallback(async (userId: number, options: LoadOptions = {}) => {
     if (!options.silent) {
@@ -2345,6 +2372,29 @@ export default function ChatPage() {
     }
   }, []);
 
+  const applyRoomMembershipUpdate = useCallback((room: ChatRoom) => {
+    if (!isRoomParticipant(room, currentUserIdRef.current)) {
+      setRooms((currentRooms) => currentRooms.filter((currentRoom) => currentRoom.id !== room.id));
+
+      if (selectedRoomIdRef.current === room.id) {
+        selectedRoomIdRef.current = null;
+        setSelectedRoom(null);
+        setMessages([]);
+        setMessageInput('');
+        setMainView('chat');
+        resetMessagePagination();
+        navigate(getChatRoute(), { replace: true });
+      }
+
+      return;
+    }
+
+    setRooms((currentRooms) => appendOrUpdateRoom(currentRooms, room));
+    setSelectedRoom((currentSelectedRoom) =>
+      currentSelectedRoom?.id === room.id ? room : currentSelectedRoom
+    );
+  }, [navigate, resetMessagePagination]);
+
   const applyMessageUpdate = useCallback((updatedMessage: Message) => {
     setMessages((currentMessages) => mergeKnownMessageUpdate(currentMessages, updatedMessage));
     setReplyingToMessage((currentReplyingMessage) =>
@@ -2588,10 +2638,7 @@ export default function ChatPage() {
             return;
           }
 
-          setRooms((currentRooms) => appendOrUpdateRoom(currentRooms, room));
-          setSelectedRoom((currentSelectedRoom) =>
-            currentSelectedRoom?.id === room.id ? room : currentSelectedRoom
-          );
+          applyRoomMembershipUpdate(room);
         },
         () => {
           if (!active) {
@@ -2630,6 +2677,7 @@ export default function ChatPage() {
     clearRemoteTypingTimeout,
     clearTypingTimeout,
     applyMessageUpdate,
+    applyRoomMembershipUpdate,
     currentUser?.id,
     hideRemoteTyping,
     loadFriendSummary,
@@ -3250,6 +3298,81 @@ export default function ChatPage() {
     }
   };
 
+  const handleUpdateGroupSettingsName = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedRoom || groupSettingsSaving) {
+      return;
+    }
+
+    const name = groupSettingsName.trim();
+    if (!name || name === selectedRoom.name.trim()) {
+      return;
+    }
+
+    setGroupSettingsPendingAction('rename');
+    setGroupSettingsError('');
+
+    try {
+      const response = await apiClient.patch<ChatRoom>(`/rooms/${selectedRoom.id}`, { name });
+      applyRoomMembershipUpdate(response.data);
+    } catch (error) {
+      console.error('Failed to update group:', error);
+      setGroupSettingsError('Unable to update group.');
+    } finally {
+      setGroupSettingsPendingAction(null);
+    }
+  };
+
+  const handleToggleAddRoomMember = (userId: number) => {
+    setGroupSettingsError('');
+    setSelectedAddMemberIds((currentIds) =>
+      currentIds.includes(userId)
+        ? currentIds.filter((currentId) => currentId !== userId)
+        : [...currentIds, userId]
+    );
+  };
+
+  const handleAddRoomMembers = async () => {
+    if (!selectedRoom || selectedAddMemberIds.length === 0 || groupSettingsSaving) {
+      return;
+    }
+
+    setGroupSettingsPendingAction('add');
+    setGroupSettingsError('');
+
+    try {
+      const response = await apiClient.post<ChatRoom>(`/rooms/${selectedRoom.id}/members`, {
+        participantIds: selectedAddMemberIds,
+      });
+      setSelectedAddMemberIds([]);
+      applyRoomMembershipUpdate(response.data);
+    } catch (error) {
+      console.error('Failed to add group members:', error);
+      setGroupSettingsError('Unable to add members.');
+    } finally {
+      setGroupSettingsPendingAction(null);
+    }
+  };
+
+  const handleLeaveSelectedGroup = async () => {
+    if (!selectedRoom || groupSettingsSaving) {
+      return;
+    }
+
+    setGroupSettingsPendingAction('leave');
+    setGroupSettingsError('');
+
+    try {
+      const response = await apiClient.delete<ChatRoom>(`/rooms/${selectedRoom.id}/members/me`);
+      applyRoomMembershipUpdate(response.data);
+    } catch (error) {
+      console.error('Failed to leave group:', error);
+      setGroupSettingsError('Unable to leave group.');
+    } finally {
+      setGroupSettingsPendingAction(null);
+    }
+  };
+
   const handleReplyToMessage = (message: ChatMessage) => {
     if (!canUseMessageActions(message)) {
       return;
@@ -3787,6 +3910,34 @@ export default function ChatPage() {
     ? `${selectedInvitedMemberCount + 1} members total`
     : `${selectedInvitedMemberCount} of ${MIN_GROUP_INVITED_MEMBERS} friends selected`;
   const canCreateGroup = Boolean(groupName.trim()) && hasMinimumInvitedMembers && !groupCreating;
+  const selectedRoomOwnerId = selectedRoom?.ownerId ?? null;
+  const selectedRoomOwnerName =
+    selectedRoom?.ownerFullName?.trim() ||
+    selectedRoom?.ownerUsername ||
+    selectedRoom?.participants.find((participant) => participant.id === selectedRoomOwnerId)
+      ?.username ||
+    '';
+  const currentUserCanManageSelectedRoom =
+    Boolean(selectedRoom && currentUser && selectedRoomOwnerId === currentUser.id);
+  const groupSettingsSaving = groupSettingsPendingAction !== null;
+  const selectedRoomParticipantIds = new Set(
+    selectedRoom?.participants.map((participant) => participant.id) ?? []
+  );
+  const addMemberCandidates = friends.filter(
+    (friend) => !selectedRoomParticipantIds.has(friend.id)
+  );
+  const canSaveGroupSettingsName = Boolean(
+    currentUserCanManageSelectedRoom &&
+    groupSettingsName.trim() &&
+    selectedRoom &&
+    groupSettingsName.trim() !== selectedRoom.name.trim() &&
+    !groupSettingsSaving
+  );
+  const canAddRoomMembers = Boolean(
+    currentUserCanManageSelectedRoom &&
+    selectedAddMemberIds.length > 0 &&
+    !groupSettingsSaving
+  );
   const sidebarBusy = hasUserSearch ? usersLoading : usersLoading || roomsLoading;
   const messageListItems = buildMessageListItems(messages, selectedRoom, currentUser?.id ?? null);
   const mediaViewerUrl = getMediaUrl(mediaViewerMessage?.mediaUrl);
@@ -4502,6 +4653,7 @@ export default function ChatPage() {
 
   const renderDetailsMemberItem = (user: User) => {
     const isCurrentUser = user.id === currentUser?.id;
+    const isOwner = user.id === selectedRoomOwnerId;
     const presenceLabel = isCurrentUser
       ? `You - ${getPresenceLabel(user)}`
       : getPresenceLabel(user);
@@ -4510,7 +4662,10 @@ export default function ChatPage() {
       <div key={user.id} className="details-member-item">
         {renderUserAvatar(user, 'user-avatar small-avatar')}
         <div className="details-member-copy">
-          <strong>{getUserDisplayName(user)}</strong>
+          <div className="details-member-title">
+            <strong>{getUserDisplayName(user)}</strong>
+            {isOwner ? <span className="details-owner-badge">Owner</span> : null}
+          </div>
           {shouldShowUsername(user) ? <span>@{user.username}</span> : null}
         </div>
         <span className={`details-presence ${user.online ? 'online' : 'offline'}`}>
@@ -4596,6 +4751,89 @@ export default function ChatPage() {
             <span>{selectedRoom.participants.length} members</span>
           </div>
 
+          <section className="details-section" aria-labelledby="group-settings-title">
+            <div className="details-section-heading">
+              <h4 id="group-settings-title">Group</h4>
+              {currentUserCanManageSelectedRoom ? <span>Owner</span> : null}
+            </div>
+
+            {currentUserCanManageSelectedRoom ? (
+              <form className="details-management-form" onSubmit={handleUpdateGroupSettingsName}>
+                <label className="details-field">
+                  <span>Group name</span>
+                  <input
+                    type="text"
+                    value={groupSettingsName}
+                    onChange={(event) => {
+                      setGroupSettingsError('');
+                      setGroupSettingsName(event.target.value);
+                    }}
+                    maxLength={100}
+                    disabled={groupSettingsSaving}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="details-action-btn"
+                  disabled={!canSaveGroupSettingsName}
+                >
+                  {groupSettingsPendingAction === 'rename' ? 'Saving' : 'Save'}
+                </button>
+              </form>
+            ) : (
+              <div className="details-row">
+                <span>Owner</span>
+                <strong>{selectedRoomOwnerName || 'Group owner'}</strong>
+              </div>
+            )}
+
+            {groupSettingsError ? (
+              <div className="details-error">{groupSettingsError}</div>
+            ) : null}
+          </section>
+
+          {currentUserCanManageSelectedRoom ? (
+            <section className="details-section" aria-labelledby="add-members-title">
+              <div className="details-section-heading">
+                <h4 id="add-members-title">Add members</h4>
+                {selectedAddMemberIds.length > 0 ? <span>{selectedAddMemberIds.length}</span> : null}
+              </div>
+
+              {addMemberCandidates.length === 0 ? (
+                <div className="details-empty-text">All friends are already in this group.</div>
+              ) : (
+                <div className="details-add-member-list">
+                  {addMemberCandidates.map((friend) => (
+                    <label key={friend.id} className="details-add-member-option">
+                      <input
+                        type="checkbox"
+                        checked={selectedAddMemberIds.includes(friend.id)}
+                        disabled={groupSettingsSaving}
+                        onChange={() => handleToggleAddRoomMember(friend.id)}
+                      />
+                      {renderUserAvatar(friend, 'user-avatar small-avatar')}
+                      <span className="details-add-member-copy">
+                        <strong>{getUserDisplayName(friend)}</strong>
+                        <small>@{friend.username}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="details-action-btn"
+                disabled={!canAddRoomMembers}
+                onClick={() => void handleAddRoomMembers()}
+              >
+                {groupSettingsPendingAction === 'add' ? 'Adding' : 'Add'}
+              </button>
+            </section>
+          ) : null}
+
           <section className="details-section" aria-labelledby="group-members-title">
             <div className="details-section-heading">
               <h4 id="group-members-title">Members</h4>
@@ -4604,6 +4842,18 @@ export default function ChatPage() {
             <div className="details-member-list">
               {sortedParticipants.map(renderDetailsMemberItem)}
             </div>
+          </section>
+
+          <section className="details-section details-danger-zone" aria-labelledby="leave-group-title">
+            <h4 id="leave-group-title">Leave group</h4>
+            <button
+              type="button"
+              className="details-action-btn danger"
+              disabled={groupSettingsSaving}
+              onClick={() => void handleLeaveSelectedGroup()}
+            >
+              {groupSettingsPendingAction === 'leave' ? 'Leaving' : 'Leave group'}
+            </button>
           </section>
         </aside>
       );

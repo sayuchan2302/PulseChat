@@ -150,6 +150,9 @@ export interface ChatRoom {
   name: string;
   type: 'private' | 'group';
   participants: User[];
+  ownerId?: number | null;
+  ownerUsername?: string | null;
+  ownerFullName?: string | null;
   unreadCount?: number;
   lastMessageContent?: string;
   lastMessageAt?: string;

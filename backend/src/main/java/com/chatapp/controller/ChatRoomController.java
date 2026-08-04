@@ -1,10 +1,13 @@
 package com.chatapp.controller;
 
+import com.chatapp.dto.request.AddRoomMembersRequest;
 import com.chatapp.dto.request.CreateChatRoomRequest;
 import com.chatapp.dto.request.SendRoomMessageRequest;
+import com.chatapp.dto.request.UpdateChatRoomRequest;
 import com.chatapp.dto.response.ChatRoomResponse;
 import com.chatapp.dto.response.MessagePageResponse;
 import com.chatapp.dto.response.MessageResponse;
+import com.chatapp.exception.AppException;
 import com.chatapp.service.ChatRoomService;
 import com.chatapp.service.MessageService;
 import jakarta.validation.Valid;
@@ -13,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -69,6 +73,43 @@ public class ChatRoomController {
         return chatRoomService.markGroupAsRead(authentication.getName(), roomId);
     }
 
+    @PatchMapping("/{roomId}")
+    public ChatRoomResponse updateRoom(
+            Authentication authentication,
+            @PathVariable Long roomId,
+            @Valid @RequestBody UpdateChatRoomRequest request
+    ) {
+        ChatRoomResponse room = chatRoomService.updateGroup(authentication.getName(), roomId, request);
+        notifyRoomParticipants(room);
+
+        return room;
+    }
+
+    @PostMapping("/{roomId}/members")
+    public ChatRoomResponse addRoomMembers(
+            Authentication authentication,
+            @PathVariable Long roomId,
+            @Valid @RequestBody AddRoomMembersRequest request
+    ) {
+        ChatRoomResponse room = chatRoomService.addMembers(authentication.getName(), roomId, request);
+        notifyRoomParticipants(room);
+
+        return room;
+    }
+
+    @DeleteMapping("/{roomId}/members/me")
+    public ChatRoomResponse leaveRoom(
+            Authentication authentication,
+            @PathVariable Long roomId
+    ) {
+        List<String> previousParticipantUsernames =
+                chatRoomService.getGroupParticipantUsernames(authentication.getName(), roomId);
+        ChatRoomResponse room = chatRoomService.leaveGroup(authentication.getName(), roomId);
+        notifyRoomParticipants(roomId, previousParticipantUsernames, room);
+
+        return room;
+    }
+
     @PostMapping("/{roomId}/messages")
     public ResponseEntity<MessageResponse> sendRoomMessage(
             Authentication authentication,
@@ -86,13 +127,34 @@ public class ChatRoomController {
     }
 
     private void notifyRoomParticipants(ChatRoomResponse room) {
-        room.participants().forEach(participant ->
-                messagingTemplate.convertAndSendToUser(
-                        participant.username(),
-                        ROOM_QUEUE,
-                        room
-                )
+        notifyRoomParticipants(
+                room.id(),
+                room.participants().stream().map(participant -> participant.username()).toList(),
+                room
         );
+    }
+
+    private void notifyRoomParticipants(
+            Long roomId,
+            List<String> usernames,
+            ChatRoomResponse fallbackRoom
+    ) {
+        usernames.forEach(username -> {
+            ChatRoomResponse room = findRoomForNotification(username, roomId, fallbackRoom);
+            messagingTemplate.convertAndSendToUser(username, ROOM_QUEUE, room);
+        });
+    }
+
+    private ChatRoomResponse findRoomForNotification(
+            String username,
+            Long roomId,
+            ChatRoomResponse fallbackRoom
+    ) {
+        try {
+            return chatRoomService.getGroup(username, roomId);
+        } catch (AppException exception) {
+            return fallbackRoom;
+        }
     }
 
     private void notifyMessageParticipants(String currentUsername, Long roomId, MessageResponse message) {

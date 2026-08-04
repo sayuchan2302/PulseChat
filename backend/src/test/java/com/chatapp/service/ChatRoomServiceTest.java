@@ -1,6 +1,8 @@
 package com.chatapp.service;
 
+import com.chatapp.dto.request.AddRoomMembersRequest;
 import com.chatapp.dto.request.CreateChatRoomRequest;
+import com.chatapp.dto.request.UpdateChatRoomRequest;
 import com.chatapp.dto.response.ChatRoomResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
@@ -101,6 +103,7 @@ class ChatRoomServiceTest {
 
         assertEquals("Study group", response.name());
         assertEquals("group", response.type());
+        assertEquals(1L, response.ownerId());
         assertEquals(3, response.participants().size());
     }
 
@@ -147,6 +150,112 @@ class ChatRoomServiceTest {
         assertEquals("Latest", response.lastMessageContent());
         assertEquals(0, response.unreadCount());
         verify(chatRoomReadStateRepository).saveAndFlush(any(ChatRoomReadState.class));
+    }
+
+    @Test
+    void updateGroupRequiresOwner() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(alice);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> chatRoomService.updateGroup(
+                        "sayu",
+                        10L,
+                        new UpdateChatRoomRequest("New name")
+                )
+        );
+
+        assertEquals(ErrorCode.ROOM_OWNER_REQUIRED, exception.getErrorCode());
+        verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
+    }
+
+    @Test
+    void updateGroupRenamesWhenOwner() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(sayu);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of());
+        when(messageRepository.countUnreadRoomMessages(1L, List.of(10L))).thenReturn(List.of());
+
+        ChatRoomResponse response = chatRoomService.updateGroup(
+                "sayu",
+                10L,
+                new UpdateChatRoomRequest("  New name  ")
+        );
+
+        assertEquals("New name", response.name());
+        assertEquals(1L, response.ownerId());
+    }
+
+    @Test
+    void addMembersAddsOnlyNewParticipants() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        User charlie = user(4L, "charlie");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(sayu);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(userService.findById(4L)).thenReturn(charlie);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of());
+        when(messageRepository.countUnreadRoomMessages(1L, List.of(10L))).thenReturn(List.of());
+
+        ChatRoomResponse response = chatRoomService.addMembers(
+                "sayu",
+                10L,
+                new AddRoomMembersRequest(Set.of(2L, 4L))
+        );
+
+        assertEquals(4, response.participants().size());
+        assertEquals(
+                1,
+                response.participants()
+                        .stream()
+                        .filter(participant -> participant.username().equals("charlie"))
+                        .count()
+        );
+    }
+
+    @Test
+    void leaveGroupTransfersOwner() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(sayu);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of());
+
+        ChatRoomResponse response = chatRoomService.leaveGroup("sayu", 10L);
+
+        assertEquals(2L, response.ownerId());
+        assertEquals(2, response.participants().size());
+        assertEquals(
+                0,
+                response.participants()
+                        .stream()
+                        .filter(participant -> participant.id().equals(1L))
+                        .count()
+        );
     }
 
     private User user(Long id, String username) {
