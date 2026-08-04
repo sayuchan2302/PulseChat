@@ -29,6 +29,7 @@ import java.util.List;
 @RequestMapping("/messages")
 @RequiredArgsConstructor
 public class MessageController {
+    private static final String MESSAGE_QUEUE = "/queue/messages";
     private static final String MESSAGE_UPDATE_QUEUE = "/queue/message-updates";
 
     private final MessageService messageService;
@@ -100,8 +101,10 @@ public class MessageController {
             Authentication authentication,
             @Valid @RequestBody SendMessageRequest request
     ) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(messageService.sendMessage(authentication.getName(), request));
+        MessageResponse message = messageService.sendMessage(authentication.getName(), request);
+        notifyMessageParticipants(authentication.getName(), message.id(), message);
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(message);
     }
 
     @PostMapping("/{messageId}/reactions")
@@ -136,11 +139,24 @@ public class MessageController {
     }
 
     private void notifyMessageUpdateParticipants(String currentUsername, Long messageId, MessageResponse message) {
+        notifyMessageParticipants(currentUsername, messageId, message, MESSAGE_UPDATE_QUEUE);
+    }
+
+    private void notifyMessageParticipants(String currentUsername, Long messageId, MessageResponse message) {
+        notifyMessageParticipants(currentUsername, messageId, message, MESSAGE_QUEUE);
+    }
+
+    private void notifyMessageParticipants(
+            String currentUsername,
+            Long messageId,
+            MessageResponse message,
+            String queue
+    ) {
         messageService.getMessageParticipantUsernames(currentUsername, messageId)
                 .forEach(username ->
                         messagingTemplate.convertAndSendToUser(
                                 username,
-                                MESSAGE_UPDATE_QUEUE,
+                                queue,
                                 message
                         )
                 );

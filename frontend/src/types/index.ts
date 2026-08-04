@@ -164,5 +164,6 @@ export interface ChatRoom {
 
 export interface AuthResponse {
   token: string;
+  refreshToken: string;
   user: User;
 }

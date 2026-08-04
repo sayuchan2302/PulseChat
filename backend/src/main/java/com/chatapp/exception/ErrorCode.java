@@ -10,6 +10,7 @@ public enum ErrorCode {
         USERNAME_ALREADY_EXISTS(HttpStatus.CONFLICT, "AUTH_001", "Username already exists"),
         EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "AUTH_002", "Email already exists"),
         INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AUTH_003", "Invalid username or password"),
+        INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH_004", "Refresh token is invalid or expired"),
 
         USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_001", "User not found"),
         INVALID_AVATAR_FILE(

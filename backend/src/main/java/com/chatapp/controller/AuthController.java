@@ -2,6 +2,7 @@ package com.chatapp.controller;
 
 import com.chatapp.dto.request.LoginRequest;
 import com.chatapp.dto.request.RegisterRequest;
+import com.chatapp.dto.request.RefreshTokenRequest;
 import com.chatapp.dto.response.AuthResponse;
 import com.chatapp.service.AuthService;
 import jakarta.validation.Valid;
@@ -27,5 +28,16 @@ public class AuthController {
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @PostMapping("/refresh")
+    public AuthResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return authService.refresh(request);
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) {
+        authService.logout(request);
+        return ResponseEntity.noContent().build();
     }
 }

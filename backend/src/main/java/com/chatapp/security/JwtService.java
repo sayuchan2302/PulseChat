@@ -18,12 +18,12 @@ public class JwtService {
     @Value("${jwt.secret}")
     private String jwtSecret;
 
-    @Value("${jwt.expiration}")
-    private long jwtExpirationMs;
+    @Value("${jwt.access-expiration}")
+    private long jwtAccessExpirationMs;
 
-    public String generateToken(String username) {
+    public String generateAccessToken(String username) {
         Date now = new Date();
-        Date expiresAt = new Date(now.getTime() + jwtExpirationMs);
+        Date expiresAt = new Date(now.getTime() + jwtAccessExpirationMs);
 
         return Jwts.builder()
                 .subject(username)
@@ -31,6 +31,10 @@ public class JwtService {
                 .expiration(expiresAt)
                 .signWith(getSigningKey())
                 .compact();
+    }
+
+    public String generateToken(String username) {
+        return generateAccessToken(username);
     }
 
     public String extractUsername(String token) {

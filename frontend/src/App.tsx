@@ -6,7 +6,7 @@ import { ROUTES } from './config/constants';
 import './App.css';
 
 function hasAuthSession() {
-  return Boolean(localStorage.getItem('token') && localStorage.getItem('user'));
+  return Boolean(localStorage.getItem('refreshToken') && localStorage.getItem('user'));
 }
 
 function GuestRoute() {

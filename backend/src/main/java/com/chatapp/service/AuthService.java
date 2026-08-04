@@ -2,6 +2,7 @@ package com.chatapp.service;
 
 import com.chatapp.dto.request.LoginRequest;
 import com.chatapp.dto.request.RegisterRequest;
+import com.chatapp.dto.request.RefreshTokenRequest;
 import com.chatapp.dto.response.AuthResponse;
 import com.chatapp.dto.response.UserResponse;
 import com.chatapp.exception.AppException;
@@ -26,6 +27,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
+    private final RefreshTokenService refreshTokenService;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
@@ -48,11 +50,10 @@ public class AuthService {
         user.setOnline(false);
 
         User savedUser = userRepository.save(user);
-        String token = jwtService.generateToken(savedUser.getUsername());
-        return new AuthResponse(token, UserResponse.from(savedUser));
+        return createAuthResponse(savedUser);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponse login(LoginRequest request) {
         String username = request.username().trim();
 
@@ -65,8 +66,18 @@ public class AuthService {
         }
 
         User user = findUserByUsername(username);
-        String token = jwtService.generateToken(user.getUsername());
-        return new AuthResponse(token, UserResponse.from(user));
+        return createAuthResponse(user);
+    }
+
+    @Transactional
+    public AuthResponse refresh(RefreshTokenRequest request) {
+        User user = refreshTokenService.consumeToken(request.refreshToken()).getUser();
+        return createAuthResponse(user);
+    }
+
+    @Transactional
+    public void logout(RefreshTokenRequest request) {
+        refreshTokenService.revokeToken(request.refreshToken());
     }
 
     @Transactional(readOnly = true)
@@ -77,5 +88,11 @@ public class AuthService {
     private User findUserByUsername(String username) {
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+    }
+
+    private AuthResponse createAuthResponse(User user) {
+        String accessToken = jwtService.generateAccessToken(user.getUsername());
+        String refreshToken = refreshTokenService.createToken(user);
+        return new AuthResponse(accessToken, refreshToken, UserResponse.from(user));
     }
 }

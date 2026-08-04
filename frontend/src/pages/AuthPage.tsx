@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiClient } from '../services/api';
+import { apiClient, storeAuthSession } from '../services/api';
 import { ROUTES } from '../config/constants';
+import type { AuthResponse } from '../types';
 import './AuthPage.css';
 
 type AuthMode = 'login' | 'register';
@@ -29,11 +30,10 @@ export default function AuthPage() {
         ? { username: formData.username, password: formData.password }
         : formData;
 
-      const response = await apiClient.post(endpoint, payload);
+      const response = await apiClient.post<AuthResponse>(endpoint, payload);
 
-      if (response.data.token) {
-        localStorage.setItem('token', response.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.user));
+      if (response.data.token && response.data.refreshToken) {
+        storeAuthSession(response.data);
         navigate(ROUTES.CHAT, { replace: true });
       }
     } catch (err: any) {

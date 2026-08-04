@@ -339,6 +339,7 @@
   color: var(--gray-500);
 }
 
+.profile-notification-btn,
 .profile-edit-btn,
 .profile-logout-btn {
   min-height: 38px;
@@ -347,6 +348,35 @@
   font-size: 14px;
   font-weight: 700;
   transition: all 0.2s;
+}
+
+.profile-notification-btn {
+  border: 1px solid var(--purple-100);
+  background: var(--white);
+  color: var(--gray-700);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  text-align: left;
+}
+
+.profile-notification-btn:hover:not(:disabled) {
+  background: var(--purple-50);
+  border-color: var(--purple-200);
+  color: var(--purple-700);
+}
+
+.profile-notification-btn:disabled {
+  cursor: not-allowed;
+  background: var(--gray-100);
+  color: var(--gray-400);
+}
+
+.profile-notification-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
 }
 
 .profile-edit-btn {
@@ -369,6 +399,7 @@
   background: var(--purple-200);
 }
 
+.profile-notification-btn:focus-visible,
 .profile-edit-btn:focus-visible,
 .profile-logout-btn:focus-visible {
   outline: 2px solid var(--purple-500);
@@ -2364,8 +2395,6 @@ button.main-list-item {
   display: flex;
   flex-direction: column;
   max-width: 70%;
-  content-visibility: auto;
-  contain-intrinsic-size: 0 72px;
 }
 
 .message.grouped-with-previous {

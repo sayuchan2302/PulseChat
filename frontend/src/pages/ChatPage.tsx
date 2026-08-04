@@ -19,7 +19,7 @@ import type {
   UnreadCount,
   User,
 } from '../types';
-import { apiClient } from '../services/api';
+import { apiClient, clearAuthSession } from '../services/api';
 import { wsService } from '../services/websocket';
 import './ChatPage.css';
 
@@ -41,6 +41,7 @@ const MESSAGE_JUMP_HIGHLIGHT_MS = 2200;
 const LOAD_OLDER_SCROLL_THRESHOLD = 80;
 const READ_BOTTOM_THRESHOLD = 96;
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 180;
+const BROWSER_NOTIFICATION_CLOSE_MS = 9000;
 const MIN_GROUP_MEMBERS = 3;
 const MIN_GROUP_INVITED_MEMBERS = MIN_GROUP_MEMBERS - 1;
 const BIO_MAX_LENGTH = 160;
@@ -238,6 +239,13 @@ type PendingReadConversation =
   | { type: 'user'; id: number; unreadCount: number }
   | { type: 'room'; id: number; unreadCount: number }
   | null;
+type ChatBrowserNotification = {
+  title: string;
+  body: string;
+  path?: string;
+  user?: User | null;
+  browserTag: string;
+};
 
 function FriendsIcon({ className }: HeaderIconProps) {
   return (
@@ -339,6 +347,25 @@ function ProfileIcon({ className }: HeaderIconProps) {
       <circle cx="12" cy="12" r="10" />
       <circle cx="12" cy="10" r="3" />
       <path d="M7 18a5.5 5.5 0 0 1 10 0" />
+    </svg>
+  );
+}
+
+function BellIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
     </svg>
   );
 }
@@ -684,14 +711,11 @@ function isConversationMessage(
   currentUserId: number | null,
   selectedUserId: number | null
 ) {
-  if (currentUserId === null || selectedUserId === null) {
+  if (selectedUserId === null) {
     return false;
   }
 
-  return (
-    (message.senderId === currentUserId && message.receiverId === selectedUserId) ||
-    (message.senderId === selectedUserId && message.receiverId === currentUserId)
-  );
+  return getPrivateConversationUserId(message, currentUserId) === selectedUserId;
 }
 
 function isActiveConversationMessage(
@@ -708,13 +732,20 @@ function isActiveConversationMessage(
 }
 
 function applyPresenceToUser(user: User, presence: PresenceEvent) {
-  return user.id === presence.userId
-    ? {
-      ...user,
-      online: presence.online,
-      lastSeenAt: presence.lastSeenAt ?? user.lastSeenAt,
-    }
-    : user;
+  if (user.id !== presence.userId) {
+    return user;
+  }
+
+  const nextLastSeenAt = presence.lastSeenAt ?? user.lastSeenAt;
+  if (user.online === presence.online && user.lastSeenAt === nextLastSeenAt) {
+    return user;
+  }
+
+  return {
+    ...user,
+    online: presence.online,
+    lastSeenAt: nextLastSeenAt,
+  };
 }
 
 function applyProfileToUser(user: User, updatedUser: User) {
@@ -837,6 +868,10 @@ function isMessagesContainerNearBottom(container: HTMLElement | null, threshold 
   }
 
   return container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
+}
+
+function getMessagesContainerBottomScrollTop(container: HTMLElement) {
+  return Math.max(0, container.scrollHeight - container.clientHeight);
 }
 
 function isUnreadMessageForCurrentUser(message: ChatMessage, currentUserId: number | null) {
@@ -1210,6 +1245,34 @@ function getBrowserAwareConnectionStatus(status: ConnectionStatus): ConnectionSt
   }
 
   return status;
+}
+
+function isBrowserNotificationSupported() {
+  return typeof window !== 'undefined' && 'Notification' in window;
+}
+
+function getBrowserNotificationPermission(): NotificationPermission {
+  return isBrowserNotificationSupported() ? Notification.permission : 'denied';
+}
+
+function shouldShowBrowserNotification() {
+  return typeof document === 'undefined' || document.hidden || !document.hasFocus();
+}
+
+function getBrowserNotificationStatusLabel(permission: NotificationPermission) {
+  if (!isBrowserNotificationSupported()) {
+    return 'Browser notifications unavailable';
+  }
+
+  if (permission === 'granted') {
+    return 'Browser notifications enabled';
+  }
+
+  if (permission === 'denied') {
+    return 'Browser notifications blocked';
+  }
+
+  return 'Enable browser notifications';
 }
 
 function getUserDisplayName(user: User | null) {
@@ -1596,7 +1659,7 @@ function getPrivateConversationUserId(message: Message, currentUserId: number | 
     return message.receiverId ?? null;
   }
 
-  return message.receiverId === currentUserId ? message.senderId : null;
+  return message.receiverId === currentUserId || message.receiverId == null ? message.senderId : null;
 }
 
 function getTimestampValue(timestamp?: string) {
@@ -2036,11 +2099,22 @@ export default function ChatPage() {
   const [detailsOpen, setDetailsOpen] = useState(shouldOpenConversationDetailsByDefault);
   const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
   const [unreadDividerMessageId, setUnreadDividerMessageIdState] = useState<number | null>(null);
+  const [browserNotificationPermission, setBrowserNotificationPermission] =
+    useState<NotificationPermission>(getBrowserNotificationPermission);
+  const currentUserRef = useRef<User | null>(null);
   const currentUserIdRef = useRef<number | null>(null);
   const selectedUserIdRef = useRef<number | null>(null);
   const selectedRoomIdRef = useRef<number | null>(null);
   const unreadDividerMessageIdRef = useRef<number | null>(null);
   const pendingReadConversationRef = useRef<PendingReadConversation>(null);
+  const usersRef = useRef<User[]>([]);
+  const friendsRef = useRef<User[]>([]);
+  const roomsRef = useRef<ChatRoom[]>([]);
+  const browserNotificationPermissionRef = useRef<NotificationPermission>(
+    getBrowserNotificationPermission()
+  );
+  const browserNotificationPermissionRequestRef = useRef<Promise<NotificationPermission> | null>(null);
+  const notificationAudioContextRef = useRef<AudioContext | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -2075,6 +2149,26 @@ export default function ChatPage() {
   const selectedRoomId = selectedRoom?.id ?? null;
 
   useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
+
+  useEffect(() => {
+    friendsRef.current = friends;
+  }, [friends]);
+
+  useEffect(() => {
+    roomsRef.current = rooms;
+  }, [rooms]);
+
+  useEffect(() => {
+    browserNotificationPermissionRef.current = browserNotificationPermission;
+  }, [browserNotificationPermission]);
+
+  useEffect(() => {
     setGroupSettingsName(selectedRoom?.name ?? '');
     setSelectedAddMemberIds([]);
     setGroupMemberNicknames(
@@ -2099,18 +2193,48 @@ export default function ChatPage() {
     releaseInitialScrollBlockFrameRef.current = null;
   }, []);
 
-  const forceScrollToLatestMessage = useCallback(() => {
+  const scrollMessagesContainerToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const container = messagesContainerRef.current;
     if (container) {
-      container.scrollTop = container.scrollHeight;
-      return;
+      const bottomScrollTop = getMessagesContainerBottomScrollTop(container);
+      if (behavior === 'auto') {
+        container.scrollTop = bottomScrollTop;
+      } else {
+        container.scrollTo({
+          top: bottomScrollTop,
+          behavior,
+        });
+      }
+      return true;
     }
 
     messagesEndRef.current?.scrollIntoView({
-      behavior: 'auto',
+      behavior,
       block: 'end',
     });
+    return Boolean(messagesEndRef.current);
   }, []);
+
+  const settleScrollToLatestMessage = useCallback((behavior: ScrollBehavior = 'auto') => {
+    scrollMessagesContainerToBottom(behavior);
+    window.requestAnimationFrame(() => {
+      scrollMessagesContainerToBottom('auto');
+      window.requestAnimationFrame(() => {
+        scrollMessagesContainerToBottom('auto');
+      });
+    });
+  }, [scrollMessagesContainerToBottom]);
+
+  const forceScrollToLatestMessage = useCallback(() => {
+    settleScrollToLatestMessage('auto');
+  }, [settleScrollToLatestMessage]);
+
+  const scrollToLatestMessage = useCallback(
+    (behavior: ScrollBehavior = 'smooth') => {
+      settleScrollToLatestMessage(behavior);
+    },
+    [settleScrollToLatestMessage]
+  );
 
   const releaseInitialScrollBlock = useCallback(() => {
     clearInitialScrollBlockRelease();
@@ -2121,30 +2245,6 @@ export default function ChatPage() {
       });
     });
   }, [clearInitialScrollBlockRelease]);
-
-  const scrollToLatestMessage = useCallback(
-    (behavior: ScrollBehavior = 'smooth') => {
-      if (behavior === 'auto') {
-        forceScrollToLatestMessage();
-        return;
-      }
-
-      const container = messagesContainerRef.current;
-      if (container) {
-        container.scrollTo({
-          top: container.scrollHeight,
-          behavior,
-        });
-        return;
-      }
-
-      messagesEndRef.current?.scrollIntoView({
-        behavior,
-        block: 'end',
-      });
-    },
-    [forceScrollToLatestMessage]
-  );
 
   const setUnreadDividerMessageId = useCallback((messageId: number | null) => {
     unreadDividerMessageIdRef.current = messageId;
@@ -2221,6 +2321,268 @@ export default function ChatPage() {
       setUnreadDividerMessageId(message.id);
     }
   }, [setUnreadDividerMessageId]);
+
+  const findKnownUserById = useCallback((userId: number) => {
+    const currentKnownUser = currentUserRef.current;
+    const knownUsers = [
+      currentKnownUser?.id === userId ? currentKnownUser : null,
+      ...friendsRef.current,
+      ...usersRef.current,
+      ...roomsRef.current.flatMap((room) => room.participants),
+    ].filter(Boolean) as User[];
+
+    return knownUsers.find((user) => user.id === userId) ?? null;
+  }, []);
+
+  const findKnownRoomById = useCallback((roomId: number) => {
+    return roomsRef.current.find((room) => room.id === roomId) ?? null;
+  }, []);
+
+  const resumeNotificationAudio = useCallback(async () => {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    const AudioContextConstructor =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextConstructor) {
+      return null;
+    }
+
+    if (!notificationAudioContextRef.current) {
+      notificationAudioContextRef.current = new AudioContextConstructor();
+    }
+
+    const audioContext = notificationAudioContextRef.current;
+    if (audioContext.state === 'suspended') {
+      try {
+        await audioContext.resume();
+      } catch (error) {
+        console.warn('Unable to unlock notification sound:', error);
+        return null;
+      }
+    }
+
+    return audioContext;
+  }, []);
+
+  const playNotificationSound = useCallback(async () => {
+    const audioContext = await resumeNotificationAudio();
+    if (!audioContext) {
+      return;
+    }
+
+    const startAt = audioContext.currentTime;
+    const masterGain = audioContext.createGain();
+    masterGain.gain.setValueAtTime(0.0001, startAt);
+    masterGain.gain.exponentialRampToValueAtTime(0.045, startAt + 0.018);
+    masterGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.46);
+    masterGain.connect(audioContext.destination);
+
+    [
+      { frequency: 660, delay: 0, duration: 0.22 },
+      { frequency: 880, delay: 0.09, duration: 0.26 },
+    ].forEach((note) => {
+      const oscillator = audioContext.createOscillator();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(note.frequency, startAt + note.delay);
+      oscillator.frequency.exponentialRampToValueAtTime(
+        note.frequency * 1.08,
+        startAt + note.delay + note.duration
+      );
+      oscillator.connect(masterGain);
+      oscillator.start(startAt + note.delay);
+      oscillator.stop(startAt + note.delay + note.duration);
+    });
+  }, [resumeNotificationAudio]);
+
+  const requestBrowserNotificationPermission = useCallback(async () => {
+    if (!isBrowserNotificationSupported()) {
+      setBrowserNotificationPermission('denied');
+      return 'denied' as NotificationPermission;
+    }
+
+    const currentPermission = getBrowserNotificationPermission();
+    browserNotificationPermissionRef.current = currentPermission;
+    setBrowserNotificationPermission(currentPermission);
+    if (currentPermission !== 'default') {
+      return currentPermission;
+    }
+
+    if (!browserNotificationPermissionRequestRef.current) {
+      browserNotificationPermissionRequestRef.current = Notification.requestPermission()
+        .then((permission) => {
+          browserNotificationPermissionRef.current = permission;
+          setBrowserNotificationPermission(permission);
+          return permission;
+        })
+        .catch((error) => {
+          console.error('Failed to request browser notification permission:', error);
+          const permission = getBrowserNotificationPermission();
+          browserNotificationPermissionRef.current = permission;
+          setBrowserNotificationPermission(permission);
+          return permission;
+        })
+        .finally(() => {
+          browserNotificationPermissionRequestRef.current = null;
+        });
+    }
+
+    return browserNotificationPermissionRequestRef.current;
+  }, []);
+
+  const showBrowserNotification = useCallback((notification: ChatBrowserNotification) => {
+    if (
+      !isBrowserNotificationSupported() ||
+      browserNotificationPermissionRef.current !== 'granted' ||
+      !shouldShowBrowserNotification()
+    ) {
+      return false;
+    }
+
+    try {
+      const browserNotification = new Notification(notification.title, {
+        body: notification.body,
+        icon: getAvatarUrl(notification.user?.avatar),
+        tag: notification.browserTag,
+      });
+
+      browserNotification.onclick = () => {
+        window.focus();
+        if (notification.path) {
+          navigate(notification.path);
+        }
+        browserNotification.close();
+      };
+
+      window.setTimeout(() => {
+        browserNotification.close();
+      }, BROWSER_NOTIFICATION_CLOSE_MS);
+      return true;
+    } catch (error) {
+      console.error('Failed to show browser notification:', error);
+      return false;
+    }
+  }, [navigate]);
+
+  const notifyWithBrowserNotification = useCallback((notification: ChatBrowserNotification) => {
+    if (browserNotificationPermissionRef.current === 'default') {
+      void requestBrowserNotificationPermission();
+      return;
+    }
+
+    if (showBrowserNotification(notification)) {
+      void playNotificationSound();
+    }
+  }, [playNotificationSound, requestBrowserNotificationPermission, showBrowserNotification]);
+
+  const buildMessageNotification = useCallback((message: Message) => {
+    const preview = getMessagePreviewContent(message) || 'New message';
+
+    if (message.chatRoomId) {
+      const room = findKnownRoomById(message.chatRoomId);
+      const sender = findKnownUserById(message.senderId);
+      const senderName =
+        getUserDisplayName(sender) ||
+        message.senderFullName?.trim() ||
+        message.senderUsername ||
+        'Someone';
+
+      return {
+        title: room?.name ?? 'Group message',
+        body: `${senderName}: ${preview}`,
+        path: getRoomChatRoute(message.chatRoomId),
+        user: sender,
+        browserTag: `room-message-${message.chatRoomId}`,
+      };
+    }
+
+    const sender = findKnownUserById(message.senderId);
+    const senderUsername = sender?.username || message.senderUsername;
+    return {
+      title:
+        getUserDisplayName(sender) ||
+        message.senderFullName?.trim() ||
+        senderUsername ||
+        'New message',
+      body: preview,
+      path: senderUsername ? getUserChatRoute(senderUsername) : undefined,
+      user: sender,
+      browserTag: `private-message-${message.senderId}`,
+    };
+  }, [findKnownRoomById, findKnownUserById]);
+
+  const buildFriendshipNotification = useCallback((friendship: Friendship) => {
+    const currentUserId = currentUserIdRef.current;
+    if (friendship.status === 'pending' && friendship.receiver.id === currentUserId) {
+      const requesterName = getUserDisplayName(friendship.requester);
+      return {
+        title: 'New friend request',
+        body: `${requesterName} sent you a friend request.`,
+        path: getRequestsRoute(),
+        user: friendship.requester,
+        browserTag: `friend-request-${friendship.id}`,
+      };
+    }
+
+    if (friendship.status === 'accepted' && friendship.requester.id === currentUserId) {
+      const receiverName = getUserDisplayName(friendship.receiver);
+      return {
+        title: 'Friend request accepted',
+        body: `${receiverName} accepted your friend request.`,
+        path: getUserChatRoute(friendship.receiver.username),
+        user: friendship.receiver,
+        browserTag: `friend-accepted-${friendship.id}`,
+      };
+    }
+
+    return null;
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const unlockAudio = () => {
+      void resumeNotificationAudio();
+    };
+
+    window.addEventListener('pointerdown', unlockAudio, { once: true, passive: true });
+    window.addEventListener('keydown', unlockAudio, { once: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+  }, [resumeNotificationAudio]);
+
+  useEffect(() => {
+    if (!currentUser?.id || !isBrowserNotificationSupported()) {
+      return undefined;
+    }
+
+    const requestPermission = () => {
+      if (getBrowserNotificationPermission() === 'default') {
+        void requestBrowserNotificationPermission();
+      }
+    };
+
+    requestPermission();
+    window.addEventListener('pointerdown', requestPermission, { once: true, passive: true });
+    window.addEventListener('keydown', requestPermission, { once: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', requestPermission);
+      window.removeEventListener('keydown', requestPermission);
+    };
+  }, [currentUser?.id, requestBrowserNotificationPermission]);
+
+  useEffect(() => () => {
+    void notificationAudioContextRef.current?.close();
+    notificationAudioContextRef.current = null;
+  }, []);
 
   const resetMessagePagination = useCallback(() => {
     olderMessagesLoadingRef.current = false;
@@ -2992,8 +3354,7 @@ export default function ChatPage() {
       currentUserIdRef.current = parsedUser.id;
     } catch (error) {
       console.error('Failed to read current user:', error);
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      clearAuthSession();
       navigate(ROUTES.HOME, { replace: true });
     }
   }, [navigate]);
@@ -3312,6 +3673,8 @@ export default function ChatPage() {
             selectedUserIdForMessage,
             selectedRoomIdForMessage
           );
+          const pageIsFocused =
+            typeof document === 'undefined' || (!document.hidden && document.hasFocus());
           const wasAtBottomBeforeMessage =
             isActiveMessage &&
             isMessagesContainerNearBottom(
@@ -3320,8 +3683,11 @@ export default function ChatPage() {
             );
           const canMarkActiveIncomingAsRead =
             isIncomingFromOther &&
+            pageIsFocused &&
             wasAtBottomBeforeMessage &&
             pendingReadConversationRef.current === null;
+          const shouldNotifyIncomingMessage =
+            isIncomingFromOther && (!isActiveMessage || !pageIsFocused);
 
           setMessages((currentMessages) => {
             if (
@@ -3341,6 +3707,10 @@ export default function ChatPage() {
 
           if (incomingMessage.clientId) {
             clearOptimisticSendTimeout(incomingMessage.clientId);
+          }
+
+          if (shouldNotifyIncomingMessage) {
+            notifyWithBrowserNotification(buildMessageNotification(incomingMessage));
           }
 
           if (incomingMessage.chatRoomId) {
@@ -3489,9 +3859,13 @@ export default function ChatPage() {
 
           const browserAwareStatus = getBrowserAwareConnectionStatus(status);
           const isOnline = browserAwareStatus === 'connected';
-          setCurrentUser((currentAccount) =>
-            currentAccount ? { ...currentAccount, online: isOnline } : null
-          );
+          setCurrentUser((currentAccount) => {
+            if (!currentAccount || currentAccount.online === isOnline) {
+              return currentAccount;
+            }
+
+            return { ...currentAccount, online: isOnline };
+          });
 
           if (!isOnline) {
             return;
@@ -3541,9 +3915,14 @@ export default function ChatPage() {
 
           applyRoomMembershipUpdate(room);
         },
-        () => {
+        (friendship) => {
           if (!active) {
             return;
+          }
+
+          const notification = buildFriendshipNotification(friendship);
+          if (notification) {
+            notifyWithBrowserNotification(notification);
           }
 
           void Promise.all([
@@ -3581,6 +3960,8 @@ export default function ChatPage() {
     addPendingUnreadMessage,
     applyMessageUpdate,
     applyRoomMembershipUpdate,
+    buildFriendshipNotification,
+    buildMessageNotification,
     currentUser?.id,
     hideRemoteTyping,
     loadFriendSummary,
@@ -3591,6 +3972,7 @@ export default function ChatPage() {
     loadUsers,
     markConversationAsRead,
     markRoomAsRead,
+    notifyWithBrowserNotification,
     showRemoteTyping,
   ]);
 
@@ -4940,9 +5322,15 @@ export default function ChatPage() {
       stopTyping(selectedUserIdRef.current);
     }
 
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (refreshToken) {
+      void apiClient.post('/auth/logout', { refreshToken }).catch((error) => {
+        console.error('Failed to revoke refresh token:', error);
+      });
+    }
+
     wsService.disconnect();
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    clearAuthSession();
     navigate(ROUTES.HOME, { replace: true });
   };
 
@@ -6458,6 +6846,30 @@ export default function ChatPage() {
                   <span className="account-status-dot" aria-hidden="true" />
                   {currentUserOnline ? 'Online' : 'Offline'}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (browserNotificationPermission === 'granted') {
+                      void playNotificationSound();
+                    } else {
+                      void requestBrowserNotificationPermission();
+                    }
+                  }}
+                  className="profile-notification-btn"
+                  role="menuitem"
+                  disabled={
+                    !isBrowserNotificationSupported() ||
+                    browserNotificationPermission === 'denied'
+                  }
+                  title={
+                    browserNotificationPermission === 'granted'
+                      ? 'Play notification sound'
+                      : getBrowserNotificationStatusLabel(browserNotificationPermission)
+                  }
+                >
+                  <BellIcon className="profile-notification-icon" />
+                  <span>{getBrowserNotificationStatusLabel(browserNotificationPermission)}</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleOpenProfileEditor}
