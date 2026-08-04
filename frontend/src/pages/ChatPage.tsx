@@ -457,6 +457,26 @@ function RecallIcon({ className }: HeaderIconProps) {
   );
 }
 
+function MoreIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+      <circle cx="5" cy="12" r="1" />
+    </svg>
+  );
+}
+
 function toDeliveredMessage(message: Message): ChatMessage {
   return {
     ...message,
@@ -1048,6 +1068,10 @@ function getBrowserAwareConnectionStatus(status: ConnectionStatus): ConnectionSt
 }
 
 function getUserDisplayName(user: User | null) {
+  return user?.nickname?.trim() || user?.fullName?.trim() || user?.username || '';
+}
+
+function getUserAccountDisplayName(user: User | null) {
   return user?.fullName?.trim() || user?.username || '';
 }
 
@@ -1700,9 +1724,12 @@ export default function ChatPage() {
   const [groupError, setGroupError] = useState('');
   const [groupSettingsName, setGroupSettingsName] = useState('');
   const [selectedAddMemberIds, setSelectedAddMemberIds] = useState<number[]>([]);
-  const [groupSettingsPendingAction, setGroupSettingsPendingAction] = useState<
-    'rename' | 'add' | 'leave' | null
-  >(null);
+  const [groupMemberNicknames, setGroupMemberNicknames] = useState<Record<number, string>>({});
+  const [openGroupMemberMenuId, setOpenGroupMemberMenuId] = useState<number | null>(null);
+  const [editingGroupMemberNicknameId, setEditingGroupMemberNicknameId] = useState<number | null>(
+    null
+  );
+  const [groupSettingsPendingAction, setGroupSettingsPendingAction] = useState<string | null>(null);
   const [groupSettingsError, setGroupSettingsError] = useState('');
   const [profileFullName, setProfileFullName] = useState('');
   const [profileBio, setProfileBio] = useState('');
@@ -1749,8 +1776,18 @@ export default function ChatPage() {
   useEffect(() => {
     setGroupSettingsName(selectedRoom?.name ?? '');
     setSelectedAddMemberIds([]);
+    setGroupMemberNicknames(
+      Object.fromEntries(
+        selectedRoom?.participants.map((participant) => [
+          participant.id,
+          participant.nickname ?? '',
+        ]) ?? []
+      )
+    );
+    setOpenGroupMemberMenuId(null);
+    setEditingGroupMemberNicknameId(null);
     setGroupSettingsError('');
-  }, [selectedRoom?.id, selectedRoom?.name]);
+  }, [selectedRoom?.id, selectedRoom?.name, selectedRoom?.participants]);
 
   const clearInitialScrollBlockRelease = useCallback(() => {
     if (releaseInitialScrollBlockFrameRef.current === null) {
@@ -3354,6 +3391,87 @@ export default function ChatPage() {
     }
   };
 
+  const handleGroupMemberNicknameChange = (userId: number, value: string) => {
+    setGroupSettingsError('');
+    setGroupMemberNicknames((currentNicknames) => ({
+      ...currentNicknames,
+      [userId]: value,
+    }));
+  };
+
+  const handleToggleGroupMemberMenu = (userId: number) => {
+    setGroupSettingsError('');
+    setOpenGroupMemberMenuId((currentUserId) => (currentUserId === userId ? null : userId));
+  };
+
+  const handleStartEditGroupMemberNickname = (user: User) => {
+    setGroupSettingsError('');
+    setOpenGroupMemberMenuId(null);
+    setEditingGroupMemberNicknameId(user.id);
+    setGroupMemberNicknames((currentNicknames) => ({
+      ...currentNicknames,
+      [user.id]: currentNicknames[user.id] ?? user.nickname ?? '',
+    }));
+  };
+
+  const handleCancelEditGroupMemberNickname = (user: User) => {
+    setGroupSettingsError('');
+    setEditingGroupMemberNicknameId(null);
+    setGroupMemberNicknames((currentNicknames) => ({
+      ...currentNicknames,
+      [user.id]: user.nickname ?? '',
+    }));
+  };
+
+  const handleUpdateRoomMemberNickname = async (user: User) => {
+    if (!selectedRoom || groupSettingsSaving) {
+      return;
+    }
+
+    const nickname = (groupMemberNicknames[user.id] ?? '').trim();
+    if (nickname === (user.nickname ?? '').trim()) {
+      return;
+    }
+
+    setGroupSettingsPendingAction(`nickname-${user.id}`);
+    setGroupSettingsError('');
+
+    try {
+      const response = await apiClient.patch<ChatRoom>(
+        `/rooms/${selectedRoom.id}/members/${user.id}/nickname`,
+        { nickname }
+      );
+      applyRoomMembershipUpdate(response.data);
+      setEditingGroupMemberNicknameId(null);
+    } catch (error) {
+      console.error('Failed to update group nickname:', error);
+      setGroupSettingsError('Unable to update nickname.');
+    } finally {
+      setGroupSettingsPendingAction(null);
+    }
+  };
+
+  const handleKickRoomMember = async (user: User) => {
+    if (!selectedRoom || groupSettingsSaving) {
+      return;
+    }
+
+    setGroupSettingsPendingAction(`kick-${user.id}`);
+    setGroupSettingsError('');
+
+    try {
+      const response = await apiClient.delete<ChatRoom>(
+        `/rooms/${selectedRoom.id}/members/${user.id}`
+      );
+      applyRoomMembershipUpdate(response.data);
+    } catch (error) {
+      console.error('Failed to remove group member:', error);
+      setGroupSettingsError('Unable to remove member.');
+    } finally {
+      setGroupSettingsPendingAction(null);
+    }
+  };
+
   const handleLeaveSelectedGroup = async () => {
     if (!selectedRoom || groupSettingsSaving) {
       return;
@@ -3911,11 +4029,13 @@ export default function ChatPage() {
     : `${selectedInvitedMemberCount} of ${MIN_GROUP_INVITED_MEMBERS} friends selected`;
   const canCreateGroup = Boolean(groupName.trim()) && hasMinimumInvitedMembers && !groupCreating;
   const selectedRoomOwnerId = selectedRoom?.ownerId ?? null;
+  const selectedRoomOwner = selectedRoom?.participants.find(
+    (participant) => participant.id === selectedRoomOwnerId
+  );
   const selectedRoomOwnerName =
+    getUserDisplayName(selectedRoomOwner ?? null) ||
     selectedRoom?.ownerFullName?.trim() ||
     selectedRoom?.ownerUsername ||
-    selectedRoom?.participants.find((participant) => participant.id === selectedRoomOwnerId)
-      ?.username ||
     '';
   const currentUserCanManageSelectedRoom =
     Boolean(selectedRoom && currentUser && selectedRoomOwnerId === currentUser.id);
@@ -3936,6 +4056,12 @@ export default function ChatPage() {
   const canAddRoomMembers = Boolean(
     currentUserCanManageSelectedRoom &&
     selectedAddMemberIds.length > 0 &&
+    !groupSettingsSaving
+  );
+  const canKickSelectedRoomMember = Boolean(
+    currentUserCanManageSelectedRoom &&
+    selectedRoom &&
+    selectedRoom.participants.length > MIN_GROUP_MEMBERS &&
     !groupSettingsSaving
   );
   const sidebarBusy = hasUserSearch ? usersLoading : usersLoading || roomsLoading;
@@ -4654,23 +4780,113 @@ export default function ChatPage() {
   const renderDetailsMemberItem = (user: User) => {
     const isCurrentUser = user.id === currentUser?.id;
     const isOwner = user.id === selectedRoomOwnerId;
+    const memberDisplayName = getUserDisplayName(user);
+    const accountDisplayName = getUserAccountDisplayName(user);
+    const nicknameValue = groupMemberNicknames[user.id] ?? '';
+    const normalizedNicknameValue = nicknameValue.trim();
+    const normalizedSavedNickname = (user.nickname ?? '').trim();
+    const nicknameChanged = normalizedNicknameValue !== normalizedSavedNickname;
+    const nicknamePending = groupSettingsPendingAction === `nickname-${user.id}`;
+    const kickPending = groupSettingsPendingAction === `kick-${user.id}`;
+    const canKickMember = canKickSelectedRoomMember && !isOwner && !isCurrentUser;
+    const memberMenuOpen = openGroupMemberMenuId === user.id;
+    const editingNickname = editingGroupMemberNicknameId === user.id;
     const presenceLabel = isCurrentUser
       ? `You - ${getPresenceLabel(user)}`
       : getPresenceLabel(user);
 
     return (
-      <div key={user.id} className="details-member-item">
+      <div
+        key={user.id}
+        className={`details-member-item ${editingNickname ? 'editing' : ''}`}
+      >
         {renderUserAvatar(user, 'user-avatar small-avatar')}
         <div className="details-member-copy">
           <div className="details-member-title">
-            <strong>{getUserDisplayName(user)}</strong>
+            <strong>{memberDisplayName}</strong>
             {isOwner ? <span className="details-owner-badge">Owner</span> : null}
           </div>
           {shouldShowUsername(user) ? <span>@{user.username}</span> : null}
+          <span className={`details-presence ${user.online ? 'online' : 'offline'}`}>
+            {presenceLabel}
+          </span>
         </div>
-        <span className={`details-presence ${user.online ? 'online' : 'offline'}`}>
-          {presenceLabel}
-        </span>
+
+        {currentUserCanManageSelectedRoom ? (
+          <div className="details-member-menu-wrap">
+            <button
+              type="button"
+              className="details-member-menu-btn"
+              disabled={groupSettingsSaving}
+              onClick={() => handleToggleGroupMemberMenu(user.id)}
+              aria-haspopup="menu"
+              aria-expanded={memberMenuOpen}
+              aria-label={`Member actions for ${memberDisplayName}`}
+              title="Member actions"
+            >
+              <MoreIcon className="details-member-menu-icon" />
+            </button>
+
+            {memberMenuOpen ? (
+              <div className="details-member-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => handleStartEditGroupMemberNickname(user)}
+                >
+                  Rename nickname
+                </button>
+                {!isOwner && !isCurrentUser ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="danger"
+                    disabled={!canKickMember}
+                    onClick={() => void handleKickRoomMember(user)}
+                  >
+                    {kickPending ? 'Kicking' : 'Kick member'}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {editingNickname ? (
+          <div className="details-member-editor">
+            <input
+              type="text"
+              value={nicknameValue}
+              placeholder={accountDisplayName}
+              maxLength={80}
+              disabled={groupSettingsSaving}
+              autoComplete="off"
+              spellCheck={false}
+              aria-label={`Nickname for ${accountDisplayName}`}
+              onChange={(event) =>
+                handleGroupMemberNicknameChange(user.id, event.target.value)
+              }
+            />
+            <div className="details-member-editor-actions">
+              <button
+                type="button"
+                className="details-small-action-btn"
+                disabled={!nicknameChanged || groupSettingsSaving}
+                onClick={() => void handleUpdateRoomMemberNickname(user)}
+              >
+                {nicknamePending ? 'Saving' : 'Save'}
+              </button>
+              <button
+                type="button"
+                className="details-small-action-btn secondary"
+                disabled={groupSettingsSaving}
+                onClick={() => handleCancelEditGroupMemberNickname(user)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   };
@@ -5017,9 +5233,6 @@ export default function ChatPage() {
                       <div className="user-meta">
                         <span className="user-status">
                           {selectedRoom.participants.length} members
-                        </span>
-                        <span className="user-username">
-                          {getRoomMemberSummary(selectedRoom, currentUser?.id)}
                         </span>
                       </div>
                     ) : selectedUser ? (

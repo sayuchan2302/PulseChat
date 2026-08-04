@@ -1,5 +1,6 @@
 package com.chatapp.dto.response;
 
+import com.chatapp.model.ChatRoomMember;
 import com.chatapp.model.User;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
@@ -10,6 +11,7 @@ public record UserResponse(
         Long id,
         String username,
         String fullName,
+        String nickname,
         String email,
         String avatar,
         String bio,
@@ -23,15 +25,19 @@ public record UserResponse(
         Long lastMessageSenderId
 ) {
     public static UserResponse from(User user) {
-        return from(user, null, null, null, null, null);
+        return from(user, null, null, null, null, null, null);
     }
 
     public static UserResponse from(User user, String friendshipStatus) {
-        return from(user, friendshipStatus, null, null, null, null);
+        return from(user, friendshipStatus, null, null, null, null, null);
     }
 
     public static UserResponse from(User user, String friendshipStatus, Long friendshipId) {
-        return from(user, friendshipStatus, friendshipId, null, null, null);
+        return from(user, friendshipStatus, friendshipId, null, null, null, null);
+    }
+
+    public static UserResponse from(ChatRoomMember member) {
+        return from(member.getUser(), null, null, null, null, null, normalizeNickname(member.getNickname()));
     }
 
     public static UserResponse from(
@@ -42,10 +48,23 @@ public record UserResponse(
             LocalDateTime lastMessageAt,
             Long lastMessageSenderId
     ) {
+        return from(user, friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId, null);
+    }
+
+    public static UserResponse from(
+            User user,
+            String friendshipStatus,
+            Long friendshipId,
+            String lastMessageContent,
+            LocalDateTime lastMessageAt,
+            Long lastMessageSenderId,
+            String nickname
+    ) {
         return new UserResponse(
                 user.getId(),
                 user.getUsername(),
                 displayName(user),
+                nickname,
                 user.getEmail(),
                 user.getAvatar(),
                 user.getBio(),
@@ -58,6 +77,10 @@ public record UserResponse(
                 lastMessageAt,
                 lastMessageSenderId
         );
+    }
+
+    private static String normalizeNickname(String nickname) {
+        return nickname == null || nickname.isBlank() ? null : nickname.trim();
     }
 
     private static String displayName(User user) {

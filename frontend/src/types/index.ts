@@ -49,6 +49,7 @@ export interface User {
   id: number;
   username: string;
   fullName?: string;
+  nickname?: string;
   email: string;
   avatar?: string;
   bio?: string;

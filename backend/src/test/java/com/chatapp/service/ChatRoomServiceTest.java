@@ -3,6 +3,7 @@ package com.chatapp.service;
 import com.chatapp.dto.request.AddRoomMembersRequest;
 import com.chatapp.dto.request.CreateChatRoomRequest;
 import com.chatapp.dto.request.UpdateChatRoomRequest;
+import com.chatapp.dto.request.UpdateRoomMemberNicknameRequest;
 import com.chatapp.dto.response.ChatRoomResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
@@ -116,7 +117,7 @@ class ChatRoomServiceTest {
         Message latestMessage = message(100L, activeRoom, alice, "Newest group message", LocalDateTime.of(2026, 8, 1, 11, 0));
 
         when(userService.findByUsername("sayu")).thenReturn(sayu);
-        when(chatRoomRepository.findDistinctByParticipantsIdAndTypeOrderByCreatedAtDesc(1L, ChatRoom.RoomType.GROUP))
+        when(chatRoomRepository.findDistinctByMembersUserIdAndTypeOrderByCreatedAtDesc(1L, ChatRoom.RoomType.GROUP))
                 .thenReturn(List.of(olderRoom, activeRoom));
         when(messageRepository.findLatestMessagesForRooms(List.of(10L, 20L))).thenReturn(List.of(latestMessage));
         when(messageRepository.countUnreadRoomMessages(1L, List.of(10L, 20L)))
@@ -258,6 +259,111 @@ class ChatRoomServiceTest {
         );
     }
 
+    @Test
+    void removeMemberRequiresOwner() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        User charlie = user(4L, "charlie");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob, charlie);
+        room.setOwner(alice);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> chatRoomService.removeMember("sayu", 10L, 4L)
+        );
+
+        assertEquals(ErrorCode.ROOM_OWNER_REQUIRED, exception.getErrorCode());
+        verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
+    }
+
+    @Test
+    void removeMemberKicksNonOwnerMember() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        User charlie = user(4L, "charlie");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob, charlie);
+        room.setOwner(sayu);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of());
+        when(messageRepository.countUnreadRoomMessages(1L, List.of(10L))).thenReturn(List.of());
+
+        ChatRoomResponse response = chatRoomService.removeMember("sayu", 10L, 4L);
+
+        assertEquals(3, response.participants().size());
+        assertEquals(
+                0,
+                response.participants()
+                        .stream()
+                        .filter(participant -> participant.id().equals(4L))
+                        .count()
+        );
+    }
+
+    @Test
+    void updateMemberNicknameRequiresOwner() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(alice);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> chatRoomService.updateMemberNickname(
+                        "sayu",
+                        10L,
+                        3L,
+                        new UpdateRoomMemberNicknameRequest("Bobby")
+                )
+        );
+
+        assertEquals(ErrorCode.ROOM_OWNER_REQUIRED, exception.getErrorCode());
+        verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
+    }
+
+    @Test
+    void updateMemberNicknameSavesNickname() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(sayu);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of());
+        when(messageRepository.countUnreadRoomMessages(1L, List.of(10L))).thenReturn(List.of());
+
+        ChatRoomResponse response = chatRoomService.updateMemberNickname(
+                "sayu",
+                10L,
+                3L,
+                new UpdateRoomMemberNicknameRequest("  Bobby  ")
+        );
+
+        assertEquals(
+                "Bobby",
+                response.participants()
+                        .stream()
+                        .filter(participant -> participant.id().equals(3L))
+                        .findFirst()
+                        .orElseThrow()
+                        .nickname()
+        );
+    }
+
     private User user(Long id, String username) {
         User user = new User();
         user.setId(id);
@@ -274,7 +380,7 @@ class ChatRoomServiceTest {
         room.setName(name);
         room.setType(ChatRoom.RoomType.GROUP);
         room.setCreatedAt(createdAt);
-        room.getParticipants().addAll(List.of(participants));
+        List.of(participants).forEach(room::addMember);
         return room;
     }
 

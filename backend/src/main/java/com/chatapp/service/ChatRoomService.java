@@ -3,10 +3,12 @@ package com.chatapp.service;
 import com.chatapp.dto.request.AddRoomMembersRequest;
 import com.chatapp.dto.request.CreateChatRoomRequest;
 import com.chatapp.dto.request.UpdateChatRoomRequest;
+import com.chatapp.dto.request.UpdateRoomMemberNicknameRequest;
 import com.chatapp.dto.response.ChatRoomResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.ChatRoom;
+import com.chatapp.model.ChatRoomMember;
 import com.chatapp.model.ChatRoomReadState;
 import com.chatapp.model.Message;
 import com.chatapp.model.User;
@@ -51,10 +53,10 @@ public class ChatRoomService {
         room.setName(request.name().trim());
         room.setType(ChatRoom.RoomType.GROUP);
         room.setOwner(creator);
-        room.getParticipants().add(creator);
+        room.addMember(creator);
         participantIds.stream()
                 .map(userService::findById)
-                .forEach(room.getParticipants()::add);
+                .forEach(room::addMember);
 
         return ChatRoomResponse.from(chatRoomRepository.saveAndFlush(room));
     }
@@ -64,7 +66,7 @@ public class ChatRoomService {
         User currentUser = userService.findByUsername(currentUsername);
 
         List<ChatRoom> rooms = chatRoomRepository
-                .findDistinctByParticipantsIdAndTypeOrderByCreatedAtDesc(
+                .findDistinctByMembersUserIdAndTypeOrderByCreatedAtDesc(
                         currentUser.getId(),
                         ChatRoom.RoomType.GROUP
                 );
@@ -139,9 +141,9 @@ public class ChatRoomService {
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
         validateGroupOwner(room, currentUser);
 
-        Set<Long> existingParticipantIds = room.getParticipants()
+        Set<Long> existingParticipantIds = room.getMembers()
                 .stream()
-                .map(User::getId)
+                .map(member -> member.getUser().getId())
                 .collect(Collectors.toSet());
         Set<Long> newParticipantIds = new LinkedHashSet<>(request.participantIds());
         newParticipantIds.removeAll(existingParticipantIds);
@@ -152,7 +154,47 @@ public class ChatRoomService {
 
         newParticipantIds.stream()
                 .map(userService::findById)
-                .forEach(room.getParticipants()::add);
+                .forEach(room::addMember);
+
+        return toGroupResponseForUser(currentUser, chatRoomRepository.saveAndFlush(room));
+    }
+
+    @Transactional
+    public ChatRoomResponse removeMember(String currentUsername, Long roomId, Long memberId) {
+        User currentUser = userService.findByUsername(currentUsername);
+        ChatRoom room = findGroupRoomForMember(currentUser, roomId);
+        validateGroupOwner(room, currentUser);
+
+        if (findEffectiveOwner(room).getId().equals(memberId)) {
+            throw new AppException(ErrorCode.ROOM_OWNER_CANNOT_BE_REMOVED);
+        }
+
+        if (room.findMemberByUserId(memberId).isEmpty()) {
+            throw new AppException(ErrorCode.ROOM_MEMBER_NOT_FOUND);
+        }
+
+        if (room.getMembers().size() <= MIN_GROUP_MEMBERS) {
+            throw new AppException(ErrorCode.GROUP_REQUIRES_MINIMUM_MEMBERS);
+        }
+
+        room.removeMemberByUserId(memberId);
+        return toGroupResponseForUser(currentUser, chatRoomRepository.saveAndFlush(room));
+    }
+
+    @Transactional
+    public ChatRoomResponse updateMemberNickname(
+            String currentUsername,
+            Long roomId,
+            Long memberId,
+            UpdateRoomMemberNicknameRequest request
+    ) {
+        User currentUser = userService.findByUsername(currentUsername);
+        ChatRoom room = findGroupRoomForMember(currentUser, roomId);
+        validateGroupOwner(room, currentUser);
+
+        ChatRoomMember member = room.findMemberByUserId(memberId)
+                .orElseThrow(() -> new AppException(ErrorCode.ROOM_MEMBER_NOT_FOUND));
+        member.setNickname(normalizeNickname(request.nickname()));
 
         return toGroupResponseForUser(currentUser, chatRoomRepository.saveAndFlush(room));
     }
@@ -162,12 +204,12 @@ public class ChatRoomService {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
 
-        if (room.getParticipants().size() <= 1) {
+        if (room.getMembers().size() <= 1) {
             throw new AppException(ErrorCode.ROOM_LAST_MEMBER_CANNOT_LEAVE);
         }
 
         User currentOwner = findEffectiveOwner(room);
-        room.getParticipants().removeIf(participant -> participant.getId().equals(currentUser.getId()));
+        room.removeMemberByUserId(currentUser.getId());
         if (currentOwner != null && currentOwner.getId().equals(currentUser.getId())) {
             room.setOwner(findFirstParticipantById(room));
         } else if (room.getOwner() == null) {
@@ -189,11 +231,7 @@ public class ChatRoomService {
         ChatRoom room = chatRoomRepository.findByIdAndType(roomId, ChatRoom.RoomType.GROUP)
                 .orElseThrow(() -> new AppException(ErrorCode.ROOM_NOT_FOUND));
 
-        boolean isMember = room.getParticipants()
-                .stream()
-                .anyMatch(participant -> participant.getId().equals(member.getId()));
-
-        if (!isMember) {
+        if (!room.hasMember(member.getId())) {
             throw new AppException(ErrorCode.ROOM_ACCESS_DENIED);
         }
 
@@ -203,9 +241,9 @@ public class ChatRoomService {
     @Transactional(readOnly = true)
     public List<String> getGroupParticipantUsernames(String currentUsername, Long roomId) {
         return findGroupRoomForMember(currentUsername, roomId)
-                .getParticipants()
+                .getMembers()
                 .stream()
-                .map(User::getUsername)
+                .map(member -> member.getUser().getUsername())
                 .toList();
     }
 
@@ -233,10 +271,19 @@ public class ChatRoomService {
     }
 
     private User findFirstParticipantById(ChatRoom room) {
-        return room.getParticipants()
+        return room.getMembers()
                 .stream()
+                .map(ChatRoomMember::getUser)
                 .min(Comparator.comparing(User::getId))
                 .orElse(null);
+    }
+
+    private String normalizeNickname(String nickname) {
+        if (nickname == null || nickname.isBlank()) {
+            return null;
+        }
+
+        return nickname.trim();
     }
 
     private Map<Long, Message> findLatestMessagesByRoomId(List<Long> roomIds) {

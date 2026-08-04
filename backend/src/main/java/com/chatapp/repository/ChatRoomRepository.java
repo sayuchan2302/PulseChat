@@ -8,12 +8,12 @@ import java.util.List;
 import java.util.Optional;
 
 public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
-    @EntityGraph(attributePaths = {"participants", "owner"})
-    List<ChatRoom> findDistinctByParticipantsIdAndTypeOrderByCreatedAtDesc(
-            Long participantId,
+    @EntityGraph(attributePaths = {"members.user", "owner"})
+    List<ChatRoom> findDistinctByMembersUserIdAndTypeOrderByCreatedAtDesc(
+            Long memberId,
             ChatRoom.RoomType type
     );
 
-    @EntityGraph(attributePaths = {"participants", "owner"})
+    @EntityGraph(attributePaths = {"members.user", "owner"})
     Optional<ChatRoom> findByIdAndType(Long id, ChatRoom.RoomType type);
 }

@@ -9,8 +9,12 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Entity
 @Table(
@@ -40,23 +44,8 @@ public class ChatRoom {
     @JoinColumn(name = "owner_id")
     private User owner;
 
-    @ManyToMany(fetch = FetchType.LAZY)
-    @JoinTable(
-        name = "chat_room_participants",
-        joinColumns = @JoinColumn(name = "chat_room_id"),
-        inverseJoinColumns = @JoinColumn(name = "user_id"),
-        uniqueConstraints = {
-                @UniqueConstraint(
-                        name = "uk_chat_room_participant",
-                        columnNames = {"chat_room_id", "user_id"}
-                )
-        },
-        indexes = {
-                @Index(name = "idx_chat_room_participants_room", columnList = "chat_room_id"),
-                @Index(name = "idx_chat_room_participants_user", columnList = "user_id")
-        }
-    )
-    private Set<User> participants = new HashSet<>();
+    @OneToMany(mappedBy = "chatRoom", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ChatRoomMember> members = new ArrayList<>();
 
     @CreationTimestamp
     @Column(updatable = false)
@@ -64,6 +53,34 @@ public class ChatRoom {
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
+
+    public Set<User> getParticipants() {
+        return members.stream()
+                .map(ChatRoomMember::getUser)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    public void addMember(User user) {
+        if (hasMember(user.getId())) {
+            return;
+        }
+
+        members.add(new ChatRoomMember(this, user));
+    }
+
+    public void removeMemberByUserId(Long userId) {
+        members.removeIf(member -> member.getUser().getId().equals(userId));
+    }
+
+    public boolean hasMember(Long userId) {
+        return members.stream().anyMatch(member -> member.getUser().getId().equals(userId));
+    }
+
+    public Optional<ChatRoomMember> findMemberByUserId(Long userId) {
+        return members.stream()
+                .filter(member -> member.getUser().getId().equals(userId))
+                .findFirst();
+    }
 
     public enum RoomType {
         PRIVATE, GROUP

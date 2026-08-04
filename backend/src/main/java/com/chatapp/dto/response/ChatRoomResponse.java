@@ -1,6 +1,7 @@
 package com.chatapp.dto.response;
 
 import com.chatapp.model.ChatRoom;
+import com.chatapp.model.ChatRoomMember;
 import com.chatapp.model.Message;
 import com.chatapp.model.User;
 import com.chatapp.util.MessagePreviewFormatter;
@@ -34,9 +35,9 @@ public record ChatRoomResponse(
                 room.getId(),
                 room.getName(),
                 room.getType().name().toLowerCase(),
-                room.getParticipants()
+                room.getMembers()
                         .stream()
-                        .sorted(Comparator.comparing(User::getUsername))
+                        .sorted(Comparator.comparing(member -> member.getUser().getUsername()))
                         .map(UserResponse::from)
                         .toList(),
                 owner == null ? null : owner.getId(),
@@ -46,7 +47,7 @@ public record ChatRoomResponse(
                 MessagePreviewFormatter.previewContent(lastMessage),
                 lastMessage == null ? null : lastMessage.getTimestamp(),
                 lastMessage == null ? null : lastMessage.getSender().getId(),
-                lastMessage == null ? null : displayName(lastMessage.getSender()),
+                lastMessage == null ? null : displayName(lastMessage.getSender(), room),
                 unreadCount
         );
     }
@@ -56,13 +57,25 @@ public record ChatRoomResponse(
             return room.getOwner();
         }
 
-        return room.getParticipants()
+        return room.getMembers()
                 .stream()
+                .map(ChatRoomMember::getUser)
                 .min(Comparator.comparing(User::getId))
                 .orElse(null);
     }
 
-    private static String displayName(User user) {
+    private static String displayName(User user, ChatRoom room) {
+        String nickname = room.getMembers()
+                .stream()
+                .filter(member -> member.getUser().getId().equals(user.getId()))
+                .map(ChatRoomMember::getNickname)
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse(null);
+        if (nickname != null) {
+            return nickname;
+        }
+
         String fullName = user.getFullName();
         return fullName == null || fullName.isBlank() ? user.getUsername() : fullName;
     }

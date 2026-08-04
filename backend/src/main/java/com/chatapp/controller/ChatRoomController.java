@@ -4,6 +4,7 @@ import com.chatapp.dto.request.AddRoomMembersRequest;
 import com.chatapp.dto.request.CreateChatRoomRequest;
 import com.chatapp.dto.request.SendRoomMessageRequest;
 import com.chatapp.dto.request.UpdateChatRoomRequest;
+import com.chatapp.dto.request.UpdateRoomMemberNicknameRequest;
 import com.chatapp.dto.response.ChatRoomResponse;
 import com.chatapp.dto.response.MessagePageResponse;
 import com.chatapp.dto.response.MessageResponse;
@@ -92,6 +93,38 @@ public class ChatRoomController {
             @Valid @RequestBody AddRoomMembersRequest request
     ) {
         ChatRoomResponse room = chatRoomService.addMembers(authentication.getName(), roomId, request);
+        notifyRoomParticipants(room);
+
+        return room;
+    }
+
+    @DeleteMapping("/{roomId}/members/{memberId}")
+    public ChatRoomResponse removeRoomMember(
+            Authentication authentication,
+            @PathVariable Long roomId,
+            @PathVariable Long memberId
+    ) {
+        List<String> previousParticipantUsernames =
+                chatRoomService.getGroupParticipantUsernames(authentication.getName(), roomId);
+        ChatRoomResponse room = chatRoomService.removeMember(authentication.getName(), roomId, memberId);
+        notifyRoomParticipants(roomId, previousParticipantUsernames, room);
+
+        return room;
+    }
+
+    @PatchMapping("/{roomId}/members/{memberId}/nickname")
+    public ChatRoomResponse updateRoomMemberNickname(
+            Authentication authentication,
+            @PathVariable Long roomId,
+            @PathVariable Long memberId,
+            @Valid @RequestBody UpdateRoomMemberNicknameRequest request
+    ) {
+        ChatRoomResponse room = chatRoomService.updateMemberNickname(
+                authentication.getName(),
+                roomId,
+                memberId,
+                request
+        );
         notifyRoomParticipants(room);
 
         return room;
