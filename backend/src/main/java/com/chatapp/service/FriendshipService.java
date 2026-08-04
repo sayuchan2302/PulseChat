@@ -8,8 +8,10 @@ import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.Friendship;
 import com.chatapp.model.Friendship.FriendshipStatus;
+import com.chatapp.model.ConversationSetting;
 import com.chatapp.model.Message;
 import com.chatapp.model.User;
+import com.chatapp.repository.ConversationSettingRepository;
 import com.chatapp.repository.FriendshipRepository;
 import com.chatapp.repository.MessageRepository;
 import com.chatapp.repository.UserRepository;
@@ -35,6 +37,7 @@ public class FriendshipService {
     private final FriendshipRepository friendshipRepository;
     private final UserRepository userRepository;
     private final MessageRepository messageRepository;
+    private final ConversationSettingRepository conversationSettingRepository;
     private final UserService userService;
 
     @Transactional(readOnly = true)
@@ -47,9 +50,14 @@ public class FriendshipService {
                 .map(friendship -> otherParticipant(friendship, currentUser))
                 .toList();
         Map<Long, Message> latestMessagesByFriendId = findLatestMessagesByFriendId(currentUser, friends);
+        Map<Long, ConversationSetting> settingsByFriendId = findSettingsByFriendId(currentUser, friends);
 
         return friends.stream()
-                .map(friend -> toAcceptedFriendResponse(friend, latestMessagesByFriendId.get(friend.getId())))
+                .map(friend -> toAcceptedFriendResponse(
+                        friend,
+                        latestMessagesByFriendId.get(friend.getId()),
+                        settingsByFriendId.get(friend.getId())
+                ))
                 .sorted(FriendshipService::compareAcceptedFriendResponses)
                 .toList();
     }
@@ -241,9 +249,32 @@ public class FriendshipService {
                 ));
     }
 
-    private UserResponse toAcceptedFriendResponse(User friend, Message lastMessage) {
+    private Map<Long, ConversationSetting> findSettingsByFriendId(User currentUser, List<User> friends) {
+        if (friends.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Long> friendIds = friends.stream()
+                .map(User::getId)
+                .toList();
+
+        List<ConversationSetting> settings =
+                conversationSettingRepository.findByUserIdAndTargetUserIdIn(currentUser.getId(), friendIds);
+        if (settings == null || settings.isEmpty()) {
+            return Map.of();
+        }
+
+        return settings.stream()
+                .collect(Collectors.toMap(setting -> setting.getTargetUser().getId(), Function.identity()));
+    }
+
+    private UserResponse toAcceptedFriendResponse(
+            User friend,
+            Message lastMessage,
+            ConversationSetting setting
+    ) {
         if (lastMessage == null) {
-            return UserResponse.from(friend, STATUS_ACCEPTED);
+            return UserResponse.from(friend, STATUS_ACCEPTED, null, null, null, null, setting);
         }
 
         return UserResponse.from(
@@ -252,7 +283,8 @@ public class FriendshipService {
                 null,
                 MessagePreviewFormatter.previewContent(lastMessage),
                 lastMessage.getTimestamp(),
-                lastMessage.getSender().getId()
+                lastMessage.getSender().getId(),
+                setting
         );
     }
 
@@ -267,6 +299,10 @@ public class FriendshipService {
     }
 
     private static int compareAcceptedFriendResponses(UserResponse firstResponse, UserResponse secondResponse) {
+        if (!firstResponse.pinned().equals(secondResponse.pinned())) {
+            return Boolean.TRUE.equals(firstResponse.pinned()) ? -1 : 1;
+        }
+
         if (firstResponse.lastMessageAt() != null && secondResponse.lastMessageAt() != null) {
             int latestMessageComparison = secondResponse.lastMessageAt().compareTo(firstResponse.lastMessageAt());
             if (latestMessageComparison != 0) {

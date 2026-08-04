@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { API_BASE_URL, ROUTES } from '../config/constants';
 import type {
   ChatRoom,
   CloudinaryUploadSignature,
   ConnectionStatus,
+  ConversationSetting,
   Friendship,
   FriendshipSummary,
   LinkPreview,
@@ -61,6 +62,11 @@ const MESSAGE_SKELETON_KEYS = [
   'message-skeleton-2',
   'message-skeleton-3',
   'message-skeleton-4',
+];
+const CONVERSATION_FILTERS: Array<{ value: ConversationFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'unread', label: 'Unread' },
+  { value: 'archived', label: 'Archived' },
 ];
 const QUICK_REACTION_EMOJIS = ['👍', '💜', '😂', '😮', '😢', '🔥'] as const;
 const EMOJI_CATEGORIES = [
@@ -189,6 +195,7 @@ type LoadOptions = {
 };
 
 type MainView = 'chat' | 'friends' | 'requests';
+type ConversationFilter = 'all' | 'unread' | 'archived';
 type SharedContentKind = 'media' | 'links';
 type SharedContentLoadOptions = {
   reset?: boolean;
@@ -233,6 +240,9 @@ type MessageBubbleItem = {
 
 type MessageListItem = MessageDateDividerItem | MessageUnreadDividerItem | MessageBubbleItem;
 type SidebarConversationItem =
+  | { type: 'user'; user: User }
+  | { type: 'room'; room: ChatRoom };
+type ConversationTarget =
   | { type: 'user'; user: User }
   | { type: 'room'; room: ChatRoom };
 type PendingReadConversation =
@@ -571,6 +581,65 @@ function MoreIcon({ className }: HeaderIconProps) {
   );
 }
 
+function PinIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M12 17v5" />
+      <path d="M9 3h6l1 7 3 3v2H5v-2l3-3 1-7Z" />
+    </svg>
+  );
+}
+
+function MutedIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+      <path d="m17 9 4 4" />
+      <path d="m21 9-4 4" />
+    </svg>
+  );
+}
+
+function ArchiveIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+      <path d="M10 12h4" />
+    </svg>
+  );
+}
+
 function ChevronDownIcon({ className }: HeaderIconProps) {
   return (
     <svg
@@ -762,6 +831,9 @@ function applyProfileToUser(user: User, updatedUser: User) {
     lastMessageContent: user.lastMessageContent ?? updatedUser.lastMessageContent,
     lastMessageAt: user.lastMessageAt ?? updatedUser.lastMessageAt,
     lastMessageSenderId: user.lastMessageSenderId ?? updatedUser.lastMessageSenderId,
+    pinned: user.pinned ?? updatedUser.pinned,
+    muted: user.muted ?? updatedUser.muted,
+    archived: user.archived ?? updatedUser.archived,
   };
 }
 
@@ -769,6 +841,32 @@ function applyProfileToRoom(room: ChatRoom, updatedUser: User) {
   return {
     ...room,
     participants: room.participants.map((participant) => applyProfileToUser(participant, updatedUser)),
+  };
+}
+
+function applyConversationSettingToUser(user: User, setting: ConversationSetting) {
+  if (setting.targetUserId !== user.id) {
+    return user;
+  }
+
+  return {
+    ...user,
+    pinned: setting.pinned,
+    muted: setting.muted,
+    archived: setting.archived,
+  };
+}
+
+function applyConversationSettingToRoom(room: ChatRoom, setting: ConversationSetting) {
+  if (setting.chatRoomId !== room.id) {
+    return room;
+  }
+
+  return {
+    ...room,
+    pinned: setting.pinned,
+    muted: setting.muted,
+    archived: setting.archived,
   };
 }
 
@@ -1015,18 +1113,91 @@ function getMessageSearchPreview(message: Message) {
   return 'Message';
 }
 
+function getSearchableMessageValues(message: Message) {
+  return [
+    message.content,
+    message.linkPreview?.title,
+    message.linkPreview?.description,
+    message.linkPreview?.domain,
+  ].filter((value): value is string => Boolean(value?.trim()));
+}
+
+function getMessageSearchSnippet(message: Message, query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  const source =
+    getSearchableMessageValues(message).find((value) =>
+      value.toLowerCase().includes(normalizedQuery)
+    ) ?? getMessageSearchPreview(message);
+  const normalizedSource = source.replace(/\s+/g, ' ').trim() || 'Message';
+  if (!normalizedQuery) {
+    return normalizedSource;
+  }
+
+  const matchIndex = normalizedSource.toLowerCase().indexOf(normalizedQuery);
+  if (matchIndex < 0) {
+    return normalizedSource;
+  }
+
+  const contextBefore = 36;
+  const contextAfter = 84;
+  const startIndex = Math.max(0, matchIndex - contextBefore);
+  const endIndex = Math.min(
+    normalizedSource.length,
+    matchIndex + normalizedQuery.length + contextAfter
+  );
+
+  return `${startIndex > 0 ? '...' : ''}${normalizedSource.slice(startIndex, endIndex)}${
+    endIndex < normalizedSource.length ? '...' : ''
+  }`;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function renderHighlightedSearchText(text: string, query: string) {
+  const normalizedQuery = query.trim();
+  if (!text || !normalizedQuery) {
+    return text;
+  }
+
+  const matcher = new RegExp(escapeRegExp(normalizedQuery), 'gi');
+  const nodes = [];
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(matcher)) {
+    const matchText = match[0];
+    const matchIndex = match.index ?? 0;
+
+    if (matchIndex > lastIndex) {
+      nodes.push(text.slice(lastIndex, matchIndex));
+    }
+
+    nodes.push(
+      <mark key={`message-search-highlight-${matchIndex}-${nodes.length}`}>
+        {matchText}
+      </mark>
+    );
+
+    lastIndex = matchIndex + matchText.length;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes.length > 0 ? nodes : text;
+}
+
 function messageMatchesSearchQuery(message: Message, query: string) {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery || message.recalled) {
     return false;
   }
 
-  return [
-    message.content,
-    message.linkPreview?.title,
-    message.linkPreview?.description,
-    message.linkPreview?.domain,
-  ].some((value) => value?.toLowerCase().includes(normalizedQuery));
+  return getSearchableMessageValues(message).some((value) =>
+    value.toLowerCase().includes(normalizedQuery)
+  );
 }
 
 function applyMediaPayload(message: ChatMessage, media?: MediaAttachment): ChatMessage {
@@ -1186,7 +1357,7 @@ function markOptimisticMessageFailed(messages: ChatMessage[], clientId: string) 
   );
 }
 
-function getDeliveryStatusLabel(message: ChatMessage) {
+function getDeliveryStatusLabel(message: ChatMessage, selectedUser: User | null) {
   if (message.deliveryStatus === 'sending') {
     return 'Sending';
   }
@@ -1195,7 +1366,15 @@ function getDeliveryStatusLabel(message: ChatMessage) {
     return 'Failed';
   }
 
-  return message.read ? 'Read' : 'Sent';
+  if (message.read) {
+    return 'Seen';
+  }
+
+  if (!message.chatRoomId && selectedUser?.online) {
+    return 'Delivered';
+  }
+
+  return 'Sent';
 }
 
 function getGroupedMessageReactions(message: ChatMessage, currentUserId: number | null) {
@@ -1646,6 +1825,47 @@ function getPresenceLabel(user: User | null) {
   return lastSeen ? `Last seen ${lastSeen}` : 'Offline';
 }
 
+function getTypingIndicatorLabel(typingUsers: User[]) {
+  if (typingUsers.length === 0) {
+    return '';
+  }
+
+  if (typingUsers.length === 1) {
+    return `${getUserDisplayName(typingUsers[0])} is typing...`;
+  }
+
+  if (typingUsers.length === 2) {
+    return `${getUserDisplayName(typingUsers[0])} and ${getUserDisplayName(typingUsers[1])} are typing...`;
+  }
+
+  return `${typingUsers.length} people are typing...`;
+}
+
+function getLatestSeenOutgoingMessageId(
+  messages: ChatMessage[],
+  currentUserId: number | null,
+  selectedUserId: number | null
+) {
+  if (currentUserId === null || selectedUserId === null) {
+    return null;
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (
+      message.id > 0 &&
+      !message.recalled &&
+      Boolean(message.read) &&
+      message.senderId === currentUserId &&
+      getPrivateConversationUserId(message, currentUserId) === selectedUserId
+    ) {
+      return message.id;
+    }
+  }
+
+  return null;
+}
+
 function getUserStatusClass(user: User) {
   return canChatWithUser(user) ? (user.online ? 'online' : 'offline') : 'relationship';
 }
@@ -1662,6 +1882,28 @@ function getPrivateConversationUserId(message: Message, currentUserId: number | 
   return message.receiverId === currentUserId || message.receiverId == null ? message.senderId : null;
 }
 
+function isMutedIncomingConversation(
+  message: Message,
+  currentUserId: number | null,
+  users: User[],
+  friends: User[],
+  rooms: ChatRoom[]
+) {
+  if (message.chatRoomId) {
+    return Boolean(rooms.find((room) => room.id === message.chatRoomId)?.muted);
+  }
+
+  const conversationUserId = getPrivateConversationUserId(message, currentUserId);
+  if (conversationUserId === null) {
+    return false;
+  }
+
+  return Boolean(
+    users.find((user) => user.id === conversationUserId)?.muted ??
+    friends.find((friend) => friend.id === conversationUserId)?.muted
+  );
+}
+
 function getTimestampValue(timestamp?: string) {
   if (!timestamp) {
     return 0;
@@ -1675,7 +1917,31 @@ function getRoomActivityTimestamp(room: ChatRoom) {
   return getTimestampValue(room.lastMessageAt) || getTimestampValue(room.createdAt);
 }
 
+function isPinnedConversation(item: SidebarConversationItem) {
+  return item.type === 'user' ? Boolean(item.user.pinned) : Boolean(item.room.pinned);
+}
+
+function isArchivedUserConversation(user: User) {
+  return Boolean(user.archived);
+}
+
+function isArchivedRoomConversation(room: ChatRoom) {
+  return Boolean(room.archived);
+}
+
+function hasUnreadUserConversation(user: User) {
+  return (user.unreadCount ?? 0) > 0;
+}
+
+function hasUnreadRoomConversation(room: ChatRoom) {
+  return (room.unreadCount ?? 0) > 0;
+}
+
 function compareRoomsByChatActivity(firstRoom: ChatRoom, secondRoom: ChatRoom) {
+  if (Boolean(firstRoom.pinned) !== Boolean(secondRoom.pinned)) {
+    return firstRoom.pinned ? -1 : 1;
+  }
+
   const activityDifference =
     getRoomActivityTimestamp(secondRoom) - getRoomActivityTimestamp(firstRoom);
 
@@ -1708,6 +1974,10 @@ function compareSidebarConversationItems(
   firstItem: SidebarConversationItem,
   secondItem: SidebarConversationItem
 ) {
+  if (isPinnedConversation(firstItem) !== isPinnedConversation(secondItem)) {
+    return isPinnedConversation(firstItem) ? -1 : 1;
+  }
+
   const activityDifference =
     getSidebarConversationActivityTimestamp(secondItem) -
     getSidebarConversationActivityTimestamp(firstItem);
@@ -1721,10 +1991,42 @@ function compareSidebarConversationItems(
   );
 }
 
-function buildSidebarConversationItems(users: User[], rooms: ChatRoom[]) {
+function shouldIncludeUserConversation(user: User, filter: ConversationFilter) {
+  if (filter === 'archived') {
+    return isArchivedUserConversation(user);
+  }
+
+  if (isArchivedUserConversation(user)) {
+    return false;
+  }
+
+  return filter === 'unread' ? hasUnreadUserConversation(user) : true;
+}
+
+function shouldIncludeRoomConversation(room: ChatRoom, filter: ConversationFilter) {
+  if (filter === 'archived') {
+    return isArchivedRoomConversation(room);
+  }
+
+  if (isArchivedRoomConversation(room)) {
+    return false;
+  }
+
+  return filter === 'unread' ? hasUnreadRoomConversation(room) : true;
+}
+
+function buildSidebarConversationItems(
+  users: User[],
+  rooms: ChatRoom[],
+  filter: ConversationFilter
+) {
   return [
-    ...users.map((user) => ({ type: 'user' as const, user })),
-    ...rooms.map((room) => ({ type: 'room' as const, room })),
+    ...users
+      .filter((user) => shouldIncludeUserConversation(user, filter))
+      .map((user) => ({ type: 'user' as const, user })),
+    ...rooms
+      .filter((room) => shouldIncludeRoomConversation(room, filter))
+      .map((room) => ({ type: 'room' as const, room })),
   ].sort(compareSidebarConversationItems);
 }
 
@@ -1802,6 +2104,10 @@ function applyConversationPreviewToUser(user: User, message: Message, currentUse
 }
 
 function compareUsersByChatActivity(firstUser: User, secondUser: User) {
+  if (Boolean(firstUser.pinned) !== Boolean(secondUser.pinned)) {
+    return firstUser.pinned ? -1 : 1;
+  }
+
   const activityDifference =
     getTimestampValue(secondUser.lastMessageAt) - getTimestampValue(firstUser.lastMessageAt);
   if (activityDifference !== 0) {
@@ -2028,7 +2334,7 @@ export default function ChatPage() {
   const [mediaError, setMediaError] = useState('');
   const [mediaViewerMessage, setMediaViewerMessage] = useState<ChatMessage | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [typingUserId, setTypingUserId] = useState<number | null>(null);
+  const [remoteTypingUserIds, setRemoteTypingUserIds] = useState<number[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
@@ -2042,6 +2348,10 @@ export default function ChatPage() {
   const [roomsLoading, setRoomsLoading] = useState(true);
   const [friendRequestsLoading, setFriendRequestsLoading] = useState(true);
   const [mainView, setMainView] = useState<MainView>('chat');
+  const [conversationFilter, setConversationFilter] = useState<ConversationFilter>('all');
+  const [openConversationMenuKey, setOpenConversationMenuKey] = useState<string | null>(null);
+  const [conversationSettingPendingKey, setConversationSettingPendingKey] = useState<string | null>(null);
+  const [conversationSettingsError, setConversationSettingsError] = useState('');
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
@@ -2072,6 +2382,7 @@ export default function ChatPage() {
   const [messageSearchError, setMessageSearchError] = useState('');
   const [messageSearchHasMore, setMessageSearchHasMore] = useState(false);
   const [messageSearchNextBefore, setMessageSearchNextBefore] = useState<number | null>(null);
+  const [activeMessageSearchId, setActiveMessageSearchId] = useState<number | null>(null);
   const [sharedMediaExpanded, setSharedMediaExpanded] = useState(false);
   const [sharedLinksExpanded, setSharedLinksExpanded] = useState(false);
   const [sharedMediaLoaded, setSharedMediaLoaded] = useState(false);
@@ -2116,7 +2427,7 @@ export default function ChatPage() {
   const browserNotificationPermissionRequestRef = useRef<Promise<NotificationPermission> | null>(null);
   const notificationAudioContextRef = useRef<AudioContext | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const remoteTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const remoteTypingTimeoutsRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const sendTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const userSearchQueryRef = useRef('');
   const messageSearchQueryRef = useRef('');
@@ -2147,6 +2458,27 @@ export default function ChatPage() {
   const location = useLocation();
   const selectedUserId = selectedUser?.id ?? null;
   const selectedRoomId = selectedRoom?.id ?? null;
+  const activeMessageSearchIndex = useMemo(
+    () => {
+      if (messageSearchItems.length === 0) {
+        return -1;
+      }
+
+      const exactIndex =
+        activeMessageSearchId === null
+          ? -1
+          : messageSearchItems.findIndex((message) => message.id === activeMessageSearchId);
+
+      return exactIndex >= 0 ? exactIndex : 0;
+    },
+    [activeMessageSearchId, messageSearchItems]
+  );
+  const activeMessageSearchItem =
+    activeMessageSearchIndex >= 0 ? messageSearchItems[activeMessageSearchIndex] : null;
+  const messageSearchResultIds = useMemo(
+    () => new Set(messageSearchItems.map((message) => message.id)),
+    [messageSearchItems]
+  );
 
   useEffect(() => {
     currentUserRef.current = currentUser;
@@ -2631,6 +2963,7 @@ export default function ChatPage() {
     setMessageSearchError('');
     setMessageSearchHasMore(false);
     setMessageSearchNextBefore(null);
+    setActiveMessageSearchId(null);
     setHighlightedMessageId(null);
   }, []);
 
@@ -3138,11 +3471,12 @@ export default function ChatPage() {
       setMessageSearchError('');
       setMessageSearchHasMore(false);
       setMessageSearchNextBefore(null);
+      setActiveMessageSearchId(null);
       return;
     }
 
     const before = options.reset ? null : messageSearchNextBefore;
-    if (messageSearchLoading || (!options.reset && (!messageSearchHasMore || before === null))) {
+    if (!options.reset && (messageSearchLoading || !messageSearchHasMore || before === null)) {
       return;
     }
 
@@ -3280,6 +3614,22 @@ export default function ChatPage() {
     selectedRoomId,
     selectedUserId,
   ]);
+
+  useEffect(() => {
+    if (messageSearchItems.length === 0) {
+      if (activeMessageSearchId !== null) {
+        setActiveMessageSearchId(null);
+      }
+      return;
+    }
+
+    if (
+      activeMessageSearchId === null ||
+      !messageSearchItems.some((message) => message.id === activeMessageSearchId)
+    ) {
+      setActiveMessageSearchId(messageSearchItems[0].id);
+    }
+  }, [activeMessageSearchId, messageSearchItems]);
 
   const markMessagesScrollIntent = useCallback(() => {
     hasUserInteractedWithMessagesRef.current = true;
@@ -3419,6 +3769,31 @@ export default function ChatPage() {
   }, [emojiPickerOpen]);
 
   useEffect(() => {
+    if (!openConversationMenuKey) {
+      return undefined;
+    }
+
+    const closeConversationMenu = () => setOpenConversationMenuKey(null);
+    const handleConversationMenuKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenConversationMenuKey(null);
+      }
+    };
+
+    document.addEventListener('click', closeConversationMenu);
+    document.addEventListener('keydown', handleConversationMenuKeyDown);
+
+    return () => {
+      document.removeEventListener('click', closeConversationMenu);
+      document.removeEventListener('keydown', handleConversationMenuKeyDown);
+    };
+  }, [openConversationMenuKey]);
+
+  useEffect(() => {
+    setOpenConversationMenuKey(null);
+  }, [conversationFilter, selectedRoomId, selectedUserId, userSearchQuery]);
+
+  useEffect(() => {
     if (!currentUser?.id) {
       return;
     }
@@ -3457,11 +3832,18 @@ export default function ChatPage() {
     }
   }, []);
 
-  const clearRemoteTypingTimeout = useCallback(() => {
-    if (remoteTypingTimeoutRef.current) {
-      clearTimeout(remoteTypingTimeoutRef.current);
-      remoteTypingTimeoutRef.current = null;
+  const clearRemoteTypingTimeout = useCallback((senderId?: number) => {
+    if (senderId !== undefined) {
+      const timeout = remoteTypingTimeoutsRef.current.get(senderId);
+      if (timeout) {
+        clearTimeout(timeout);
+        remoteTypingTimeoutsRef.current.delete(senderId);
+      }
+      return;
     }
+
+    remoteTypingTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+    remoteTypingTimeoutsRef.current.clear();
   }, []);
 
   const clearOptimisticSendTimeout = useCallback((clientId: string) => {
@@ -3491,17 +3873,26 @@ export default function ChatPage() {
   }, [clearOptimisticSendTimeout]);
 
   const showRemoteTyping = useCallback((senderId: number) => {
-    setTypingUserId(senderId);
-    clearRemoteTypingTimeout();
-    remoteTypingTimeoutRef.current = setTimeout(() => {
-      setTypingUserId(null);
-      remoteTypingTimeoutRef.current = null;
+    setRemoteTypingUserIds((currentUserIds) =>
+      currentUserIds.includes(senderId) ? currentUserIds : [...currentUserIds, senderId]
+    );
+    clearRemoteTypingTimeout(senderId);
+    const timeout = setTimeout(() => {
+      setRemoteTypingUserIds((currentUserIds) =>
+        currentUserIds.filter((currentUserId) => currentUserId !== senderId)
+      );
+      remoteTypingTimeoutsRef.current.delete(senderId);
     }, REMOTE_TYPING_VISIBLE_MS);
+    remoteTypingTimeoutsRef.current.set(senderId, timeout);
   }, [clearRemoteTypingTimeout]);
 
-  const hideRemoteTyping = useCallback(() => {
-    clearRemoteTypingTimeout();
-    setTypingUserId(null);
+  const hideRemoteTyping = useCallback((senderId?: number) => {
+    clearRemoteTypingTimeout(senderId);
+    setRemoteTypingUserIds((currentUserIds) =>
+      senderId === undefined
+        ? []
+        : currentUserIds.filter((currentUserId) => currentUserId !== senderId)
+    );
   }, [clearRemoteTypingTimeout]);
 
   const publishTyping = useCallback((receiverId: number, typing: boolean) => {
@@ -3515,6 +3906,17 @@ export default function ChatPage() {
     clearTypingTimeout();
     publishTyping(receiverId, false);
   }, [clearTypingTimeout, publishTyping]);
+
+  const publishRoomTyping = useCallback((roomId: number, typing: boolean) => {
+    wsService.sendMessage(`${GROUP_MESSAGE_DESTINATION_PREFIX}/${roomId}/typing`, {
+      typing,
+    });
+  }, []);
+
+  const stopRoomTyping = useCallback((roomId: number) => {
+    clearTypingTimeout();
+    publishRoomTyping(roomId, false);
+  }, [clearTypingTimeout, publishRoomTyping]);
 
   const markConversationAsRead = useCallback(async (senderId: number) => {
     setUsers((currentUsers) => resetUnreadCount(currentUsers, senderId));
@@ -3648,6 +4050,38 @@ export default function ChatPage() {
     );
   }, [updateSharedContentFromMessage]);
 
+  const applyConversationSetting = useCallback((setting: ConversationSetting) => {
+    if (setting.targetUserId) {
+      setUsers((currentUsers) =>
+        [...currentUsers.map((user) => applyConversationSettingToUser(user, setting))]
+          .sort(compareUsersByChatActivity)
+      );
+      setFriends((currentFriends) =>
+        [...currentFriends.map((friend) => applyConversationSettingToUser(friend, setting))]
+          .sort(compareUsersByChatActivity)
+      );
+      setSelectedUser((currentSelectedUser) =>
+        currentSelectedUser
+          ? applyConversationSettingToUser(currentSelectedUser, setting)
+          : currentSelectedUser
+      );
+      return;
+    }
+
+    if (setting.chatRoomId) {
+      setRooms((currentRooms) =>
+        sortRoomsByChatActivity(
+          currentRooms.map((room) => applyConversationSettingToRoom(room, setting))
+        )
+      );
+      setSelectedRoom((currentSelectedRoom) =>
+        currentSelectedRoom
+          ? applyConversationSettingToRoom(currentSelectedRoom, setting)
+          : currentSelectedRoom
+      );
+    }
+  }, []);
+
   useEffect(() => {
     if (!currentUser?.id) {
       return;
@@ -3686,8 +4120,15 @@ export default function ChatPage() {
             pageIsFocused &&
             wasAtBottomBeforeMessage &&
             pendingReadConversationRef.current === null;
+          const conversationMuted = isMutedIncomingConversation(
+            incomingMessage,
+            currentUserId,
+            usersRef.current,
+            friendsRef.current,
+            roomsRef.current
+          );
           const shouldNotifyIncomingMessage =
-            isIncomingFromOther && (!isActiveMessage || !pageIsFocused);
+            isIncomingFromOther && !conversationMuted && (!isActiveMessage || !pageIsFocused);
 
           setMessages((currentMessages) => {
             if (
@@ -3715,17 +4156,13 @@ export default function ChatPage() {
 
           if (incomingMessage.chatRoomId) {
             const isActiveRoomMessage = incomingMessage.chatRoomId === selectedRoomIdForMessage;
-            const selectedRoomIdForPreview =
-              isActiveRoomMessage && isIncomingFromOther && !canMarkActiveIncomingAsRead
-                ? null
-                : selectedRoomIdForMessage;
 
             setRooms((currentRooms) =>
               applyRoomPreviewToRooms(
                 currentRooms,
                 incomingMessage,
                 currentUserId,
-                selectedRoomIdForPreview
+                selectedRoomIdForMessage
               )
             );
             setSelectedRoom((currentSelectedRoom) => {
@@ -3737,7 +4174,7 @@ export default function ChatPage() {
               return {
                 ...withPreview,
                 unreadCount:
-                  isIncomingFromOther && !canMarkActiveIncomingAsRead
+                  isIncomingFromOther && !isActiveRoomMessage
                     ? (withPreview.unreadCount ?? 0) + 1
                     : 0,
               };
@@ -3791,13 +4228,11 @@ export default function ChatPage() {
               markConversationAsRead(incomingMessage.senderId);
             } else {
               addPendingUnreadMessage('user', incomingMessage.senderId, incomingMessage);
-              setUsers((currentUsers) => incrementUnreadCount(currentUsers, incomingMessage.senderId));
-              setFriends((currentFriends) => incrementUnreadCount(currentFriends, incomingMessage.senderId));
               setSelectedUser((currentSelectedUser) =>
                 currentSelectedUser?.id === incomingMessage.senderId
                   ? {
                     ...currentSelectedUser,
-                    unreadCount: (currentSelectedUser.unreadCount ?? 0) + 1,
+                    unreadCount: 0,
                   }
                   : currentSelectedUser
               );
@@ -3831,14 +4266,22 @@ export default function ChatPage() {
           }
         },
         (typing) => {
-          if (!active || !isTypingFromSelectedUser(typing, selectedUserIdRef.current)) {
+          if (!active || typing.senderId === currentUserIdRef.current) {
+            return;
+          }
+
+          if (typing.roomId) {
+            if (typing.roomId !== selectedRoomIdRef.current) {
+              return;
+            }
+          } else if (!isTypingFromSelectedUser(typing, selectedUserIdRef.current)) {
             return;
           }
 
           if (typing.typing) {
             showRemoteTyping(typing.senderId);
           } else {
-            hideRemoteTyping();
+            hideRemoteTyping(typing.senderId);
           }
         },
         (receipt) => {
@@ -4031,7 +4474,7 @@ export default function ChatPage() {
     scrollToUnreadDivider,
     selectedRoomId,
     selectedUserId,
-    typingUserId,
+    remoteTypingUserIds.length,
     unreadDividerMessageId,
   ]);
 
@@ -4121,6 +4564,10 @@ export default function ChatPage() {
       stopTyping(selectedUserIdRef.current);
     }
 
+    if (selectedRoomIdRef.current !== null) {
+      stopRoomTyping(selectedRoomIdRef.current);
+    }
+
     selectedUserIdRef.current = null;
     selectedRoomIdRef.current = null;
     setSelectedUser(null);
@@ -4135,7 +4582,7 @@ export default function ChatPage() {
     setViewedProfileUser(null);
     setDetailsOpen(shouldOpenConversationDetailsByDefault());
     hideRemoteTyping();
-  }, [clearPendingReadConversation, hideRemoteTyping, resetMessagePagination, stopTyping]);
+  }, [clearPendingReadConversation, hideRemoteTyping, resetMessagePagination, stopRoomTyping, stopTyping]);
 
   const activateUserConversation = useCallback((user: User) => {
     if (!canChatWithUser(user)) {
@@ -4148,6 +4595,10 @@ export default function ChatPage() {
 
     if (previousSelectedUserId !== null && previousSelectedUserId !== user.id) {
       stopTyping(previousSelectedUserId);
+    }
+
+    if (previousSelectedRoomId !== null) {
+      stopRoomTyping(previousSelectedRoomId);
     }
 
     setSelectedRoom(null);
@@ -4169,7 +4620,7 @@ export default function ChatPage() {
     if (conversationChanged) {
       void loadMessages(user.id);
     }
-  }, [hideRemoteTyping, loadMessages, preparePendingReadConversation, stopTyping]);
+  }, [hideRemoteTyping, loadMessages, preparePendingReadConversation, stopRoomTyping, stopTyping]);
 
   const activateRoomConversation = useCallback((room: ChatRoom) => {
     const previousSelectedUserId = selectedUserIdRef.current;
@@ -4178,6 +4629,10 @@ export default function ChatPage() {
 
     if (previousSelectedUserId !== null) {
       stopTyping(previousSelectedUserId);
+    }
+
+    if (previousSelectedRoomId !== null && previousSelectedRoomId !== room.id) {
+      stopRoomTyping(previousSelectedRoomId);
     }
 
     setSelectedUser(null);
@@ -4199,7 +4654,7 @@ export default function ChatPage() {
     if (conversationChanged) {
       void loadRoomMessages(room.id);
     }
-  }, [hideRemoteTyping, loadRoomMessages, preparePendingReadConversation, stopTyping]);
+  }, [hideRemoteTyping, loadRoomMessages, preparePendingReadConversation, stopRoomTyping, stopTyping]);
 
   useEffect(() => {
     if (!currentUser?.id) {
@@ -4593,6 +5048,9 @@ export default function ChatPage() {
       if (selectedUserIdRef.current !== null) {
         stopTyping(selectedUserIdRef.current);
       }
+      if (selectedRoomIdRef.current !== null) {
+        stopRoomTyping(selectedRoomIdRef.current);
+      }
       setRooms((currentRooms) => appendOrUpdateRoom(currentRooms, room));
       setSelectedUser(null);
       selectedUserIdRef.current = null;
@@ -4683,6 +5141,43 @@ export default function ChatPage() {
     setOpenGroupMemberMenuId((currentUserId) => (currentUserId === userId ? null : userId));
   };
 
+  const handleToggleConversationMenu = (
+    targetKey: string,
+    event: React.MouseEvent<HTMLButtonElement>
+  ) => {
+    event.stopPropagation();
+    setConversationSettingsError('');
+    setOpenConversationMenuKey((currentKey) => (currentKey === targetKey ? null : targetKey));
+  };
+
+  const handleUpdateConversationSetting = async (
+    target: ConversationTarget,
+    patch: Partial<Pick<ConversationSetting, 'pinned' | 'muted' | 'archived'>>
+  ) => {
+    const targetKey =
+      target.type === 'user'
+        ? `user-${target.user.id}`
+        : `room-${target.room.id}`;
+    const endpoint =
+      target.type === 'user'
+        ? `/conversation-settings/private/${target.user.id}`
+        : `/conversation-settings/rooms/${target.room.id}`;
+
+    setConversationSettingPendingKey(targetKey);
+    setConversationSettingsError('');
+
+    try {
+      const response = await apiClient.patch<ConversationSetting>(endpoint, patch);
+      applyConversationSetting(response.data);
+      setOpenConversationMenuKey(null);
+    } catch (error) {
+      console.error('Failed to update conversation setting:', error);
+      setConversationSettingsError('Unable to update conversation settings.');
+    } finally {
+      setConversationSettingPendingKey(null);
+    }
+  };
+
   const handleStartEditGroupMemberNickname = (user: User) => {
     setGroupSettingsError('');
     setOpenGroupMemberMenuId(null);
@@ -4746,6 +5241,28 @@ export default function ChatPage() {
     } catch (error) {
       console.error('Failed to remove group member:', error);
       setGroupSettingsError('Unable to remove member.');
+    } finally {
+      setGroupSettingsPendingAction(null);
+    }
+  };
+
+  const handleTransferRoomOwner = async (user: User) => {
+    if (!selectedRoom || groupSettingsSaving) {
+      return;
+    }
+
+    setGroupSettingsPendingAction(`owner-${user.id}`);
+    setGroupSettingsError('');
+    setOpenGroupMemberMenuId(null);
+
+    try {
+      const response = await apiClient.patch<ChatRoom>(`/rooms/${selectedRoom.id}/owner`, {
+        ownerId: user.id,
+      });
+      applyRoomMembershipUpdate(response.data);
+    } catch (error) {
+      console.error('Failed to transfer group owner:', error);
+      setGroupSettingsError('Unable to transfer owner.');
     } finally {
       setGroupSettingsPendingAction(null);
     }
@@ -4834,19 +5351,32 @@ export default function ChatPage() {
 
   const handleMessageInputChange = (value: string) => {
     setMessageInput(value);
-    if (!selectedUser) {
+    if (!selectedUser && !selectedRoom) {
       return;
     }
 
     if (!value.trim()) {
-      stopTyping(selectedUser.id);
+      if (selectedUser) {
+        stopTyping(selectedUser.id);
+      } else if (selectedRoom) {
+        stopRoomTyping(selectedRoom.id);
+      }
       return;
     }
 
-    publishTyping(selectedUser.id, true);
+    if (selectedUser) {
+      publishTyping(selectedUser.id, true);
+    } else if (selectedRoom) {
+      publishRoomTyping(selectedRoom.id, true);
+    }
+
     clearTypingTimeout();
     typingTimeoutRef.current = setTimeout(() => {
-      publishTyping(selectedUser.id, false);
+      if (selectedUser) {
+        publishTyping(selectedUser.id, false);
+      } else if (selectedRoom) {
+        publishRoomTyping(selectedRoom.id, false);
+      }
       typingTimeoutRef.current = null;
     }, STOP_TYPING_DELAY_MS);
   };
@@ -5093,6 +5623,7 @@ export default function ChatPage() {
         media: mediaPayload,
       };
 
+      stopRoomTyping(selectedRoom.id);
       setMessages((currentMessages) => appendOptimisticMessage(currentMessages, optimisticMessage));
       setRooms((currentRooms) =>
         applyRoomPreviewToRooms(
@@ -5155,6 +5686,11 @@ export default function ChatPage() {
     messageSearchQueryRef.current = value;
     messageSearchRequestedQueryRef.current = '';
     setMessageSearchQuery(value);
+    setMessageSearchItems([]);
+    setMessageSearchError('');
+    setMessageSearchHasMore(false);
+    setMessageSearchNextBefore(null);
+    setActiveMessageSearchId(null);
   };
 
   const handleClearMessageSearch = () => {
@@ -5165,6 +5701,7 @@ export default function ChatPage() {
     setMessageSearchError('');
     setMessageSearchHasMore(false);
     setMessageSearchNextBefore(null);
+    setActiveMessageSearchId(null);
   };
 
   const handleJumpToMessage = async (messageId: number) => {
@@ -5203,6 +5740,41 @@ export default function ChatPage() {
     } catch (error) {
       console.error('Failed to jump to message:', error);
       setMessageSearchError('Unable to open message.');
+    }
+  };
+
+  const handleJumpToSearchResult = async (messageId: number) => {
+    setActiveMessageSearchId(messageId);
+    await handleJumpToMessage(messageId);
+  };
+
+  const handleStepMessageSearchResult = (direction: -1 | 1) => {
+    const nextMessage = messageSearchItems[activeMessageSearchIndex + direction];
+    if (!nextMessage) {
+      return;
+    }
+
+    void handleJumpToSearchResult(nextMessage.id);
+  };
+
+  const handleMessageSearchInputKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (event.key === 'Enter' && activeMessageSearchItem) {
+      event.preventDefault();
+      void handleJumpToSearchResult(activeMessageSearchItem.id);
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      handleStepMessageSearchResult(1);
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      handleStepMessageSearchResult(-1);
     }
   };
 
@@ -5322,6 +5894,10 @@ export default function ChatPage() {
       stopTyping(selectedUserIdRef.current);
     }
 
+    if (selectedRoomIdRef.current !== null) {
+      stopRoomTyping(selectedRoomIdRef.current);
+    }
+
     const refreshToken = localStorage.getItem('refreshToken');
     if (refreshToken) {
       void apiClient.post('/auth/logout', { refreshToken }).catch((error) => {
@@ -5340,7 +5916,11 @@ export default function ChatPage() {
   const normalizedFriendSearchQuery = friendSearchQuery.trim();
   const hasUserSearch = Boolean(normalizedUserSearchQuery);
   const conversationUsers = users.filter(hasPrivateConversation);
-  const sidebarConversationItems = buildSidebarConversationItems(conversationUsers, rooms);
+  const sidebarConversationItems = buildSidebarConversationItems(
+    conversationUsers,
+    rooms,
+    conversationFilter
+  );
   const filteredFriends = friends.filter((friend) =>
     matchesFriendSearch(friend, normalizedFriendSearchQuery)
   );
@@ -5411,6 +5991,26 @@ export default function ChatPage() {
     selectedRoom,
     currentUser?.id ?? null,
     unreadDividerMessageId
+  );
+  const remoteTypingUsers = useMemo(
+    () =>
+      remoteTypingUserIds
+        .map((userId) =>
+          selectedRoom?.participants.find((participant) => participant.id === userId) ??
+          (selectedUser?.id === userId ? selectedUser : null) ??
+          findKnownUserById(userId)
+        )
+        .filter(Boolean) as User[],
+    [findKnownUserById, remoteTypingUserIds, selectedRoom?.participants, selectedUser]
+  );
+  const typingIndicatorLabel = getTypingIndicatorLabel(remoteTypingUsers);
+  const latestSeenOutgoingMessageId = useMemo(
+    () => getLatestSeenOutgoingMessageId(
+      messages,
+      currentUser?.id ?? null,
+      selectedUser?.id ?? null
+    ),
+    [currentUser?.id, messages, selectedUser?.id]
   );
   const mediaViewerUrl = getMediaUrl(mediaViewerMessage?.mediaUrl);
   const mediaViewerType = mediaViewerMessage ? getMessageType(mediaViewerMessage) : 'IMAGE';
@@ -5741,24 +6341,107 @@ export default function ChatPage() {
     );
   };
 
+  const renderConversationStatusIcons = (target: ConversationTarget) => {
+    const pinned = target.type === 'user' ? target.user.pinned : target.room.pinned;
+    const muted = target.type === 'user' ? target.user.muted : target.room.muted;
+    const archived = target.type === 'user' ? target.user.archived : target.room.archived;
+
+    if (!pinned && !muted && !archived) {
+      return null;
+    }
+
+    return (
+      <div className="conversation-status-icons" aria-label="Conversation settings">
+        {pinned ? <PinIcon className="conversation-status-icon" /> : null}
+        {muted ? <MutedIcon className="conversation-status-icon" /> : null}
+        {archived ? <ArchiveIcon className="conversation-status-icon" /> : null}
+      </div>
+    );
+  };
+
+  const renderConversationMenu = (target: ConversationTarget) => {
+    const targetKey =
+      target.type === 'user'
+        ? `user-${target.user.id}`
+        : `room-${target.room.id}`;
+    const pinned = target.type === 'user' ? Boolean(target.user.pinned) : Boolean(target.room.pinned);
+    const muted = target.type === 'user' ? Boolean(target.user.muted) : Boolean(target.room.muted);
+    const archived = target.type === 'user' ? Boolean(target.user.archived) : Boolean(target.room.archived);
+    const pending = conversationSettingPendingKey === targetKey;
+
+    return (
+      <div className="conversation-menu-wrap" onClick={(event) => event.stopPropagation()}>
+        <button
+          type="button"
+          className="conversation-menu-btn"
+          disabled={pending}
+          onClick={(event) => handleToggleConversationMenu(targetKey, event)}
+          aria-haspopup="menu"
+          aria-expanded={openConversationMenuKey === targetKey}
+          aria-label="Conversation actions"
+          title="Conversation actions"
+        >
+          <MoreIcon className="conversation-menu-icon" />
+        </button>
+
+        {openConversationMenuKey === targetKey ? (
+          <div className="conversation-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              disabled={pending}
+              onClick={() => void handleUpdateConversationSetting(target, { pinned: !pinned })}
+            >
+              <PinIcon className="conversation-menu-item-icon" />
+              {pinned ? 'Unpin' : 'Pin'}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={pending}
+              onClick={() => void handleUpdateConversationSetting(target, { muted: !muted })}
+            >
+              <MutedIcon className="conversation-menu-item-icon" />
+              {muted ? 'Unmute' : 'Mute'}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={pending}
+              onClick={() => void handleUpdateConversationSetting(target, { archived: !archived })}
+            >
+              <ArchiveIcon className="conversation-menu-item-icon" />
+              {archived ? 'Unarchive' : 'Archive'}
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   const renderUserItem = (user: User) => {
     const unreadCount = user.unreadCount ?? 0;
     const showConversationPreview = !hasUserSearch && canChatWithUser(user);
 
     if (canChatWithUser(user) && !hasUserSearch) {
       return (
-        <button
-          type="button"
+        <div
           key={user.id}
-          className={`user-item ${selectedUser?.id === user.id ? 'active' : ''} ${unreadCount > 0 ? 'unread' : ''}`}
-          onClick={() => handleUserSelect(user)}
+          className={`conversation-list-row ${selectedUser?.id === user.id ? 'active' : ''}`}
         >
-          {renderUserIdentity(user, showConversationPreview)}
-          {hasUserSearch ? renderFriendshipAction(user) : null}
+          <button
+            type="button"
+            className={`user-item conversation-trigger ${selectedUser?.id === user.id ? 'active' : ''} ${unreadCount > 0 ? 'unread' : ''}`}
+            onClick={() => handleUserSelect(user)}
+          >
+            {renderUserIdentity(user, showConversationPreview)}
+            {renderConversationStatusIcons({ type: 'user', user })}
+          </button>
           {unreadCount > 0 ? (
             <div className="unread-badge">{unreadCount}</div>
           ) : null}
-        </button>
+          {renderConversationMenu({ type: 'user', user })}
+        </div>
       );
     }
 
@@ -5782,30 +6465,36 @@ export default function ChatPage() {
     const sidebarTime = formatSidebarTime(room.lastMessageAt);
 
     return (
-      <button
-        type="button"
+      <div
         key={`room-${room.id}`}
-        className={`user-item room-item ${selectedRoom?.id === room.id ? 'active' : ''} ${unreadCount > 0 ? 'unread' : ''}`}
-        onClick={() => handleRoomSelect(room)}
+        className={`conversation-list-row ${selectedRoom?.id === room.id ? 'active' : ''}`}
       >
-        <div className="user-avatar room-avatar">
-          {getRoomInitial(room)}
-        </div>
-        <div className="user-info">
-          <div className="user-title-row">
-            <div className="user-name">{room.name}</div>
-            {sidebarTime ? <span className="user-time">{sidebarTime}</span> : null}
+        <button
+          type="button"
+          className={`user-item room-item conversation-trigger ${selectedRoom?.id === room.id ? 'active' : ''} ${unreadCount > 0 ? 'unread' : ''}`}
+          onClick={() => handleRoomSelect(room)}
+        >
+          <div className="user-avatar room-avatar">
+            {getRoomInitial(room)}
           </div>
-          <div className="user-preview-row">
-            <span className="user-preview">
-              {getRoomPreviewText(room, currentUser?.id ?? null)}
-            </span>
+          <div className="user-info">
+            <div className="user-title-row">
+              <div className="user-name">{room.name}</div>
+              {sidebarTime ? <span className="user-time">{sidebarTime}</span> : null}
+            </div>
+            <div className="user-preview-row">
+              <span className="user-preview">
+                {getRoomPreviewText(room, currentUser?.id ?? null)}
+              </span>
+            </div>
           </div>
-        </div>
+          {renderConversationStatusIcons({ type: 'room', room })}
+        </button>
         {unreadCount > 0 ? (
           <div className="unread-badge">{unreadCount}</div>
         ) : null}
-      </button>
+        {renderConversationMenu({ type: 'room', room })}
+      </div>
     );
   };
 
@@ -5849,6 +6538,12 @@ export default function ChatPage() {
 
   const renderSidebarChatList = () => {
     const hasAnyConversation = sidebarConversationItems.length > 0;
+    const emptyConversationMessage =
+      conversationFilter === 'archived'
+        ? 'No archived conversations.'
+        : conversationFilter === 'unread'
+          ? 'No unread conversations.'
+          : 'No conversations yet. Open Friends to start a new chat.';
 
     if (sidebarBusy && !hasAnyConversation) {
       return renderSidebarSkeletons();
@@ -5857,10 +6552,12 @@ export default function ChatPage() {
     if (!sidebarBusy && !usersError && !roomsError && !hasAnyConversation) {
       return (
         <div className="list-state empty-groups-state">
-          <span>No conversations yet. Open Friends to start a new chat.</span>
-          <button type="button" className="retry-btn" onClick={handleOpenFriendsPanel}>
-            Open friends
-          </button>
+          <span>{emptyConversationMessage}</span>
+          {conversationFilter === 'all' ? (
+            <button type="button" className="retry-btn" onClick={handleOpenFriendsPanel}>
+              Open friends
+            </button>
+          ) : null}
         </div>
       );
     }
@@ -6134,6 +6831,7 @@ export default function ChatPage() {
     const nicknameChanged = normalizedNicknameValue !== normalizedSavedNickname;
     const nicknamePending = groupSettingsPendingAction === `nickname-${user.id}`;
     const kickPending = groupSettingsPendingAction === `kick-${user.id}`;
+    const ownerTransferPending = groupSettingsPendingAction === `owner-${user.id}`;
     const canKickMember = canKickSelectedRoomMember && !isOwner && !isCurrentUser;
     const memberMenuOpen = openGroupMemberMenuId === user.id;
     const editingNickname = editingGroupMemberNicknameId === user.id;
@@ -6176,6 +6874,16 @@ export default function ChatPage() {
                 >
                   Rename nickname
                 </button>
+                {!isOwner ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={groupSettingsSaving}
+                    onClick={() => void handleTransferRoomOwner(user)}
+                  >
+                    {ownerTransferPending ? 'Transferring' : 'Make owner'}
+                  </button>
+                ) : null}
                 {!isOwner && !isCurrentUser ? (
                   <button
                     type="button"
@@ -6233,6 +6941,16 @@ export default function ChatPage() {
 
   const renderMessageSearchContent = () => {
     const query = messageSearchQuery.trim();
+    const hasPendingSearch = Boolean(
+      query && messageSearchRequestedQueryRef.current !== query
+    );
+    const showInitialSearchLoading =
+      (messageSearchLoading || hasPendingSearch) && messageSearchItems.length === 0;
+    const activeSearchPosition =
+      activeMessageSearchIndex >= 0 ? activeMessageSearchIndex + 1 : 0;
+    const canStepToPreviousSearchResult = activeMessageSearchIndex > 0;
+    const canStepToNextSearchResult =
+      activeMessageSearchIndex >= 0 && activeMessageSearchIndex < messageSearchItems.length - 1;
 
     return (
       <div className="message-search-panel">
@@ -6242,6 +6960,7 @@ export default function ChatPage() {
             type="search"
             value={messageSearchQuery}
             onChange={(event) => handleMessageSearchChange(event.target.value)}
+            onKeyDown={handleMessageSearchInputKeyDown}
             placeholder="Search messages"
             aria-label="Search messages"
             autoComplete="off"
@@ -6259,7 +6978,43 @@ export default function ChatPage() {
           ) : null}
         </div>
 
-        {messageSearchLoading && messageSearchItems.length === 0 ? (
+        {query ? (
+          <div className="message-search-toolbar">
+            <span className="message-search-count">
+              {showInitialSearchLoading
+                ? 'Searching...'
+                : messageSearchItems.length > 0
+                  ? `${activeSearchPosition} of ${messageSearchItems.length}${
+                      messageSearchHasMore ? '+' : ''
+                    }`
+                  : 'No results'}
+            </span>
+            <div className="message-search-nav" aria-label="Search result navigation">
+              <button
+                type="button"
+                className="message-search-step-btn"
+                disabled={!canStepToPreviousSearchResult}
+                onClick={() => handleStepMessageSearchResult(-1)}
+                aria-label="Previous search result"
+                title="Previous result"
+              >
+                <ChevronDownIcon className="message-search-step-icon previous" />
+              </button>
+              <button
+                type="button"
+                className="message-search-step-btn"
+                disabled={!canStepToNextSearchResult}
+                onClick={() => handleStepMessageSearchResult(1)}
+                aria-label="Next search result"
+                title="Next result"
+              >
+                <ChevronDownIcon className="message-search-step-icon" />
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {showInitialSearchLoading ? (
           <div className="message-search-list" aria-hidden="true">
             {Array.from({ length: 3 }, (_, index) => (
               <span key={`message-search-skeleton-${index}`} className="message-search-skeleton" />
@@ -6285,22 +7040,28 @@ export default function ChatPage() {
             <div className="message-search-list">
               {messageSearchItems.map((message) => {
                 const senderName = getMessageSenderName(message, selectedRoom);
+                const isActiveSearchResult = message.id === activeMessageSearchId;
+                const snippet = getMessageSearchSnippet(message, query);
                 return (
-                  <div key={message.id} className="message-search-item">
+                  <div
+                    key={message.id}
+                    className={`message-search-item ${isActiveSearchResult ? 'active' : ''}`}
+                  >
                     <button
                       type="button"
                       className="message-search-result-btn"
-                      onClick={() => void handleJumpToMessage(message.id)}
+                      onClick={() => void handleJumpToSearchResult(message.id)}
+                      aria-current={isActiveSearchResult ? 'true' : undefined}
                     >
                       <span className="message-search-meta">
                         {senderName} · {formatMessageTime(message.timestamp)}
                       </span>
-                      <strong>{getMessageSearchPreview(message)}</strong>
+                      <strong>{renderHighlightedSearchText(snippet, query)}</strong>
                     </button>
                     <button
                       type="button"
                       className="message-search-jump-btn"
-                      onClick={() => void handleJumpToMessage(message.id)}
+                      onClick={() => void handleJumpToSearchResult(message.id)}
                       aria-label="Go to message"
                       title="Go to message"
                     >
@@ -6574,6 +7335,58 @@ export default function ChatPage() {
     </>
   );
 
+  const renderConversationSettingsSection = (target: ConversationTarget) => {
+    const pinned = target.type === 'user' ? Boolean(target.user.pinned) : Boolean(target.room.pinned);
+    const muted = target.type === 'user' ? Boolean(target.user.muted) : Boolean(target.room.muted);
+    const archived = target.type === 'user' ? Boolean(target.user.archived) : Boolean(target.room.archived);
+    const pendingKey =
+      target.type === 'user'
+        ? `user-${target.user.id}`
+        : `room-${target.room.id}`;
+    const pending = conversationSettingPendingKey === pendingKey;
+
+    return (
+      <section className="details-section" aria-labelledby="conversation-controls-title">
+        <div className="details-section-heading">
+          <h4 id="conversation-controls-title">Conversation</h4>
+          {pinned ? <span>Pinned</span> : null}
+        </div>
+        <div className="details-control-list">
+          <button
+            type="button"
+            className={`details-control-btn ${pinned ? 'active' : ''}`}
+            disabled={pending}
+            onClick={() => void handleUpdateConversationSetting(target, { pinned: !pinned })}
+          >
+            <PinIcon className="details-control-icon" />
+            <span>{pinned ? 'Unpin chat' : 'Pin chat'}</span>
+          </button>
+          <button
+            type="button"
+            className={`details-control-btn ${muted ? 'active' : ''}`}
+            disabled={pending}
+            onClick={() => void handleUpdateConversationSetting(target, { muted: !muted })}
+          >
+            <MutedIcon className="details-control-icon" />
+            <span>{muted ? 'Unmute notifications' : 'Mute notifications'}</span>
+          </button>
+          <button
+            type="button"
+            className={`details-control-btn ${archived ? 'active' : ''}`}
+            disabled={pending}
+            onClick={() => void handleUpdateConversationSetting(target, { archived: !archived })}
+          >
+            <ArchiveIcon className="details-control-icon" />
+            <span>{archived ? 'Unarchive chat' : 'Archive chat'}</span>
+          </button>
+        </div>
+        {conversationSettingsError ? (
+          <div className="details-error">{conversationSettingsError}</div>
+        ) : null}
+      </section>
+    );
+  };
+
   const renderConversationDetails = () => {
     if (selectedUser) {
       return (
@@ -6617,6 +7430,7 @@ export default function ChatPage() {
             </div>
           </section>
 
+          {renderConversationSettingsSection({ type: 'user', user: selectedUser })}
           {renderMessageSearchSection()}
           {renderSharedContentSections()}
         </aside>
@@ -6698,6 +7512,7 @@ export default function ChatPage() {
 
           {renderMessageSearchSection()}
           {renderSharedContentSections()}
+          {renderConversationSettingsSection({ type: 'room', room: selectedRoom })}
 
           {currentUserCanManageSelectedRoom ? (
             <section className="details-section" aria-labelledby="add-members-title">
@@ -6929,6 +7744,25 @@ export default function ChatPage() {
                 </button>
               ) : null}
             </div>
+            {!hasUserSearch ? (
+              <div className="conversation-filter" role="tablist" aria-label="Conversation filter">
+                {CONVERSATION_FILTERS.map((filter) => (
+                  <button
+                    key={filter.value}
+                    type="button"
+                    role="tab"
+                    className={`conversation-filter-btn ${conversationFilter === filter.value ? 'active' : ''}`}
+                    aria-selected={conversationFilter === filter.value}
+                    onClick={() => setConversationFilter(filter.value)}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {conversationSettingsError ? (
+              <div className="conversation-settings-error">{conversationSettingsError}</div>
+            ) : null}
           </div>
           <div className="user-list" aria-busy={sidebarBusy} aria-label="Chat list">
             {hasUserSearch ? renderSidebarSearchList() : renderSidebarChatList()}
@@ -7054,12 +7888,23 @@ export default function ChatPage() {
 
                       const { message, groupedWithPrevious, groupedWithNext, showSender } = item;
                       const isSentByCurrentUser = message.senderId === currentUser?.id;
+                      const hasVisibleMessageTime =
+                        !groupedWithNext || message.deliveryStatus === 'failed';
+                      const isLatestSeenOutgoingMessage =
+                        Boolean(selectedUser) &&
+                        isSentByCurrentUser &&
+                        message.id === latestSeenOutgoingMessageId;
+                      const isMessageSearchMatch = Boolean(
+                        messageSearchExpanded &&
+                        messageSearchQuery.trim() &&
+                        messageSearchResultIds.has(message.id)
+                      );
 
                       return (
                         <div
                           key={item.key}
                           data-message-id={message.id > 0 ? message.id : undefined}
-                          className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${message.deliveryStatus ?? ''} ${groupedWithPrevious ? 'grouped-with-previous' : ''} ${groupedWithNext ? 'grouped-with-next' : ''} ${highlightedMessageId === message.id ? 'highlighted' : ''}`}
+                          className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${message.deliveryStatus ?? ''} ${groupedWithPrevious ? 'grouped-with-previous' : ''} ${groupedWithNext ? 'grouped-with-next' : ''} ${hasVisibleMessageTime ? 'has-visible-time' : ''} ${isMessageSearchMatch ? 'message-search-match' : ''} ${highlightedMessageId === message.id ? 'highlighted' : ''}`}
                         >
                           {showSender ? (
                             <div className="message-sender">
@@ -7074,13 +7919,13 @@ export default function ChatPage() {
                             </div>
                             {!isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
                           </div>
-                          {!groupedWithNext || message.deliveryStatus === 'failed' ? (
+                          {hasVisibleMessageTime ? (
                             <div className="message-time">
                               <span>{formatMessageTime(message.timestamp)}</span>
                               {isSentByCurrentUser ? (
                                 <>
                                   <span className={`message-read-status ${message.deliveryStatus ?? ''}`}>
-                                    {getDeliveryStatusLabel(message)}
+                                    {getDeliveryStatusLabel(message, selectedUser)}
                                   </span>
                                   {message.deliveryStatus === 'failed' ? (
                                     <button
@@ -7095,15 +7940,18 @@ export default function ChatPage() {
                               ) : null}
                             </div>
                           ) : null}
+                          {isLatestSeenOutgoingMessage ? (
+                            <div className="message-seen-avatar-row">
+                              {renderUserAvatar(selectedUser, 'user-avatar message-seen-avatar')}
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })}
                   </>
                 )}
-                {!messagesLoading && selectedUser && typingUserId === selectedUser.id ? (
-                  <div className="typing-indicator">
-                    {getUserDisplayName(selectedUser)} is typing...
-                  </div>
+                {!messagesLoading && typingIndicatorLabel ? (
+                  <div className="typing-indicator">{typingIndicatorLabel}</div>
                 ) : null}
                 <div ref={messagesEndRef} />
               </div>

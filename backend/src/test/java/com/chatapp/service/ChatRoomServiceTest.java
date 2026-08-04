@@ -13,6 +13,7 @@ import com.chatapp.model.Message;
 import com.chatapp.model.User;
 import com.chatapp.repository.ChatRoomReadStateRepository;
 import com.chatapp.repository.ChatRoomRepository;
+import com.chatapp.repository.ConversationSettingRepository;
 import com.chatapp.repository.MessageRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,6 +43,9 @@ class ChatRoomServiceTest {
 
     @Mock
     private MessageRepository messageRepository;
+
+    @Mock
+    private ConversationSettingRepository conversationSettingRepository;
 
     @Mock
     private UserService userService;
@@ -257,6 +261,29 @@ class ChatRoomServiceTest {
                         .filter(participant -> participant.id().equals(1L))
                         .count()
         );
+    }
+
+    @Test
+    void transferOwnerUpdatesOwnerToExistingMember() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(sayu);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of());
+        when(messageRepository.countUnreadRoomMessages(1L, List.of(10L))).thenReturn(List.of());
+
+        ChatRoomResponse response = chatRoomService.transferOwner(
+                "sayu",
+                10L,
+                new com.chatapp.dto.request.TransferRoomOwnerRequest(2L)
+        );
+
+        assertEquals(2L, response.ownerId());
     }
 
     @Test

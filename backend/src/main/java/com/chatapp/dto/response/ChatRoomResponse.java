@@ -2,6 +2,7 @@ package com.chatapp.dto.response;
 
 import com.chatapp.model.ChatRoom;
 import com.chatapp.model.ChatRoomMember;
+import com.chatapp.model.ConversationSetting;
 import com.chatapp.model.Message;
 import com.chatapp.model.User;
 import com.chatapp.util.MessagePreviewFormatter;
@@ -23,13 +24,25 @@ public record ChatRoomResponse(
         LocalDateTime lastMessageAt,
         Long lastMessageSenderId,
         String lastMessageSenderName,
-        long unreadCount
+        long unreadCount,
+        Boolean pinned,
+        Boolean muted,
+        Boolean archived
 ) {
     public static ChatRoomResponse from(ChatRoom room) {
         return from(room, null, 0);
     }
 
     public static ChatRoomResponse from(ChatRoom room, Message lastMessage, long unreadCount) {
+        return from(room, lastMessage, unreadCount, null);
+    }
+
+    public static ChatRoomResponse from(
+            ChatRoom room,
+            Message lastMessage,
+            long unreadCount,
+            ConversationSetting setting
+    ) {
         User owner = findEffectiveOwner(room);
         return new ChatRoomResponse(
                 room.getId(),
@@ -48,7 +61,10 @@ public record ChatRoomResponse(
                 lastMessage == null ? null : lastMessage.getTimestamp(),
                 lastMessage == null ? null : lastMessage.getSender().getId(),
                 lastMessage == null ? null : displayName(lastMessage.getSender(), room),
-                unreadCount
+                unreadCount,
+                isEnabled(setting == null ? null : setting.getPinned()),
+                isEnabled(setting == null ? null : setting.getMuted()),
+                isEnabled(setting == null ? null : setting.getArchived())
         );
     }
 
@@ -78,5 +94,9 @@ public record ChatRoomResponse(
 
         String fullName = user.getFullName();
         return fullName == null || fullName.isBlank() ? user.getUsername() : fullName;
+    }
+
+    private static boolean isEnabled(Boolean value) {
+        return Boolean.TRUE.equals(value);
     }
 }

@@ -3,6 +3,7 @@ package com.chatapp.controller;
 import com.chatapp.dto.request.AddRoomMembersRequest;
 import com.chatapp.dto.request.CreateChatRoomRequest;
 import com.chatapp.dto.request.SendRoomMessageRequest;
+import com.chatapp.dto.request.TransferRoomOwnerRequest;
 import com.chatapp.dto.request.UpdateChatRoomRequest;
 import com.chatapp.dto.request.UpdateRoomMemberNicknameRequest;
 import com.chatapp.dto.response.ChatRoomResponse;
@@ -166,6 +167,18 @@ public class ChatRoomController {
                 memberId,
                 request
         );
+        notifyRoomParticipants(room);
+
+        return room;
+    }
+
+    @PatchMapping("/{roomId}/owner")
+    public ChatRoomResponse transferRoomOwner(
+            Authentication authentication,
+            @PathVariable Long roomId,
+            @Valid @RequestBody TransferRoomOwnerRequest request
+    ) {
+        ChatRoomResponse room = chatRoomService.transferOwner(authentication.getName(), roomId, request);
         notifyRoomParticipants(room);
 
         return room;

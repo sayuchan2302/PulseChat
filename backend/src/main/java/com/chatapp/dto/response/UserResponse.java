@@ -1,6 +1,7 @@
 package com.chatapp.dto.response;
 
 import com.chatapp.model.ChatRoomMember;
+import com.chatapp.model.ConversationSetting;
 import com.chatapp.model.User;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
@@ -22,22 +23,25 @@ public record UserResponse(
         Long friendshipId,
         String lastMessageContent,
         LocalDateTime lastMessageAt,
-        Long lastMessageSenderId
+        Long lastMessageSenderId,
+        Boolean pinned,
+        Boolean muted,
+        Boolean archived
 ) {
     public static UserResponse from(User user) {
-        return from(user, null, null, null, null, null, null);
+        return from(user, null, null, null, null, null, null, null);
     }
 
     public static UserResponse from(User user, String friendshipStatus) {
-        return from(user, friendshipStatus, null, null, null, null, null);
+        return from(user, friendshipStatus, null, null, null, null, null, null);
     }
 
     public static UserResponse from(User user, String friendshipStatus, Long friendshipId) {
-        return from(user, friendshipStatus, friendshipId, null, null, null, null);
+        return from(user, friendshipStatus, friendshipId, null, null, null, null, null);
     }
 
     public static UserResponse from(ChatRoomMember member) {
-        return from(member.getUser(), null, null, null, null, null, normalizeNickname(member.getNickname()));
+        return from(member.getUser(), null, null, null, null, null, normalizeNickname(member.getNickname()), null);
     }
 
     public static UserResponse from(
@@ -48,7 +52,7 @@ public record UserResponse(
             LocalDateTime lastMessageAt,
             Long lastMessageSenderId
     ) {
-        return from(user, friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId, null);
+        return from(user, friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId, null, null);
     }
 
     public static UserResponse from(
@@ -58,7 +62,20 @@ public record UserResponse(
             String lastMessageContent,
             LocalDateTime lastMessageAt,
             Long lastMessageSenderId,
-            String nickname
+            ConversationSetting setting
+    ) {
+        return from(user, friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId, null, setting);
+    }
+
+    public static UserResponse from(
+            User user,
+            String friendshipStatus,
+            Long friendshipId,
+            String lastMessageContent,
+            LocalDateTime lastMessageAt,
+            Long lastMessageSenderId,
+            String nickname,
+            ConversationSetting setting
     ) {
         return new UserResponse(
                 user.getId(),
@@ -75,7 +92,10 @@ public record UserResponse(
                 friendshipId,
                 lastMessageContent,
                 lastMessageAt,
-                lastMessageSenderId
+                lastMessageSenderId,
+                isEnabled(setting == null ? null : setting.getPinned()),
+                isEnabled(setting == null ? null : setting.getMuted()),
+                isEnabled(setting == null ? null : setting.getArchived())
         );
     }
 
@@ -86,5 +106,9 @@ public record UserResponse(
     private static String displayName(User user) {
         String fullName = user.getFullName();
         return fullName == null || fullName.isBlank() ? user.getUsername() : fullName;
+    }
+
+    private static boolean isEnabled(Boolean value) {
+        return Boolean.TRUE.equals(value);
     }
 }

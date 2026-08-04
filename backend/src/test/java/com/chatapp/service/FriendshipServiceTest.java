@@ -10,6 +10,7 @@ import com.chatapp.model.Message;
 import com.chatapp.model.User;
 import com.chatapp.repository.FriendshipRepository;
 import com.chatapp.repository.MessageRepository;
+import com.chatapp.repository.ConversationSettingRepository;
 import com.chatapp.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,6 +41,9 @@ class FriendshipServiceTest {
 
     @Mock
     private MessageRepository messageRepository;
+
+    @Mock
+    private ConversationSettingRepository conversationSettingRepository;
 
     @Mock
     private UserService userService;

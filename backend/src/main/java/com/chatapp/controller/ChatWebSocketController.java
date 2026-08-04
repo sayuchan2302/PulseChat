@@ -1,6 +1,7 @@
 package com.chatapp.controller;
 
 import com.chatapp.dto.request.ReadReceiptRequest;
+import com.chatapp.dto.request.RoomTypingRequest;
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.request.SendRoomMessageRequest;
 import com.chatapp.dto.request.TypingRequest;
@@ -86,6 +87,7 @@ public class ChatWebSocketController {
         TypingResponse response = new TypingResponse(
                 sender.getId(),
                 sender.getUsername(),
+                null,
                 request.typing()
         );
 
@@ -94,6 +96,34 @@ public class ChatWebSocketController {
                 TYPING_QUEUE,
                 response
         );
+    }
+
+    @MessageMapping("/rooms/{roomId}/typing")
+    public void sendRoomTyping(
+            @DestinationVariable Long roomId,
+            @Valid @Payload RoomTypingRequest request,
+            Principal principal
+    ) {
+        Principal authenticatedPrincipal = requireAuthenticatedPrincipal(principal);
+        User sender = userService.findByUsername(authenticatedPrincipal.getName());
+
+        TypingResponse response = new TypingResponse(
+                sender.getId(),
+                sender.getUsername(),
+                roomId,
+                request.typing()
+        );
+
+        chatRoomService.getGroupParticipantUsernames(authenticatedPrincipal.getName(), roomId)
+                .stream()
+                .filter(username -> !username.equals(authenticatedPrincipal.getName()))
+                .forEach(username ->
+                        messagingTemplate.convertAndSendToUser(
+                                username,
+                                TYPING_QUEUE,
+                                response
+                        )
+                );
     }
 
     @MessageMapping("/chat.read")

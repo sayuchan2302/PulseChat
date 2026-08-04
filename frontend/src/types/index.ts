@@ -61,6 +61,9 @@ export interface User {
   lastMessageContent?: string;
   lastMessageAt?: string;
   lastMessageSenderId?: number;
+  pinned?: boolean;
+  muted?: boolean;
+  archived?: boolean;
   createdAt: string;
 }
 
@@ -116,6 +119,7 @@ export interface PresenceEvent {
 export interface TypingEvent {
   senderId: number;
   username: string;
+  roomId?: number | null;
   typing: boolean;
 }
 
@@ -159,7 +163,22 @@ export interface ChatRoom {
   lastMessageAt?: string;
   lastMessageSenderId?: number;
   lastMessageSenderName?: string;
+  pinned?: boolean;
+  muted?: boolean;
+  archived?: boolean;
   createdAt: string;
+}
+
+export interface ConversationSetting {
+  id: number;
+  userId: number;
+  targetUserId?: number | null;
+  chatRoomId?: number | null;
+  pinned: boolean;
+  muted: boolean;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AuthResponse {

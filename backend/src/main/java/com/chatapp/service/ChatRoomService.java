@@ -2,6 +2,7 @@ package com.chatapp.service;
 
 import com.chatapp.dto.request.AddRoomMembersRequest;
 import com.chatapp.dto.request.CreateChatRoomRequest;
+import com.chatapp.dto.request.TransferRoomOwnerRequest;
 import com.chatapp.dto.request.UpdateChatRoomRequest;
 import com.chatapp.dto.request.UpdateRoomMemberNicknameRequest;
 import com.chatapp.dto.response.ChatRoomResponse;
@@ -10,10 +11,12 @@ import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.ChatRoom;
 import com.chatapp.model.ChatRoomMember;
 import com.chatapp.model.ChatRoomReadState;
+import com.chatapp.model.ConversationSetting;
 import com.chatapp.model.Message;
 import com.chatapp.model.User;
 import com.chatapp.repository.ChatRoomReadStateRepository;
 import com.chatapp.repository.ChatRoomRepository;
+import com.chatapp.repository.ConversationSettingRepository;
 import com.chatapp.repository.MessageRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -37,6 +40,7 @@ public class ChatRoomService {
     private final ChatRoomRepository chatRoomRepository;
     private final ChatRoomReadStateRepository chatRoomReadStateRepository;
     private final MessageRepository messageRepository;
+    private final ConversationSettingRepository conversationSettingRepository;
     private final UserService userService;
 
     @Transactional
@@ -73,13 +77,15 @@ public class ChatRoomService {
         List<Long> roomIds = rooms.stream().map(ChatRoom::getId).toList();
         Map<Long, Message> latestMessagesByRoomId = findLatestMessagesByRoomId(roomIds);
         Map<Long, Long> unreadCountsByRoomId = countUnreadMessagesByRoomId(currentUser.getId(), roomIds);
+        Map<Long, ConversationSetting> settingsByRoomId = findSettingsByRoomId(currentUser.getId(), roomIds);
 
         return rooms
                 .stream()
                 .map(room -> ChatRoomResponse.from(
                         room,
                         latestMessagesByRoomId.get(room.getId()),
-                        unreadCountsByRoomId.getOrDefault(room.getId(), 0L)
+                        unreadCountsByRoomId.getOrDefault(room.getId(), 0L),
+                        settingsByRoomId.get(room.getId())
                 ))
                 .sorted(this::compareByConversationActivity)
                 .toList();
@@ -109,7 +115,7 @@ public class ChatRoomService {
         chatRoomReadStateRepository.saveAndFlush(readState);
 
         Message latestMessage = findLatestMessagesByRoomId(List.of(room.getId())).get(room.getId());
-        return ChatRoomResponse.from(room, latestMessage, 0);
+        return ChatRoomResponse.from(room, latestMessage, 0, findSetting(currentUser.getId(), room.getId()));
     }
 
     @Transactional
@@ -200,6 +206,26 @@ public class ChatRoomService {
     }
 
     @Transactional
+    public ChatRoomResponse transferOwner(
+            String currentUsername,
+            Long roomId,
+            TransferRoomOwnerRequest request
+    ) {
+        User currentUser = userService.findByUsername(currentUsername);
+        ChatRoom room = findGroupRoomForMember(currentUser, roomId);
+        validateGroupOwner(room, currentUser);
+
+        ChatRoomMember nextOwnerMember = room.findMemberByUserId(request.ownerId())
+                .orElseThrow(() -> new AppException(ErrorCode.ROOM_MEMBER_NOT_FOUND));
+        if (nextOwnerMember.getUser().getId().equals(currentUser.getId())) {
+            return toGroupResponseForUser(currentUser, room);
+        }
+
+        room.setOwner(nextOwnerMember.getUser());
+        return toGroupResponseForUser(currentUser, chatRoomRepository.saveAndFlush(room));
+    }
+
+    @Transactional
     public ChatRoomResponse leaveGroup(String currentUsername, Long roomId) {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
@@ -218,7 +244,7 @@ public class ChatRoomService {
 
         ChatRoom savedRoom = chatRoomRepository.saveAndFlush(room);
         Message latestMessage = findLatestMessagesByRoomId(List.of(savedRoom.getId())).get(savedRoom.getId());
-        return ChatRoomResponse.from(savedRoom, latestMessage, 0);
+        return ChatRoomResponse.from(savedRoom, latestMessage, 0, findSetting(currentUser.getId(), savedRoom.getId()));
     }
 
     @Transactional(readOnly = true)
@@ -252,7 +278,12 @@ public class ChatRoomService {
         long unreadCount = countUnreadMessagesByRoomId(currentUser.getId(), List.of(room.getId()))
                 .getOrDefault(room.getId(), 0L);
 
-        return ChatRoomResponse.from(room, latestMessage, unreadCount);
+        return ChatRoomResponse.from(
+                room,
+                latestMessage,
+                unreadCount,
+                findSetting(currentUser.getId(), room.getId())
+        );
     }
 
     private void validateGroupOwner(ChatRoom room, User currentUser) {
@@ -312,7 +343,32 @@ public class ChatRoomService {
                 ));
     }
 
+    private Map<Long, ConversationSetting> findSettingsByRoomId(Long currentUserId, List<Long> roomIds) {
+        if (roomIds.isEmpty()) {
+            return Map.of();
+        }
+
+        List<ConversationSetting> settings =
+                conversationSettingRepository.findByUserIdAndChatRoomIdIn(currentUserId, roomIds);
+        if (settings == null || settings.isEmpty()) {
+            return Map.of();
+        }
+
+        return settings.stream()
+                .collect(Collectors.toMap(setting -> setting.getChatRoom().getId(), Function.identity()));
+    }
+
+    private ConversationSetting findSetting(Long currentUserId, Long roomId) {
+        java.util.Optional<ConversationSetting> setting =
+                conversationSettingRepository.findByUserIdAndChatRoomId(currentUserId, roomId);
+        return setting == null ? null : setting.orElse(null);
+    }
+
     private int compareByConversationActivity(ChatRoomResponse firstRoom, ChatRoomResponse secondRoom) {
+        if (!firstRoom.pinned().equals(secondRoom.pinned())) {
+            return Boolean.TRUE.equals(firstRoom.pinned()) ? -1 : 1;
+        }
+
         LocalDateTime firstActivityAt = firstRoom.lastMessageAt() == null
                 ? firstRoom.createdAt()
                 : firstRoom.lastMessageAt();
