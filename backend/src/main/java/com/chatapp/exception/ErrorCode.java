@@ -35,6 +35,11 @@ public enum ErrorCode {
         SELF_MESSAGE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "MESSAGE_002", "Cannot send message to yourself"),
         INVALID_MESSAGE_CONTENT(HttpStatus.BAD_REQUEST, "MESSAGE_003", "Message content is invalid"),
         INVALID_MEDIA_MESSAGE(HttpStatus.BAD_REQUEST, "MESSAGE_004", "Media message is invalid"),
+        MESSAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "MESSAGE_005", "Message not found"),
+        MESSAGE_ACCESS_DENIED(HttpStatus.FORBIDDEN, "MESSAGE_006", "You cannot access this message"),
+        INVALID_REPLY_TARGET(HttpStatus.BAD_REQUEST, "MESSAGE_007", "Reply target is invalid"),
+        INVALID_MESSAGE_REACTION(HttpStatus.BAD_REQUEST, "MESSAGE_008", "Message reaction is invalid"),
+        MESSAGE_RECALL_NOT_ALLOWED(HttpStatus.FORBIDDEN, "MESSAGE_009", "You can only recall your own messages"),
 
         CLOUDINARY_CONFIG_MISSING(
                         HttpStatus.INTERNAL_SERVER_ERROR,

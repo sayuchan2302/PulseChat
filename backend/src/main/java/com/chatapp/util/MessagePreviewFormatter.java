@@ -13,6 +13,10 @@ public final class MessagePreviewFormatter {
             return null;
         }
 
+        if (Boolean.TRUE.equals(message.getRecalled())) {
+            return "Message recalled";
+        }
+
         if (StringUtils.hasText(message.getContent())) {
             return message.getContent();
         }

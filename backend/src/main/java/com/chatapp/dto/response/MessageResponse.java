@@ -4,6 +4,8 @@ import com.chatapp.model.Message;
 import com.chatapp.model.Message.MessageType;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.List;
 
 public record MessageResponse(
         Long id,
@@ -18,6 +20,9 @@ public record MessageResponse(
         Integer mediaHeight,
         Double mediaDuration,
         LinkPreviewResponse linkPreview,
+        MessageReplyResponse replyTo,
+        List<MessageReactionResponse> reactions,
+        Boolean recalled,
         Long senderId,
         String senderUsername,
         String senderFullName,
@@ -28,19 +33,27 @@ public record MessageResponse(
         String clientId
 ) {
     public static MessageResponse from(Message message) {
+        boolean recalled = Boolean.TRUE.equals(message.getRecalled());
         return new MessageResponse(
                 message.getId(),
-                message.getContent(),
+                recalled ? "" : message.getContent(),
                 message.getType() == null ? MessageType.TEXT : message.getType(),
-                message.getMediaUrl(),
-                message.getMediaPublicId(),
-                message.getMediaResourceType(),
-                message.getMediaFormat(),
-                message.getMediaBytes(),
-                message.getMediaWidth(),
-                message.getMediaHeight(),
-                message.getMediaDuration(),
-                LinkPreviewResponse.from(message),
+                recalled ? null : message.getMediaUrl(),
+                recalled ? null : message.getMediaPublicId(),
+                recalled ? null : message.getMediaResourceType(),
+                recalled ? null : message.getMediaFormat(),
+                recalled ? null : message.getMediaBytes(),
+                recalled ? null : message.getMediaWidth(),
+                recalled ? null : message.getMediaHeight(),
+                recalled ? null : message.getMediaDuration(),
+                recalled ? null : LinkPreviewResponse.from(message),
+                MessageReplyResponse.from(message.getReplyToMessage()),
+                message.getReactions()
+                        .stream()
+                        .sorted(Comparator.comparing(MessageResponse::reactionSortKey))
+                        .map(MessageReactionResponse::from)
+                        .toList(),
+                recalled,
                 message.getSender().getId(),
                 message.getSender().getUsername(),
                 displayName(message),
@@ -50,6 +63,10 @@ public record MessageResponse(
                 message.getTimestamp(),
                 message.getClientId()
         );
+    }
+
+    private static Long reactionSortKey(com.chatapp.model.MessageReaction reaction) {
+        return reaction.getId() == null ? Long.MAX_VALUE : reaction.getId();
     }
 
     private static String displayName(Message message) {

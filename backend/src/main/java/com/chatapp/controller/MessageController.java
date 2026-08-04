@@ -1,5 +1,6 @@
 package com.chatapp.controller;
 
+import com.chatapp.dto.request.MessageReactionRequest;
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.response.MessagePageResponse;
 import com.chatapp.dto.response.MessageResponse;
@@ -10,7 +11,9 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,7 +29,10 @@ import java.util.List;
 @RequestMapping("/messages")
 @RequiredArgsConstructor
 public class MessageController {
+    private static final String MESSAGE_UPDATE_QUEUE = "/queue/message-updates";
+
     private final MessageService messageService;
+    private final SimpMessagingTemplate messagingTemplate;
 
     @GetMapping("/unread-counts")
     public List<UnreadCountResponse> getUnreadCounts(Authentication authentication) {
@@ -55,5 +61,47 @@ public class MessageController {
     ) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(messageService.sendMessage(authentication.getName(), request));
+    }
+
+    @PostMapping("/{messageId}/reactions")
+    public MessageResponse reactToMessage(
+            Authentication authentication,
+            @PathVariable Long messageId,
+            @Valid @RequestBody MessageReactionRequest request
+    ) {
+        MessageResponse message = messageService.reactToMessage(authentication.getName(), messageId, request);
+        notifyMessageUpdateParticipants(authentication.getName(), messageId, message);
+        return message;
+    }
+
+    @DeleteMapping("/{messageId}/reactions")
+    public MessageResponse removeReaction(
+            Authentication authentication,
+            @PathVariable Long messageId
+    ) {
+        MessageResponse message = messageService.removeReaction(authentication.getName(), messageId);
+        notifyMessageUpdateParticipants(authentication.getName(), messageId, message);
+        return message;
+    }
+
+    @PatchMapping("/{messageId}/recall")
+    public MessageResponse recallMessage(
+            Authentication authentication,
+            @PathVariable Long messageId
+    ) {
+        MessageResponse message = messageService.recallMessage(authentication.getName(), messageId);
+        notifyMessageUpdateParticipants(authentication.getName(), messageId, message);
+        return message;
+    }
+
+    private void notifyMessageUpdateParticipants(String currentUsername, Long messageId, MessageResponse message) {
+        messageService.getMessageParticipantUsernames(currentUsername, messageId)
+                .forEach(username ->
+                        messagingTemplate.convertAndSendToUser(
+                                username,
+                                MESSAGE_UPDATE_QUEUE,
+                                message
+                        )
+                );
     }
 }

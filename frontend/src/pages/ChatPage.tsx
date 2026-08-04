@@ -11,6 +11,7 @@ import type {
   MediaAttachment,
   Message,
   MessagePage,
+  MessageReply,
   MessageType,
   PresenceEvent,
   ReadReceiptEvent,
@@ -53,6 +54,7 @@ const MESSAGE_SKELETON_KEYS = [
   'message-skeleton-3',
   'message-skeleton-4',
 ];
+const QUICK_REACTION_EMOJIS = ['👍', '💜', '😂', '😮', '😢', '🔥'] as const;
 const EMOJI_CATEGORIES = [
   {
     name: 'Smileys',
@@ -134,6 +136,7 @@ type SendMessagePayload = {
   receiverId: number;
   content: string;
   clientId: string;
+  replyToMessageId?: number;
   type?: MessageType;
   media?: MediaAttachment;
 };
@@ -141,6 +144,7 @@ type SendMessagePayload = {
 type SendRoomMessagePayload = {
   content: string;
   clientId: string;
+  replyToMessageId?: number;
   type?: MessageType;
   media?: MediaAttachment;
 };
@@ -393,6 +397,66 @@ function MediaIcon({ className }: HeaderIconProps) {
   );
 }
 
+function ReplyIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m9 17-5-5 5-5" />
+      <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+    </svg>
+  );
+}
+
+function CopyIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect width="14" height="14" x="8" y="8" rx="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+    </svg>
+  );
+}
+
+function RecallIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v5" />
+      <path d="M14 11v5" />
+    </svg>
+  );
+}
+
 function toDeliveredMessage(message: Message): ChatMessage {
   return {
     ...message,
@@ -441,6 +505,19 @@ function appendOrReconcileMessage(messages: ChatMessage[], incomingMessage: Mess
   }
 
   return [...messages, deliveredMessage];
+}
+
+function mergeKnownMessageUpdate(messages: ChatMessage[], incomingMessage: Message) {
+  const deliveredMessage = toDeliveredMessage(incomingMessage);
+  const existingMessageIndex = messages.findIndex((message) => message.id === incomingMessage.id);
+
+  if (existingMessageIndex < 0) {
+    return messages;
+  }
+
+  return messages.map((message, index) =>
+    index === existingMessageIndex ? { ...message, ...deliveredMessage } : message
+  );
 }
 
 function appendOptimisticMessage(messages: ChatMessage[], optimisticMessage: ChatMessage) {
@@ -728,6 +805,10 @@ function isMediaMessage(message: Message) {
 }
 
 function getMessagePreviewContent(message: Message) {
+  if (message.recalled) {
+    return 'Message recalled';
+  }
+
   const content = message.content?.trim();
   if (content) {
     return content;
@@ -776,6 +857,21 @@ function getMediaPayloadFromMessage(message: Message): MediaAttachment | undefin
     width: message.mediaWidth,
     height: message.mediaHeight,
     duration: message.mediaDuration,
+  };
+}
+
+function createReplyFromMessage(message: ChatMessage | null): MessageReply | null {
+  if (!message || message.id <= 0) {
+    return null;
+  }
+
+  return {
+    id: message.id,
+    content: getMessagePreviewContent(message) || 'Message',
+    type: getMessageType(message),
+    senderId: message.senderId,
+    senderName: message.senderFullName?.trim() || message.senderUsername || 'Unknown',
+    recalled: Boolean(message.recalled),
   };
 }
 
@@ -828,12 +924,14 @@ function createOptimisticMessage(
   content: string,
   clientId: string,
   type: MessageType = 'TEXT',
-  media?: MediaAttachment
+  media?: MediaAttachment,
+  replyTo?: MessageReply | null
 ): ChatMessage {
   return applyMediaPayload({
     id: tempId,
     content,
     type,
+    replyTo,
     senderId,
     receiverId,
     timestamp: new Date().toISOString(),
@@ -850,12 +948,14 @@ function createOptimisticRoomMessage(
   content: string,
   clientId: string,
   type: MessageType = 'TEXT',
-  media?: MediaAttachment
+  media?: MediaAttachment,
+  replyTo?: MessageReply | null
 ): ChatMessage {
   return applyMediaPayload({
     id: tempId,
     content,
     type,
+    replyTo,
     senderId: sender.id,
     senderUsername: sender.username,
     senderFullName: getUserDisplayName(sender),
@@ -892,6 +992,47 @@ function getDeliveryStatusLabel(message: ChatMessage) {
   }
 
   return message.read ? 'Read' : 'Sent';
+}
+
+function getGroupedMessageReactions(message: ChatMessage, currentUserId: number | null) {
+  const reactions = message.reactions ?? [];
+  const groupedReactions = new Map<string, {
+    emoji: string;
+    count: number;
+    reactedByCurrentUser: boolean;
+    title: string;
+  }>();
+
+  reactions.forEach((reaction) => {
+    const currentGroup = groupedReactions.get(reaction.emoji) ?? {
+      emoji: reaction.emoji,
+      count: 0,
+      reactedByCurrentUser: false,
+      title: '',
+    };
+    const displayName = reaction.fullName?.trim() || reaction.username;
+
+    currentGroup.count += 1;
+    currentGroup.reactedByCurrentUser ||= reaction.userId === currentUserId;
+    currentGroup.title = currentGroup.title ? `${currentGroup.title}, ${displayName}` : displayName;
+    groupedReactions.set(reaction.emoji, currentGroup);
+  });
+
+  return Array.from(groupedReactions.values());
+}
+
+function hasCurrentUserReaction(message: ChatMessage, currentUserId: number | null, emoji?: string) {
+  if (currentUserId === null) {
+    return false;
+  }
+
+  return (message.reactions ?? []).some((reaction) =>
+    reaction.userId === currentUserId && (!emoji || reaction.emoji === emoji)
+  );
+}
+
+function canUseMessageActions(message: ChatMessage) {
+  return message.id > 0 && message.deliveryStatus !== 'failed' && !message.recalled;
 }
 
 function getBrowserAwareConnectionStatus(status: ConnectionStatus): ConnectionStatus {
@@ -1520,6 +1661,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageInput, setMessageInput] = useState('');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [replyingToMessage, setReplyingToMessage] = useState<ChatMessage | null>(null);
   const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null);
   const [mediaUploading, setMediaUploading] = useState(false);
   const [mediaError, setMediaError] = useState('');
@@ -2025,6 +2167,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     setEmojiPickerOpen(false);
+    setReplyingToMessage(null);
     clearPendingMedia();
     setMediaUploading(false);
     setMediaViewerMessage(null);
@@ -2200,6 +2343,49 @@ export default function ChatPage() {
     } catch (error) {
       console.error('Failed to mark group as read:', error);
     }
+  }, []);
+
+  const applyMessageUpdate = useCallback((updatedMessage: Message) => {
+    setMessages((currentMessages) => mergeKnownMessageUpdate(currentMessages, updatedMessage));
+    setReplyingToMessage((currentReplyingMessage) =>
+      currentReplyingMessage?.id === updatedMessage.id
+        ? { ...currentReplyingMessage, ...toDeliveredMessage(updatedMessage) }
+        : currentReplyingMessage
+    );
+
+    if (updatedMessage.chatRoomId) {
+      setRooms((currentRooms) => {
+        let didUpdate = false;
+        const nextRooms = currentRooms.map((room) => {
+          const nextRoom = applyRoomPreviewToRoom(room, updatedMessage);
+          didUpdate ||= nextRoom !== room;
+          return nextRoom;
+        });
+
+        return didUpdate ? sortRoomsByChatActivity(nextRooms) : currentRooms;
+      });
+      setSelectedRoom((currentSelectedRoom) =>
+        currentSelectedRoom ? applyRoomPreviewToRoom(currentSelectedRoom, updatedMessage) : null
+      );
+      return;
+    }
+
+    setUsers((currentUsers) =>
+      applyConversationPreviewToUsers(
+        currentUsers,
+        updatedMessage,
+        currentUserIdRef.current,
+        !userSearchQueryRef.current.trim()
+      )
+    );
+    setFriends((currentFriends) =>
+      applyConversationPreviewToUsers(currentFriends, updatedMessage, currentUserIdRef.current, true)
+    );
+    setSelectedUser((currentSelectedUser) =>
+      currentSelectedUser
+        ? applyConversationPreviewToUser(currentSelectedUser, updatedMessage, currentUserIdRef.current)
+        : null
+    );
   }, []);
 
   useEffect(() => {
@@ -2417,6 +2603,13 @@ export default function ChatPage() {
             loadIncomingFriendRequests({ silent: true }),
             loadFriendSummary({ silent: true }),
           ]);
+        },
+        (updatedMessage) => {
+          if (!active) {
+            return;
+          }
+
+          applyMessageUpdate(updatedMessage);
         }
       )
       .catch((error) => {
@@ -2436,6 +2629,7 @@ export default function ChatPage() {
     clearOptimisticSendTimeouts,
     clearRemoteTypingTimeout,
     clearTypingTimeout,
+    applyMessageUpdate,
     currentUser?.id,
     hideRemoteTyping,
     loadFriendSummary,
@@ -3056,6 +3250,68 @@ export default function ChatPage() {
     }
   };
 
+  const handleReplyToMessage = (message: ChatMessage) => {
+    if (!canUseMessageActions(message)) {
+      return;
+    }
+
+    setReplyingToMessage(message);
+    setEmojiPickerOpen(false);
+    window.requestAnimationFrame(() => {
+      messageInputRef.current?.focus();
+    });
+  };
+
+  const handleCancelReply = () => {
+    setReplyingToMessage(null);
+  };
+
+  const handleCopyMessage = async (message: ChatMessage) => {
+    if (!message.content?.trim() || message.recalled) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(message.content);
+    } catch (error) {
+      console.error('Failed to copy message:', error);
+      setMessagesError('Unable to copy message.');
+    }
+  };
+
+  const handleReactToMessage = async (message: ChatMessage, emoji: string) => {
+    if (!canUseMessageActions(message) || !currentUser) {
+      return;
+    }
+
+    try {
+      const response = hasCurrentUserReaction(message, currentUser.id, emoji)
+        ? await apiClient.delete<Message>(`/messages/${message.id}/reactions`)
+        : await apiClient.post<Message>(`/messages/${message.id}/reactions`, { emoji });
+      applyMessageUpdate(response.data);
+    } catch (error) {
+      console.error('Failed to update message reaction:', error);
+      setMessagesError('Unable to update reaction.');
+    }
+  };
+
+  const handleRecallMessage = async (message: ChatMessage) => {
+    if (!canUseMessageActions(message) || message.senderId !== currentUser?.id) {
+      return;
+    }
+
+    try {
+      const response = await apiClient.patch<Message>(`/messages/${message.id}/recall`);
+      applyMessageUpdate(response.data);
+      if (replyingToMessage?.id === message.id) {
+        setReplyingToMessage(null);
+      }
+    } catch (error) {
+      console.error('Failed to recall message:', error);
+      setMessagesError('Unable to recall message.');
+    }
+  };
+
   const handleMessageInputChange = (value: string) => {
     setMessageInput(value);
     if (!selectedUser) {
@@ -3233,6 +3489,8 @@ export default function ChatPage() {
 
     let mediaPayload: MediaAttachment | undefined;
     const messageType: MessageType = mediaToSend ? mediaToSend.type : 'TEXT';
+    const replyTo = createReplyFromMessage(replyingToMessage);
+    const replyToMessageId = replyTo?.id;
     if (mediaToSend) {
       setMediaUploading(true);
       setMediaError('');
@@ -3251,6 +3509,7 @@ export default function ChatPage() {
     setMessagesError('');
     setMessageInput('');
     setEmojiPickerOpen(false);
+    setReplyingToMessage(null);
     clearPendingMedia();
 
     if (selectedUser) {
@@ -3261,12 +3520,14 @@ export default function ChatPage() {
         content,
         clientId,
         messageType,
-        mediaPayload
+        mediaPayload,
+        replyTo
       );
       const payload = {
         receiverId: selectedUser.id,
         content,
         clientId,
+        replyToMessageId,
         type: messageType,
         media: mediaPayload,
       };
@@ -3301,11 +3562,13 @@ export default function ChatPage() {
         content,
         clientId,
         messageType,
-        mediaPayload
+        mediaPayload,
+        replyTo
       );
       const payload = {
         content,
         clientId,
+        replyToMessageId,
         type: messageType,
         media: mediaPayload,
       };
@@ -3341,6 +3604,7 @@ export default function ChatPage() {
       const payload = {
         content: message.content,
         clientId,
+        replyToMessageId: message.replyTo?.id,
         type: getMessageType(message),
         media: getMediaPayloadFromMessage(message),
       };
@@ -3358,6 +3622,7 @@ export default function ChatPage() {
       receiverId: message.receiverId,
       content: message.content,
       clientId,
+      replyToMessageId: message.replyTo?.id,
       type: getMessageType(message),
       media: getMediaPayloadFromMessage(message),
     };
@@ -3525,13 +3790,120 @@ export default function ChatPage() {
   const sidebarBusy = hasUserSearch ? usersLoading : usersLoading || roomsLoading;
   const messageListItems = buildMessageListItems(messages, selectedRoom, currentUser?.id ?? null);
   const mediaViewerUrl = getMediaUrl(mediaViewerMessage?.mediaUrl);
+  const activeReplyPreview = createReplyFromMessage(replyingToMessage);
+
+  const renderReplyQuote = (reply?: MessageReply | null) => {
+    if (!reply) {
+      return null;
+    }
+
+    return (
+      <div className="message-reply-quote">
+        <span>{reply.senderName}</span>
+        <p>{reply.recalled ? 'Message recalled' : reply.content || 'Message'}</p>
+      </div>
+    );
+  };
+
+  const renderMessageReactions = (message: ChatMessage) => {
+    const groupedReactions = getGroupedMessageReactions(message, currentUser?.id ?? null);
+    if (groupedReactions.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="message-reactions" aria-label="Message reactions">
+        {groupedReactions.map((reaction) => (
+          <button
+            key={reaction.emoji}
+            type="button"
+            className={`message-reaction-pill ${reaction.reactedByCurrentUser ? 'active' : ''}`}
+            onClick={() => void handleReactToMessage(message, reaction.emoji)}
+            title={reaction.title}
+            aria-label={`${reaction.count} ${reaction.emoji} reactions`}
+          >
+            <span>{reaction.emoji}</span>
+            {reaction.count > 1 ? <small>{reaction.count}</small> : null}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  const renderMessageActions = (message: ChatMessage, isSentByCurrentUser: boolean) => {
+    if (!canUseMessageActions(message)) {
+      return null;
+    }
+
+    const currentUserId = currentUser?.id ?? null;
+    const canCopyMessage = Boolean(message.content?.trim());
+
+    return (
+      <div className="message-actions" aria-label="Message actions">
+        <div className="message-quick-reactions">
+          {QUICK_REACTION_EMOJIS.map((emoji) => (
+            <button
+              key={`${message.id}-${emoji}`}
+              type="button"
+              className={`message-action-btn reaction ${hasCurrentUserReaction(message, currentUserId, emoji) ? 'active' : ''}`}
+              onClick={() => void handleReactToMessage(message, emoji)}
+              aria-label={`React with ${emoji}`}
+              title={`React with ${emoji}`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="message-action-btn"
+          onClick={() => handleReplyToMessage(message)}
+          aria-label="Reply"
+          title="Reply"
+        >
+          <ReplyIcon className="message-action-icon" />
+        </button>
+        {canCopyMessage ? (
+          <button
+            type="button"
+            className="message-action-btn"
+            onClick={() => void handleCopyMessage(message)}
+            aria-label="Copy"
+            title="Copy"
+          >
+            <CopyIcon className="message-action-icon" />
+          </button>
+        ) : null}
+        {isSentByCurrentUser ? (
+          <button
+            type="button"
+            className="message-action-btn danger"
+            onClick={() => void handleRecallMessage(message)}
+            aria-label="Recall"
+            title="Recall"
+          >
+            <RecallIcon className="message-action-icon" />
+          </button>
+        ) : null}
+      </div>
+    );
+  };
 
   const renderMessageBody = (message: ChatMessage) => {
     const mediaUrl = getMediaUrl(message.mediaUrl);
 
+    if (message.recalled) {
+      return (
+        <div className="message-content recalled">
+          <span>Message recalled</span>
+        </div>
+      );
+    }
+
     if (getMessageType(message) === 'IMAGE' && mediaUrl) {
       return (
         <div className="message-media-content">
+          {renderReplyQuote(message.replyTo)}
           <button
             type="button"
             className="message-image-preview-btn"
@@ -3555,6 +3927,7 @@ export default function ChatPage() {
     if (getMessageType(message) === 'VIDEO' && mediaUrl) {
       return (
         <div className="message-media-content">
+          {renderReplyQuote(message.replyTo)}
           <video
             className="message-video-preview"
             src={mediaUrl}
@@ -3572,6 +3945,7 @@ export default function ChatPage() {
 
     return (
       <div className={`message-content ${hasLinkPreview(message.linkPreview) ? 'has-link-preview' : ''}`}>
+        {renderReplyQuote(message.replyTo)}
         {message.content ? (
           <div className="message-text">{renderLinkedText(message.content)}</div>
         ) : null}
@@ -4492,7 +4866,14 @@ export default function ChatPage() {
                               {getMessageSenderName(message, selectedRoom)}
                             </div>
                           ) : null}
-                          {renderMessageBody(message)}
+                          <div className="message-bubble-row">
+                            {isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
+                            <div className="message-bubble-wrap">
+                              {renderMessageBody(message)}
+                              {renderMessageReactions(message)}
+                            </div>
+                            {!isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
+                          </div>
                           {!groupedWithNext || message.deliveryStatus === 'failed' ? (
                             <div className="message-time">
                               <span>{formatMessageTime(message.timestamp)}</span>
@@ -4535,6 +4916,24 @@ export default function ChatPage() {
                   accept={MEDIA_ACCEPT}
                   onChange={handleMediaFileChange}
                 />
+
+                {activeReplyPreview ? (
+                  <div className="replying-composer-preview">
+                    <div className="replying-composer-copy">
+                      <span>Replying to {activeReplyPreview.senderName}</span>
+                      <p>{activeReplyPreview.content}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="replying-composer-close"
+                      onClick={handleCancelReply}
+                      aria-label="Cancel reply"
+                      title="Cancel reply"
+                    >
+                      <CloseIcon className="replying-composer-close-icon" />
+                    </button>
+                  </div>
+                ) : null}
 
                 {pendingMedia || mediaError ? (
                   <div className="pending-media-wrap">

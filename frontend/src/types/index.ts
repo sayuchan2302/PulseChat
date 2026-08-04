@@ -27,6 +27,24 @@ export interface LinkPreview {
   domain?: string | null;
 }
 
+export interface MessageReply {
+  id: number;
+  content: string;
+  type?: MessageType;
+  senderId: number;
+  senderName: string;
+  recalled?: boolean;
+}
+
+export interface MessageReaction {
+  id: number;
+  emoji: string;
+  userId: number;
+  username: string;
+  fullName?: string;
+  createdAt: string;
+}
+
 export interface User {
   id: number;
   username: string;
@@ -58,6 +76,9 @@ export interface Message {
   mediaHeight?: number | null;
   mediaDuration?: number | null;
   linkPreview?: LinkPreview | null;
+  replyTo?: MessageReply | null;
+  reactions?: MessageReaction[];
+  recalled?: boolean;
   senderId: number;
   senderUsername?: string;
   senderFullName?: string;

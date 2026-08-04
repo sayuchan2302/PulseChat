@@ -12,6 +12,7 @@ import type {
 } from '../types';
 
 type MessageHandler = (message: Message) => void;
+type MessageUpdateHandler = (message: Message) => void;
 type PresenceHandler = (presence: PresenceEvent) => void;
 type TypingHandler = (typing: TypingEvent) => void;
 type ReadReceiptHandler = (receipt: ReadReceiptEvent) => void;
@@ -26,6 +27,7 @@ export class WebSocketService {
   private manuallyDisconnecting = false;
   private status: ConnectionStatus = 'offline';
   private onMessageReceived: MessageHandler | null = null;
+  private onMessageUpdateReceived: MessageUpdateHandler | null = null;
   private onPresenceReceived: PresenceHandler | null = null;
   private onTypingReceived: TypingHandler | null = null;
   private onReadReceiptReceived: ReadReceiptHandler | null = null;
@@ -40,9 +42,11 @@ export class WebSocketService {
     onReadReceiptReceived?: ReadReceiptHandler,
     onConnectionStatusChanged?: ConnectionStatusHandler,
     onRoomReceived?: RoomHandler,
-    onFriendRequestReceived?: FriendRequestHandler
+    onFriendRequestReceived?: FriendRequestHandler,
+    onMessageUpdateReceived?: MessageUpdateHandler
   ): Promise<void> {
     this.onMessageReceived = onMessageReceived;
+    this.onMessageUpdateReceived = onMessageUpdateReceived ?? null;
     this.onPresenceReceived = onPresenceReceived ?? null;
     this.onTypingReceived = onTypingReceived ?? null;
     this.onReadReceiptReceived = onReadReceiptReceived ?? null;
@@ -91,6 +95,10 @@ export class WebSocketService {
 
         this.client?.subscribe('/user/queue/messages', (message) => {
           this.handleIncomingMessage(message.body);
+        });
+
+        this.client?.subscribe('/user/queue/message-updates', (message) => {
+          this.handleIncomingMessageUpdate(message.body);
         });
 
         this.client?.subscribe('/topic/presence', (message) => {
@@ -177,6 +185,7 @@ export class WebSocketService {
     this.connectingPromise = null;
     this.updateStatus('offline');
     this.onMessageReceived = null;
+    this.onMessageUpdateReceived = null;
     this.onPresenceReceived = null;
     this.onTypingReceived = null;
     this.onReadReceiptReceived = null;
@@ -213,6 +222,15 @@ export class WebSocketService {
       this.onMessageReceived?.(message);
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);
+    }
+  }
+
+  private handleIncomingMessageUpdate(body: string) {
+    try {
+      const message = JSON.parse(body) as Message;
+      this.onMessageUpdateReceived?.(message);
+    } catch (error) {
+      console.error('Failed to parse WebSocket message update:', error);
     }
   }
 

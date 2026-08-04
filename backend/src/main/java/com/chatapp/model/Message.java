@@ -6,8 +6,11 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 
 @Entity
 @Table(
@@ -18,6 +21,7 @@ import java.time.LocalDateTime;
                 @Index(name = "idx_messages_unread_receiver_sender", columnList = "receiver_id, read, sender_id"),
                 @Index(name = "idx_messages_room_timestamp", columnList = "chat_room_id, timestamp"),
                 @Index(name = "idx_messages_room_id", columnList = "chat_room_id, id"),
+                @Index(name = "idx_messages_reply_to", columnList = "reply_to_message_id"),
                 @Index(name = "uk_messages_sender_client", columnList = "sender_id, client_id", unique = true)
         }
 )
@@ -91,12 +95,25 @@ public class Message {
     @JoinColumn(name = "chat_room_id")
     private ChatRoom chatRoom;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reply_to_message_id")
+    private Message replyToMessage;
+
+    @Column(nullable = false)
+    private Boolean recalled = false;
+
+    @OneToMany(mappedBy = "message", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<MessageReaction> reactions = new HashSet<>();
+
     @Column(nullable = false)
     private Boolean read = false;
 
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime timestamp;
+
+    @UpdateTimestamp
+    private LocalDateTime updatedAt;
 
     public enum MessageType {
         TEXT, IMAGE, VIDEO

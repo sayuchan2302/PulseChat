@@ -1,6 +1,7 @@
 package com.chatapp.service;
 
 import com.chatapp.dto.request.MediaAttachmentRequest;
+import com.chatapp.dto.request.MessageReactionRequest;
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.request.SendRoomMessageRequest;
 import com.chatapp.dto.response.MessagePageResponse;
@@ -11,9 +12,11 @@ import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.ChatRoom;
 import com.chatapp.model.Message;
+import com.chatapp.model.MessageReaction;
 import com.chatapp.model.Message.MessageType;
 import com.chatapp.model.User;
 import com.chatapp.repository.MessageRepository;
+import com.chatapp.repository.MessageReactionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -22,6 +25,7 @@ import org.springframework.util.StringUtils;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -34,6 +38,7 @@ public class MessageService {
     private static final String VIDEO_RESOURCE_TYPE = "video";
 
     private final MessageRepository messageRepository;
+    private final MessageReactionRepository messageReactionRepository;
     private final UserService userService;
     private final ChatRoomService chatRoomService;
     private final FriendshipService friendshipService;
@@ -104,6 +109,7 @@ public class MessageService {
 
         validateFriends(sender, receiver);
         validateMessagePayload(type, content, request.media());
+        Message replyToMessage = resolvePrivateReplyTarget(sender, receiver, request.replyToMessageId());
 
         if (clientId != null) {
             return messageRepository.findBySenderIdAndClientId(sender.getId(), clientId)
@@ -117,13 +123,14 @@ public class MessageService {
                                 clientId,
                                 type,
                                 request.media(),
-                                linkPreview
+                                linkPreview,
+                                replyToMessage
                         );
                     });
         }
 
         LinkPreviewMetadata linkPreview = resolveLinkPreview(type, content);
-        return saveMessage(sender, receiver, content, null, type, request.media(), linkPreview);
+        return saveMessage(sender, receiver, content, null, type, request.media(), linkPreview, replyToMessage);
     }
 
     @Transactional
@@ -139,6 +146,7 @@ public class MessageService {
         String content = normalizeContent(request.content());
 
         validateMessagePayload(type, content, request.media());
+        Message replyToMessage = resolveRoomReplyTarget(room, request.replyToMessageId());
 
         if (clientId != null) {
             return messageRepository.findBySenderIdAndClientId(sender.getId(), clientId)
@@ -152,13 +160,74 @@ public class MessageService {
                                 clientId,
                                 type,
                                 request.media(),
-                                linkPreview
+                                linkPreview,
+                                replyToMessage
                         );
                     });
         }
 
         LinkPreviewMetadata linkPreview = resolveLinkPreview(type, content);
-        return saveRoomMessage(sender, room, content, null, type, request.media(), linkPreview);
+        return saveRoomMessage(sender, room, content, null, type, request.media(), linkPreview, replyToMessage);
+    }
+
+    @Transactional
+    public MessageResponse reactToMessage(String currentUsername, Long messageId, MessageReactionRequest request) {
+        User currentUser = userService.findByUsername(currentUsername);
+        Message message = findAccessibleMessage(currentUser, messageId);
+        String emoji = normalizeReactionEmoji(request.emoji());
+
+        MessageReaction reaction = messageReactionRepository
+                .findByMessageIdAndUserId(message.getId(), currentUser.getId())
+                .orElseGet(() -> {
+                    MessageReaction newReaction = new MessageReaction();
+                    newReaction.setMessage(message);
+                    newReaction.setUser(currentUser);
+                    message.getReactions().add(newReaction);
+                    return newReaction;
+                });
+
+        reaction.setEmoji(emoji);
+        messageReactionRepository.saveAndFlush(reaction);
+        return MessageResponse.from(message);
+    }
+
+    @Transactional
+    public MessageResponse removeReaction(String currentUsername, Long messageId) {
+        User currentUser = userService.findByUsername(currentUsername);
+        Message message = findAccessibleMessage(currentUser, messageId);
+
+        messageReactionRepository
+                .findByMessageIdAndUserId(message.getId(), currentUser.getId())
+                .ifPresent(reaction -> {
+                    message.getReactions().remove(reaction);
+                    messageReactionRepository.delete(reaction);
+                    messageReactionRepository.flush();
+                });
+
+        return MessageResponse.from(message);
+    }
+
+    @Transactional
+    public MessageResponse recallMessage(String currentUsername, Long messageId) {
+        User currentUser = userService.findByUsername(currentUsername);
+        Message message = findAccessibleMessage(currentUser, messageId);
+        if (!message.getSender().getId().equals(currentUser.getId())) {
+            throw new AppException(ErrorCode.MESSAGE_RECALL_NOT_ALLOWED);
+        }
+
+        if (Boolean.TRUE.equals(message.getRecalled())) {
+            return MessageResponse.from(message);
+        }
+
+        message.setRecalled(true);
+        return MessageResponse.from(messageRepository.saveAndFlush(message));
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> getMessageParticipantUsernames(String currentUsername, Long messageId) {
+        User currentUser = userService.findByUsername(currentUsername);
+        Message message = findAccessibleMessage(currentUser, messageId);
+        return getParticipantUsernames(currentUsername, message);
     }
 
     private MessageResponse saveMessage(
@@ -168,11 +237,13 @@ public class MessageService {
             String clientId,
             MessageType type,
             MediaAttachmentRequest media,
-            LinkPreviewMetadata linkPreview
+            LinkPreviewMetadata linkPreview,
+            Message replyToMessage
     ) {
         Message message = new Message();
         message.setSender(sender);
         message.setReceiver(receiver);
+        message.setReplyToMessage(replyToMessage);
         applyMessagePayload(message, content, type, media, linkPreview);
         message.setClientId(clientId);
         message.setRead(false);
@@ -188,17 +259,59 @@ public class MessageService {
             String clientId,
             MessageType type,
             MediaAttachmentRequest media,
-            LinkPreviewMetadata linkPreview
+            LinkPreviewMetadata linkPreview,
+            Message replyToMessage
     ) {
         Message message = new Message();
         message.setSender(sender);
         message.setChatRoom(room);
+        message.setReplyToMessage(replyToMessage);
         applyMessagePayload(message, content, type, media, linkPreview);
         message.setClientId(clientId);
         message.setRead(false);
 
         Message savedMessage = messageRepository.saveAndFlush(message);
         return MessageResponse.from(savedMessage);
+    }
+
+    private Message resolvePrivateReplyTarget(User sender, User receiver, Long replyToMessageId) {
+        if (replyToMessageId == null) {
+            return null;
+        }
+
+        Message replyToMessage = findMessageById(replyToMessageId);
+        if (replyToMessage.getChatRoom() != null || replyToMessage.getReceiver() == null) {
+            throw new AppException(ErrorCode.INVALID_REPLY_TARGET);
+        }
+
+        boolean sameConversation =
+                isSameUserPair(replyToMessage.getSender(), replyToMessage.getReceiver(), sender, receiver);
+        if (!sameConversation) {
+            throw new AppException(ErrorCode.INVALID_REPLY_TARGET);
+        }
+
+        return replyToMessage;
+    }
+
+    private Message resolveRoomReplyTarget(ChatRoom room, Long replyToMessageId) {
+        if (replyToMessageId == null) {
+            return null;
+        }
+
+        Message replyToMessage = findMessageById(replyToMessageId);
+        Long replyRoomId = replyToMessage.getChatRoom() == null ? null : replyToMessage.getChatRoom().getId();
+        if (!Objects.equals(replyRoomId, room.getId())) {
+            throw new AppException(ErrorCode.INVALID_REPLY_TARGET);
+        }
+
+        return replyToMessage;
+    }
+
+    private boolean isSameUserPair(User firstSender, User firstReceiver, User secondSender, User secondReceiver) {
+        return (firstSender.getId().equals(secondSender.getId())
+                && firstReceiver.getId().equals(secondReceiver.getId()))
+                || (firstSender.getId().equals(secondReceiver.getId())
+                && firstReceiver.getId().equals(secondSender.getId()));
     }
 
     private String normalizeClientId(String clientId) {
@@ -305,6 +418,55 @@ public class MessageService {
 
     private String normalizeOptionalMediaValue(String value) {
         return StringUtils.hasText(value) ? value.trim().toLowerCase() : null;
+    }
+
+    private String normalizeReactionEmoji(String emoji) {
+        if (!StringUtils.hasText(emoji)) {
+            throw new AppException(ErrorCode.INVALID_MESSAGE_REACTION);
+        }
+
+        String normalizedEmoji = emoji.trim();
+        if (normalizedEmoji.codePointCount(0, normalizedEmoji.length()) > 8) {
+            throw new AppException(ErrorCode.INVALID_MESSAGE_REACTION);
+        }
+
+        return normalizedEmoji;
+    }
+
+    private Message findMessageById(Long messageId) {
+        return messageRepository.findById(messageId)
+                .orElseThrow(() -> new AppException(ErrorCode.MESSAGE_NOT_FOUND));
+    }
+
+    private Message findAccessibleMessage(User currentUser, Long messageId) {
+        Message message = findMessageById(messageId);
+        if (message.getChatRoom() != null) {
+            chatRoomService.findGroupRoomForMember(currentUser, message.getChatRoom().getId());
+            return message;
+        }
+
+        if (isPrivateMessageParticipant(currentUser, message)) {
+            return message;
+        }
+
+        throw new AppException(ErrorCode.MESSAGE_ACCESS_DENIED);
+    }
+
+    private boolean isPrivateMessageParticipant(User currentUser, Message message) {
+        Long currentUserId = currentUser.getId();
+        Long receiverId = message.getReceiver() == null ? null : message.getReceiver().getId();
+        return message.getSender().getId().equals(currentUserId) || Objects.equals(receiverId, currentUserId);
+    }
+
+    private List<String> getParticipantUsernames(String currentUsername, Message message) {
+        if (message.getChatRoom() != null) {
+            return chatRoomService.getGroupParticipantUsernames(currentUsername, message.getChatRoom().getId());
+        }
+
+        return List.of(message.getSender().getUsername(), message.getReceiver().getUsername())
+                .stream()
+                .distinct()
+                .toList();
     }
 
     private void validateFriends(User firstUser, User secondUser) {

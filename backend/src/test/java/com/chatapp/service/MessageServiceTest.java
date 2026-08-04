@@ -1,15 +1,19 @@
 package com.chatapp.service;
 
 import com.chatapp.dto.request.MediaAttachmentRequest;
+import com.chatapp.dto.request.MessageReactionRequest;
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.response.MessagePageResponse;
+import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.ChatRoom;
 import com.chatapp.model.Message;
 import com.chatapp.model.Message.MessageType;
+import com.chatapp.model.MessageReaction;
 import com.chatapp.model.User;
 import com.chatapp.repository.MessageRepository;
+import com.chatapp.repository.MessageReactionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -20,6 +24,7 @@ import org.springframework.data.domain.Pageable;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -37,6 +42,9 @@ import static org.mockito.Mockito.when;
 class MessageServiceTest {
     @Mock
     private MessageRepository messageRepository;
+
+    @Mock
+    private MessageReactionRepository messageReactionRepository;
 
     @Mock
     private UserService userService;
@@ -140,7 +148,7 @@ class MessageServiceTest {
 
         messageService.sendMessage(
                 "sayu",
-                new SendMessageRequest(receiver.getId(), "Look", null, MessageType.IMAGE, media)
+                new SendMessageRequest(receiver.getId(), "Look", null, null, MessageType.IMAGE, media)
         );
 
         ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
@@ -166,7 +174,7 @@ class MessageServiceTest {
                 AppException.class,
                 () -> messageService.sendMessage(
                         "sayu",
-                        new SendMessageRequest(receiver.getId(), " ", null, MessageType.TEXT, null)
+                        new SendMessageRequest(receiver.getId(), " ", null, null, MessageType.TEXT, null)
                 )
         );
 
@@ -199,7 +207,7 @@ class MessageServiceTest {
 
         messageService.sendMessage(
                 "sayu",
-                new SendMessageRequest(receiver.getId(), content, null, MessageType.TEXT, null)
+                new SendMessageRequest(receiver.getId(), content, null, null, MessageType.TEXT, null)
         );
 
         ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
@@ -231,12 +239,103 @@ class MessageServiceTest {
                 AppException.class,
                 () -> messageService.sendMessage(
                         "sayu",
-                        new SendMessageRequest(receiver.getId(), "", null, MessageType.VIDEO, media)
+                        new SendMessageRequest(receiver.getId(), "", null, null, MessageType.VIDEO, media)
                 )
         );
 
         assertEquals(ErrorCode.INVALID_MEDIA_MESSAGE, exception.getErrorCode());
         verify(messageRepository, never()).saveAndFlush(any(Message.class));
+    }
+
+    @Test
+    void sendMessageStoresPrivateReplyTargetFromSameConversation() {
+        User sender = user(1L, "sayu");
+        User receiver = user(2L, "thinh");
+        Message replyTarget = privateMessage(9L, "Earlier", receiver, sender);
+        when(userService.findByUsername("sayu")).thenReturn(sender);
+        when(userService.findById(receiver.getId())).thenReturn(receiver);
+        when(friendshipService.areFriends(sender, receiver)).thenReturn(true);
+        when(messageRepository.findById(replyTarget.getId())).thenReturn(Optional.of(replyTarget));
+        when(messageRepository.saveAndFlush(any(Message.class))).thenAnswer(invocation -> {
+            Message message = invocation.getArgument(0);
+            message.setId(101L);
+            message.setTimestamp(LocalDateTime.of(2026, 8, 3, 13, 0));
+            return message;
+        });
+
+        messageService.sendMessage(
+                "sayu",
+                new SendMessageRequest(
+                        receiver.getId(),
+                        "Replying",
+                        null,
+                        replyTarget.getId(),
+                        MessageType.TEXT,
+                        null
+                )
+        );
+
+        ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
+        verify(messageRepository).saveAndFlush(messageCaptor.capture());
+        assertEquals(replyTarget, messageCaptor.getValue().getReplyToMessage());
+    }
+
+    @Test
+    void reactToMessageUpsertsCurrentUserReaction() {
+        User sender = user(1L, "sayu");
+        User receiver = user(2L, "thinh");
+        Message message = privateMessage(20L, "Hello", sender, receiver);
+        when(userService.findByUsername("sayu")).thenReturn(sender);
+        when(messageRepository.findById(message.getId())).thenReturn(Optional.of(message));
+        when(messageReactionRepository.findByMessageIdAndUserId(message.getId(), sender.getId()))
+                .thenReturn(Optional.empty());
+        when(messageReactionRepository.saveAndFlush(any(MessageReaction.class))).thenAnswer(invocation -> {
+            MessageReaction reaction = invocation.getArgument(0);
+            reaction.setId(30L);
+            reaction.setCreatedAt(LocalDateTime.of(2026, 8, 3, 14, 0));
+            return reaction;
+        });
+
+        MessageResponse response = messageService.reactToMessage(
+                "sayu",
+                message.getId(),
+                new MessageReactionRequest("💜")
+        );
+
+        assertEquals(1, response.reactions().size());
+        assertEquals("💜", response.reactions().get(0).emoji());
+    }
+
+    @Test
+    void recallMessageRequiresSender() {
+        User sender = user(1L, "sayu");
+        User receiver = user(2L, "thinh");
+        Message message = privateMessage(20L, "Hello", sender, receiver);
+        when(userService.findByUsername("thinh")).thenReturn(receiver);
+        when(messageRepository.findById(message.getId())).thenReturn(Optional.of(message));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> messageService.recallMessage("thinh", message.getId())
+        );
+
+        assertEquals(ErrorCode.MESSAGE_RECALL_NOT_ALLOWED, exception.getErrorCode());
+        verify(messageRepository, never()).saveAndFlush(any(Message.class));
+    }
+
+    @Test
+    void recallMessageMasksContentInResponse() {
+        User sender = user(1L, "sayu");
+        User receiver = user(2L, "thinh");
+        Message message = privateMessage(20L, "Secret", sender, receiver);
+        when(userService.findByUsername("sayu")).thenReturn(sender);
+        when(messageRepository.findById(message.getId())).thenReturn(Optional.of(message));
+        when(messageRepository.saveAndFlush(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MessageResponse response = messageService.recallMessage("sayu", message.getId());
+
+        assertTrue(response.recalled());
+        assertEquals("", response.content());
     }
 
     private static User user(Long id, String username) {

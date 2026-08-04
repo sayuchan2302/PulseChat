@@ -9,6 +9,7 @@ public record SendMessageRequest(
         @NotNull Long receiverId,
         @Size(max = 5000) String content,
         @Size(max = 100) String clientId,
+        Long replyToMessageId,
         MessageType type,
         @Valid MediaAttachmentRequest media
 ) {
