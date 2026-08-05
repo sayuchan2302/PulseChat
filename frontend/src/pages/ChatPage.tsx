@@ -170,6 +170,18 @@ type ActiveCall = {
 };
 
 type CallConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'closed';
+type PreCallSetup = {
+  type: CallType;
+  target: User;
+} | null;
+
+function canSendWebRtcSignalForCall(call: ActiveCall | null, callId?: number) {
+  return Boolean(
+    call?.callId &&
+    call.callId === callId &&
+    (call.status === 'connecting' || call.status === 'connected')
+  );
+}
 
 type SendMessagePayload = {
   receiverId: number;
@@ -1584,11 +1596,42 @@ function getCallMediaErrorMessage(error: unknown, callType: CallType) {
         ? 'No microphone or camera was found for this video call.'
         : 'No microphone was found for this audio call.';
     }
+
+    if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+      return callType === 'VIDEO'
+        ? 'Selected microphone or camera is already in use.'
+        : 'Selected microphone is already in use.';
+    }
+
+    if (error.name === 'OverconstrainedError') {
+      return callType === 'VIDEO'
+        ? 'Selected microphone or camera is unavailable. Choose another device.'
+        : 'Selected microphone is unavailable. Choose another device.';
+    }
   }
 
   return callType === 'VIDEO'
     ? 'Unable to access microphone or camera.'
     : 'Unable to access microphone.';
+}
+
+function buildCallMediaConstraints(
+  callType: CallType,
+  audioInputId: string,
+  videoInputId: string
+): MediaStreamConstraints {
+  return {
+    audio: audioInputId ? { deviceId: { exact: audioInputId } } : true,
+    video: callType === 'VIDEO'
+      ? videoInputId
+        ? { deviceId: { exact: videoInputId } }
+        : true
+      : false,
+  };
+}
+
+function stopMediaStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((track) => track.stop());
 }
 
 function getBrowserNotificationPermission(): NotificationPermission {
@@ -2651,6 +2694,11 @@ export default function ChatPage() {
   const [callDeviceError, setCallDeviceError] = useState('');
   const [selectedAudioInputId, setSelectedAudioInputId] = useState('');
   const [selectedVideoInputId, setSelectedVideoInputId] = useState('');
+  const [preCallSetup, setPreCallSetup] = useState<PreCallSetup>(null);
+  const [preCallPreviewStream, setPreCallPreviewStream] = useState<MediaStream | null>(null);
+  const [preCallPreviewLoading, setPreCallPreviewLoading] = useState(false);
+  const [preCallError, setPreCallError] = useState('');
+  const [preCallSubmitting, setPreCallSubmitting] = useState(false);
   const [profileFullName, setProfileFullName] = useState('');
   const [profileBio, setProfileBio] = useState('');
   const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null);
@@ -2689,6 +2737,12 @@ export default function ChatPage() {
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const preCallPreviewStreamRef = useRef<MediaStream | null>(null);
+  const preCallPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const micMutedRef = useRef(false);
+  const cameraOffRef = useRef(false);
+  const selectedAudioInputIdRef = useRef('');
+  const selectedVideoInputIdRef = useRef('');
   const incomingCallRingtoneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteTypingTimeoutsRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
@@ -2774,6 +2828,26 @@ export default function ChatPage() {
   }, [localCallStream]);
 
   useEffect(() => {
+    preCallPreviewStreamRef.current = preCallPreviewStream;
+  }, [preCallPreviewStream]);
+
+  useEffect(() => {
+    micMutedRef.current = micMuted;
+  }, [micMuted]);
+
+  useEffect(() => {
+    cameraOffRef.current = cameraOff;
+  }, [cameraOff]);
+
+  useEffect(() => {
+    selectedAudioInputIdRef.current = selectedAudioInputId;
+  }, [selectedAudioInputId]);
+
+  useEffect(() => {
+    selectedVideoInputIdRef.current = selectedVideoInputId;
+  }, [selectedVideoInputId]);
+
+  useEffect(() => {
     if (remoteAudioRef.current) {
       remoteAudioRef.current.srcObject = remoteCallStream;
     }
@@ -2786,7 +2860,13 @@ export default function ChatPage() {
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = localCallStream;
     }
-  }, [localCallStream]);
+  }, [cameraOff, localCallStream]);
+
+  useEffect(() => {
+    if (preCallPreviewVideoRef.current) {
+      preCallPreviewVideoRef.current.srcObject = preCallPreviewStream;
+    }
+  }, [cameraOff, preCallPreviewStream]);
 
   useEffect(() => {
     browserNotificationPermissionRef.current = browserNotificationPermission;
@@ -3252,6 +3332,8 @@ export default function ChatPage() {
 
   useEffect(() => () => {
     stopIncomingCallRingtone();
+    stopMediaStream(preCallPreviewStreamRef.current);
+    preCallPreviewStreamRef.current = null;
     void notificationAudioContextRef.current?.close();
     notificationAudioContextRef.current = null;
   }, [stopIncomingCallRingtone]);
@@ -4601,28 +4683,77 @@ export default function ChatPage() {
     }
   }, []);
 
+  const stopPreCallPreview = useCallback(() => {
+    stopMediaStream(preCallPreviewStreamRef.current);
+    preCallPreviewStreamRef.current = null;
+    setPreCallPreviewStream(null);
+  }, []);
+
+  const startPreCallPreview = useCallback(async (
+    callType: CallType,
+    audioInputId = selectedAudioInputId,
+    videoInputId = selectedVideoInputId
+  ) => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setPreCallError('Browser does not support media calls.');
+      return null;
+    }
+
+    setPreCallPreviewLoading(true);
+    setPreCallError('');
+    stopMediaStream(preCallPreviewStreamRef.current);
+    preCallPreviewStreamRef.current = null;
+    setPreCallPreviewStream(null);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(
+        buildCallMediaConstraints(callType, audioInputId, videoInputId)
+      );
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = !micMutedRef.current;
+      });
+      stream.getVideoTracks().forEach((track) => {
+        track.enabled = !cameraOffRef.current;
+      });
+
+      preCallPreviewStreamRef.current = stream;
+      setPreCallPreviewStream(stream);
+      applySelectedDeviceIdsFromStream(stream);
+      void loadCallDevices();
+      return stream;
+    } catch (error) {
+      console.error('Failed to start pre-call preview:', error);
+      setPreCallError(getCallMediaErrorMessage(error, callType));
+      return null;
+    } finally {
+      setPreCallPreviewLoading(false);
+    }
+  }, [
+    applySelectedDeviceIdsFromStream,
+    loadCallDevices,
+    selectedAudioInputId,
+    selectedVideoInputId,
+  ]);
+
   const getLocalCallMedia = useCallback((call: ActiveCall) => {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error('Browser does not support media calls.');
     }
 
-    return navigator.mediaDevices.getUserMedia({
-      audio: selectedAudioInputId
-        ? { deviceId: { exact: selectedAudioInputId } }
-        : true,
-      video: call.type === 'VIDEO'
-        ? selectedVideoInputId
-          ? { deviceId: { exact: selectedVideoInputId } }
-          : true
-        : false,
-    });
-  }, [selectedAudioInputId, selectedVideoInputId]);
+    const audioInputId = selectedAudioInputIdRef.current;
+    const videoInputId = selectedVideoInputIdRef.current;
+
+    return navigator.mediaDevices.getUserMedia(
+      buildCallMediaConstraints(call.type, audioInputId, videoInputId)
+    );
+  }, []);
 
   const stopCallMedia = useCallback(() => {
     if (peerConnectionRef.current) {
       peerConnectionRef.current.onicecandidate = null;
       peerConnectionRef.current.ontrack = null;
       peerConnectionRef.current.onconnectionstatechange = null;
+      peerConnectionRef.current.oniceconnectionstatechange = null;
       peerConnectionRef.current.close();
     }
     peerConnectionRef.current = null;
@@ -4876,6 +5007,12 @@ export default function ChatPage() {
 
     const localStream = await getLocalCallMedia(call);
     localCallStreamRef.current = localStream;
+    localStream.getAudioTracks().forEach((track) => {
+      track.enabled = !micMutedRef.current;
+    });
+    localStream.getVideoTracks().forEach((track) => {
+      track.enabled = !cameraOffRef.current;
+    });
     setLocalCallStream(localStream);
     applySelectedDeviceIdsFromStream(localStream);
     void loadCallDevices();
@@ -4892,13 +5029,18 @@ export default function ChatPage() {
 
     peerConnection.onicecandidate = (event) => {
       const currentCall = activeCallRef.current;
-      if (!event.candidate || !currentCall?.callId) {
+      const signalCallId = currentCall?.callId;
+      if (
+        !event.candidate ||
+        signalCallId === undefined ||
+        !canSendWebRtcSignalForCall(currentCall, call.callId)
+      ) {
         return;
       }
 
       sendCallSignal({
         eventType: 'ICE_CANDIDATE',
-        callId: currentCall.callId,
+        callId: signalCallId,
         candidate: event.candidate.candidate,
         sdpMid: event.candidate.sdpMid,
         sdpMLineIndex: event.candidate.sdpMLineIndex,
@@ -4912,8 +5054,11 @@ export default function ChatPage() {
       }
     };
 
-    peerConnection.onconnectionstatechange = () => {
-      if (peerConnection.connectionState === 'connected') {
+    const updatePeerConnectionState = () => {
+      const connectionState = peerConnection.connectionState;
+      const iceConnectionState = peerConnection.iceConnectionState;
+
+      if (connectionState === 'connected' || iceConnectionState === 'connected' || iceConnectionState === 'completed') {
         setCallConnectionState('connected');
         setCallStartedAt((currentStartedAt) => currentStartedAt ?? Date.now());
         setActiveCallState((currentCall) =>
@@ -4923,31 +5068,36 @@ export default function ChatPage() {
         return;
       }
 
-      if (peerConnection.connectionState === 'connecting') {
+      if (connectionState === 'connecting' || iceConnectionState === 'checking') {
         setCallConnectionState('connecting');
         return;
       }
 
-      if (peerConnection.connectionState === 'disconnected') {
+      if (connectionState === 'disconnected' || iceConnectionState === 'disconnected') {
         setCallConnectionState('reconnecting');
-        setCallError('Trying to reconnect the call.');
+        setCallError('Poor connection. Trying to reconnect the call.');
         return;
       }
 
-      if (peerConnection.connectionState === 'failed') {
+      if (connectionState === 'failed' || iceConnectionState === 'failed') {
         setCallConnectionState('failed');
         setCallError('Call connection failed.');
         return;
       }
 
-      if (peerConnection.connectionState === 'closed') {
+      if (connectionState === 'closed' || iceConnectionState === 'closed') {
         setCallConnectionState('closed');
       }
     };
+    peerConnection.onconnectionstatechange = updatePeerConnectionState;
+    peerConnection.oniceconnectionstatechange = updatePeerConnectionState;
 
-    if (initiator && call.callId) {
+    if (initiator && canSendWebRtcSignalForCall(activeCallRef.current, call.callId)) {
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
+      if (!canSendWebRtcSignalForCall(activeCallRef.current, call.callId)) {
+        return peerConnection;
+      }
       sendCallSignal({
         eventType: 'WEBRTC_OFFER',
         callId: call.callId,
@@ -5086,6 +5236,8 @@ export default function ChatPage() {
         return;
       }
 
+      stopPreCallPreview();
+      setPreCallSetup(null);
       setActiveCallState(nextCall);
       setCallError('');
       notifyWithBrowserNotification({
@@ -5165,6 +5317,7 @@ export default function ChatPage() {
     notifyWithBrowserNotification,
     sendCallSignal,
     startPeerConnection,
+    stopPreCallPreview,
   ]);
 
   const sendActiveCallCloseSignal = useCallback(() => {
@@ -5690,16 +5843,16 @@ export default function ChatPage() {
     }
   };
 
-  const handleStartCall = useCallback((callType: CallType) => {
-    if (!selectedUser || activeCallRef.current) {
-      return;
+  const sendOutgoingCallInvite = useCallback((callType: CallType, targetUser: User) => {
+    if (activeCallRef.current || !canChatWithUser(targetUser)) {
+      return false;
     }
 
     const optimisticCall: ActiveCall = {
       type: callType,
       status: 'ringing',
       direction: 'outgoing',
-      peer: selectedUser,
+      peer: targetUser,
     };
 
     void loadCallDevices();
@@ -5711,14 +5864,156 @@ export default function ChatPage() {
     if (
       sendCallSignal({
         eventType: 'CALL_INVITE',
-        receiverId: selectedUser.id,
+        receiverId: targetUser.id,
         callType,
       })
     ) {
       setActiveCallState(optimisticCall);
       setCallError('');
+      return true;
     }
-  }, [loadCallDevices, selectedUser, sendCallSignal]);
+
+    return false;
+  }, [loadCallDevices, sendCallSignal]);
+
+  const openPreCallSetupForUser = useCallback((targetUser: User, callType: CallType) => {
+    if (!canChatWithUser(targetUser) || activeCallRef.current) {
+      return;
+    }
+
+    micMutedRef.current = false;
+    cameraOffRef.current = false;
+    setMicMuted(false);
+    setCameraOff(false);
+    setPreCallSetup({ type: callType, target: targetUser });
+    setPreCallError('');
+    setPreCallSubmitting(false);
+    setCallDeviceError('');
+    setCallError('');
+    void loadCallDevices();
+    void startPreCallPreview(callType);
+  }, [loadCallDevices, startPreCallPreview]);
+
+  const handleStartCall = useCallback((callType: CallType) => {
+    if (!selectedUser) {
+      return;
+    }
+
+    openPreCallSetupForUser(selectedUser, callType);
+  }, [openPreCallSetupForUser, selectedUser]);
+
+  const handleClosePreCallSetup = useCallback(() => {
+    if (preCallSubmitting) {
+      return;
+    }
+
+    stopPreCallPreview();
+    setPreCallSetup(null);
+    setPreCallError('');
+    setPreCallSubmitting(false);
+  }, [preCallSubmitting, stopPreCallPreview]);
+
+  const handlePreCallRetryPreview = useCallback(() => {
+    if (!preCallSetup) {
+      return;
+    }
+
+    void startPreCallPreview(preCallSetup.type);
+  }, [preCallSetup, startPreCallPreview]);
+
+  const handleConfirmStartCall = useCallback(async () => {
+    if (!preCallSetup || preCallPreviewLoading || preCallSubmitting) {
+      return;
+    }
+
+    setPreCallSubmitting(true);
+    const stream = preCallPreviewStreamRef.current ??
+      (await startPreCallPreview(preCallSetup.type));
+    if (!stream) {
+      setPreCallSubmitting(false);
+      return;
+    }
+
+    stopPreCallPreview();
+    const sent = sendOutgoingCallInvite(preCallSetup.type, preCallSetup.target);
+    if (sent) {
+      setPreCallSetup(null);
+      setPreCallError('');
+      setPreCallSubmitting(false);
+      return;
+    }
+
+    setPreCallError('Call connection is not ready.');
+    setPreCallSubmitting(false);
+  }, [
+    preCallPreviewLoading,
+    preCallSetup,
+    preCallSubmitting,
+    sendOutgoingCallInvite,
+    startPreCallPreview,
+    stopPreCallPreview,
+  ]);
+
+  const handlePreCallAudioInputChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    const nextAudioInputId = event.target.value;
+    setSelectedAudioInputId(nextAudioInputId);
+    if (preCallSetup) {
+      void startPreCallPreview(preCallSetup.type, nextAudioInputId, selectedVideoInputId);
+    }
+  }, [preCallSetup, selectedVideoInputId, startPreCallPreview]);
+
+  const handlePreCallVideoInputChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    const nextVideoInputId = event.target.value;
+    setSelectedVideoInputId(nextVideoInputId);
+    if (preCallSetup) {
+      void startPreCallPreview(preCallSetup.type, selectedAudioInputId, nextVideoInputId);
+    }
+  }, [preCallSetup, selectedAudioInputId, startPreCallPreview]);
+
+  const handlePreCallToggleMic = useCallback(() => {
+    const nextMuted = !micMutedRef.current;
+    micMutedRef.current = nextMuted;
+    preCallPreviewStreamRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = !nextMuted;
+    });
+    setMicMuted(nextMuted);
+  }, []);
+
+  const handlePreCallToggleCamera = useCallback(() => {
+    const nextCameraOff = !cameraOffRef.current;
+    cameraOffRef.current = nextCameraOff;
+    preCallPreviewStreamRef.current?.getVideoTracks().forEach((track) => {
+      track.enabled = !nextCameraOff;
+    });
+    setCameraOff(nextCameraOff);
+  }, []);
+
+  const handleRetryActiveCall = useCallback(() => {
+    const currentCall = activeCallRef.current;
+    if (!currentCall) {
+      return;
+    }
+
+    if (currentCall.callId) {
+      sendCallSignal({
+        eventType: 'CALL_END',
+        callId: currentCall.callId,
+      });
+    }
+
+    stopCallMedia();
+    setActiveCallState(null);
+    setCallError('');
+    micMutedRef.current = false;
+    cameraOffRef.current = false;
+    setMicMuted(false);
+    setCameraOff(false);
+    setPreCallSetup({ type: currentCall.type, target: currentCall.peer });
+    setPreCallError('');
+    setPreCallSubmitting(false);
+    void loadCallDevices();
+    void startPreCallPreview(currentCall.type);
+  }, [loadCallDevices, sendCallSignal, startPreCallPreview, stopCallMedia]);
 
   const handleAcceptCall = useCallback(() => {
     const currentCall = activeCallRef.current;
@@ -6249,6 +6544,36 @@ export default function ChatPage() {
     navigateIfNeeded(getUserChatRoute(peerForChat.username));
     activateUserConversation(peerForChat);
   };
+
+  const getCallMessagePeer = useCallback((message: ChatMessage) => {
+    if (message.chatRoomId) {
+      return null;
+    }
+
+    if (
+      selectedUser &&
+      (message.senderId === selectedUser.id || message.receiverId === selectedUser.id)
+    ) {
+      return selectedUser;
+    }
+
+    const currentAccountId = currentUser?.id ?? null;
+    const peerId =
+      currentAccountId !== null && message.senderId === currentAccountId
+        ? message.receiverId
+        : message.senderId;
+
+    return peerId ? findKnownUserById(peerId) : null;
+  }, [currentUser?.id, findKnownUserById, selectedUser]);
+
+  const handleCallBackFromMessage = useCallback((message: ChatMessage) => {
+    const peer = getCallMessagePeer(message);
+    if (!peer) {
+      return;
+    }
+
+    openPreCallSetupForUser(peer, message.callType ?? 'AUDIO');
+  }, [getCallMessagePeer, openPreCallSetupForUser]);
 
   const handleUserSearchChange = (value: string) => {
     userSearchQueryRef.current = value;
@@ -7234,6 +7559,7 @@ export default function ChatPage() {
     }
 
     sendActiveCallCloseSignal();
+    stopPreCallPreview();
 
     const refreshToken = localStorage.getItem('refreshToken');
     if (refreshToken) {
@@ -7254,6 +7580,14 @@ export default function ChatPage() {
   const activeCallTimerLabel = activeCall?.status === 'connected'
     ? formatCallTimer(callElapsedSeconds)
     : '';
+  const preCallPeerName = getUserDisplayName(preCallSetup?.target ?? null);
+  const preCallIsVideo = preCallSetup?.type === 'VIDEO';
+  const preCallCanStart = Boolean(
+    preCallSetup &&
+    preCallPreviewStream &&
+    !preCallPreviewLoading &&
+    !preCallSubmitting
+  );
   const activeCallConversationOpen = Boolean(
     activeCall &&
     selectedUser?.id === activeCall.peer.id &&
@@ -7472,6 +7806,9 @@ export default function ChatPage() {
 
   const renderCallMessageBody = (message: ChatMessage) => {
     const isVideoCall = message.callType === 'VIDEO';
+    const callPeer = getCallMessagePeer(message);
+    const canCallBack = Boolean(callPeer && canChatWithUser(callPeer) && !activeCall);
+
     return (
       <div className={`call-message-event ${message.callStatus?.toLowerCase() ?? ''}`}>
         <span className="call-message-icon-wrap" aria-hidden="true">
@@ -7483,6 +7820,15 @@ export default function ChatPage() {
         </span>
         <span>{getCallEventLabel(message)}</span>
         <small>{formatMessageTime(message.timestamp)}</small>
+        {canCallBack ? (
+          <button
+            type="button"
+            className="call-message-callback"
+            onClick={() => handleCallBackFromMessage(message)}
+          >
+            Call back
+          </button>
+        ) : null}
       </div>
     );
   };
@@ -7602,6 +7948,186 @@ export default function ChatPage() {
     );
   };
 
+  const renderPreCallSetupModal = () => {
+    if (!preCallSetup) {
+      return null;
+    }
+
+    const hasSelectedAudioDevice = audioInputDevices.some(
+      (device) => device.deviceId === selectedAudioInputId
+    );
+    const hasSelectedVideoDevice = videoInputDevices.some(
+      (device) => device.deviceId === selectedVideoInputId
+    );
+    const title = `${preCallIsVideo ? 'Video' : 'Audio'} call`;
+
+    return (
+      <div className="modal-backdrop pre-call-backdrop" onClick={handleClosePreCallSetup}>
+        <div
+          className="pre-call-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pre-call-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="pre-call-header">
+            <div>
+              <h3 id="pre-call-title">{title}</h3>
+              <p>{preCallPeerName}</p>
+            </div>
+            <button
+              type="button"
+              className="modal-close-btn"
+              onClick={handleClosePreCallSetup}
+              aria-label="Close call setup"
+              disabled={preCallSubmitting}
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="pre-call-preview">
+            {preCallPreviewLoading ? (
+              <div className="pre-call-preview-placeholder">
+                {renderUserAvatar(preCallSetup.target, 'user-avatar pre-call-avatar')}
+                <span>Checking devices...</span>
+              </div>
+            ) : preCallIsVideo && preCallPreviewStream && !cameraOff ? (
+              <video
+                ref={preCallPreviewVideoRef}
+                className="pre-call-video-preview"
+                autoPlay
+                muted
+                playsInline
+              />
+            ) : (
+              <div className="pre-call-preview-placeholder">
+                {preCallIsVideo && cameraOff ? (
+                  <span className="pre-call-camera-off">
+                    <VideoOffIcon className="call-action-icon" />
+                  </span>
+                ) : (
+                  renderUserAvatar(preCallSetup.target, 'user-avatar pre-call-avatar')
+                )}
+                <span>{preCallIsVideo && cameraOff ? 'Camera is off' : 'Ready to call'}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="pre-call-quick-actions" aria-label="Call setup controls">
+            <button
+              type="button"
+              className={`call-round-btn ${micMuted ? 'active' : ''}`}
+              onClick={handlePreCallToggleMic}
+              disabled={preCallPreviewLoading || preCallSubmitting}
+              aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
+              title={micMuted ? 'Unmute' : 'Mute'}
+            >
+              {micMuted ? (
+                <MicOffIcon className="call-action-icon" />
+              ) : (
+                <MicIcon className="call-action-icon" />
+              )}
+            </button>
+            {preCallIsVideo ? (
+              <button
+                type="button"
+                className={`call-round-btn ${cameraOff ? 'active' : ''}`}
+                onClick={handlePreCallToggleCamera}
+                disabled={preCallPreviewLoading || preCallSubmitting}
+                aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'}
+                title={cameraOff ? 'Camera on' : 'Camera off'}
+              >
+                {cameraOff ? (
+                  <VideoOffIcon className="call-action-icon" />
+                ) : (
+                  <VideoCallIcon className="call-action-icon" />
+                )}
+              </button>
+            ) : null}
+          </div>
+
+          <div className="call-device-controls pre-call-device-controls" aria-label="Pre-call devices">
+            <label className="call-device-field">
+              <span>Mic</span>
+              <select
+                className="call-device-select"
+                value={selectedAudioInputId}
+                onChange={handlePreCallAudioInputChange}
+                disabled={preCallPreviewLoading || preCallSubmitting}
+              >
+                <option value="">Default microphone</option>
+                {selectedAudioInputId && !hasSelectedAudioDevice ? (
+                  <option value={selectedAudioInputId}>Selected microphone</option>
+                ) : null}
+                {audioInputDevices.map((device, index) => (
+                  <option key={device.deviceId || `pre-audio-${index}`} value={device.deviceId}>
+                    {getMediaDeviceLabel(device, index)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {preCallIsVideo ? (
+              <label className="call-device-field">
+                <span>Camera</span>
+                <select
+                  className="call-device-select"
+                  value={selectedVideoInputId}
+                  onChange={handlePreCallVideoInputChange}
+                  disabled={preCallPreviewLoading || preCallSubmitting}
+                >
+                  <option value="">Default camera</option>
+                  {selectedVideoInputId && !hasSelectedVideoDevice ? (
+                    <option value={selectedVideoInputId}>Selected camera</option>
+                  ) : null}
+                  {videoInputDevices.map((device, index) => (
+                    <option key={device.deviceId || `pre-video-${index}`} value={device.deviceId}>
+                      {getMediaDeviceLabel(device, index)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            {callDevicesLoading ? (
+              <span className="call-device-helper">Refreshing device list...</span>
+            ) : null}
+            {callDeviceError ? <span className="call-device-error">{callDeviceError}</span> : null}
+          </div>
+
+          {preCallError ? (
+            <div className="pre-call-error">
+              <span>{preCallError}</span>
+              <button type="button" onClick={handlePreCallRetryPreview}>
+                Retry
+              </button>
+            </div>
+          ) : null}
+
+          <div className="pre-call-actions">
+            <button
+              type="button"
+              className="secondary-btn"
+              onClick={handleClosePreCallSetup}
+              disabled={preCallSubmitting}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="send-btn"
+              onClick={() => void handleConfirmStartCall()}
+              disabled={!preCallCanStart}
+            >
+              {preCallSubmitting ? 'Calling...' : 'Start call'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderCallOverlay = () => {
     if (!activeCall) {
       return null;
@@ -7617,6 +8143,11 @@ export default function ChatPage() {
     );
     const canShowDeviceControls = Boolean(
       localCallStream && activeCall.status !== 'ringing' && activeCall.status !== 'ending'
+    );
+    const canRetryActiveCall = Boolean(
+      !isIncomingRinging &&
+      activeCall.status !== 'ending' &&
+      (callConnectionState === 'failed' || callConnectionState === 'closed')
     );
     const statusLabel = isIncomingRinging
       ? `Incoming ${activeCall.type === 'VIDEO' ? 'video' : 'audio'} call`
@@ -7695,7 +8226,16 @@ export default function ChatPage() {
             </div>
           )}
 
-          {callError ? <div className="call-error">{callError}</div> : null}
+          {callError ? (
+            <div className="call-error">
+              <span>{callError}</span>
+              {canRetryActiveCall ? (
+                <button type="button" onClick={handleRetryActiveCall}>
+                  Retry
+                </button>
+              ) : null}
+            </div>
+          ) : null}
 
           {canShowDeviceControls ? (
             <div className="call-device-controls" aria-label="Call devices">
@@ -9803,6 +10343,7 @@ export default function ChatPage() {
         ) : null}
       </div>
 
+      {renderPreCallSetupModal()}
       {renderCallOverlay()}
 
       {mediaViewerUrl ? (

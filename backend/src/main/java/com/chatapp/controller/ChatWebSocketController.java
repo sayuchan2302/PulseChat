@@ -10,6 +10,8 @@ import com.chatapp.dto.response.CallSignalResponse;
 import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.dto.response.ReadReceiptResponse;
 import com.chatapp.dto.response.TypingResponse;
+import com.chatapp.exception.AppException;
+import com.chatapp.exception.ErrorCode;
 import com.chatapp.service.CallSessionService;
 import com.chatapp.service.CallRealtimeNotifier;
 import com.chatapp.model.User;
@@ -18,6 +20,7 @@ import com.chatapp.service.MessageService;
 import com.chatapp.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -29,6 +32,7 @@ import java.security.Principal;
 
 @Controller
 @RequiredArgsConstructor
+@Slf4j
 public class ChatWebSocketController {
     private static final String PRIVATE_MESSAGE_QUEUE = "/queue/messages";
     private static final String TYPING_QUEUE = "/queue/typing";
@@ -156,10 +160,32 @@ public class ChatWebSocketController {
     @MessageMapping("/calls.signal")
     public void signalCall(@Valid @Payload CallSignalRequest request, Principal principal) {
         Principal authenticatedPrincipal = requireAuthenticatedPrincipal(principal);
-        CallSignalResponse response = callSessionService.handleSignal(
-                authenticatedPrincipal.getName(),
-                request
-        );
+        CallSignalResponse response;
+        try {
+            response = callSessionService.handleSignal(
+                    authenticatedPrincipal.getName(),
+                    request
+            );
+        } catch (AppException exception) {
+            if (isStaleWebRtcSignal(request, exception)) {
+                log.debug(
+                        "Ignoring stale {} for call {} from {}: {}",
+                        request.eventType(),
+                        request.callId(),
+                        authenticatedPrincipal.getName(),
+                        exception.getMessage()
+                );
+                return;
+            }
+
+            log.warn(
+                    "Rejected call signal {} for {}: {}",
+                    request.eventType(),
+                    authenticatedPrincipal.getName(),
+                    exception.getMessage()
+            );
+            return;
+        }
 
         if (response.eventType() == CallSignalRequest.CallSignalType.CALL_BUSY) {
             callRealtimeNotifier.notifyCallerOnly(response);
@@ -167,6 +193,19 @@ public class ChatWebSocketController {
         }
 
         callRealtimeNotifier.notifyParticipants(response);
+    }
+
+    private boolean isStaleWebRtcSignal(CallSignalRequest request, AppException exception) {
+        return isWebRtcSignal(request) && (
+                exception.getErrorCode() == ErrorCode.CALL_NOT_ACTIVE ||
+                        exception.getErrorCode() == ErrorCode.CALL_NOT_FOUND
+        );
+    }
+
+    private boolean isWebRtcSignal(CallSignalRequest request) {
+        return request.eventType() == CallSignalRequest.CallSignalType.WEBRTC_OFFER ||
+                request.eventType() == CallSignalRequest.CallSignalType.WEBRTC_ANSWER ||
+                request.eventType() == CallSignalRequest.CallSignalType.ICE_CANDIDATE;
     }
 
     private Principal requireAuthenticatedPrincipal(Principal principal) {

@@ -1679,8 +1679,31 @@ button.main-list-item {
   border-radius: 8px;
   background: #FEF2F2;
   color: #B91C1C;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   font-size: 12px;
   font-weight: 800;
+}
+
+.call-error span {
+  min-width: 0;
+}
+
+.call-error button {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--white);
+  color: #B91C1C;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.call-error button:hover {
+  background: #FEE2E2;
 }
 
 .call-device-controls {
@@ -1828,6 +1851,146 @@ button.main-list-item {
 
 .call-round-btn.end .call-action-icon {
   transform: rotate(135deg);
+}
+
+.pre-call-backdrop {
+  z-index: 50;
+}
+
+.pre-call-modal {
+  width: min(430px, 100%);
+  max-height: min(760px, calc(100dvh - 40px));
+  overflow-y: auto;
+  border: 1px solid var(--purple-100);
+  border-radius: 12px;
+  background: var(--white);
+  color-scheme: light;
+  box-shadow: 0 24px 58px rgba(88, 28, 135, 0.24);
+}
+
+.pre-call-header {
+  min-height: 64px;
+  padding: 18px 18px 14px 20px;
+  border-bottom: 1px solid var(--gray-200);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pre-call-header h3 {
+  color: var(--gray-800);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.pre-call-header p {
+  margin-top: 4px;
+  color: var(--gray-500);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pre-call-preview {
+  margin: 18px 20px 14px;
+  overflow: hidden;
+  border: 1px solid var(--purple-100);
+  border-radius: 10px;
+  aspect-ratio: 16 / 10;
+  background: var(--purple-50);
+}
+
+.pre-call-video-preview {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: var(--gray-900);
+  object-fit: cover;
+}
+
+.pre-call-preview-placeholder {
+  width: 100%;
+  height: 100%;
+  min-height: 190px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--gray-500);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.pre-call-avatar {
+  width: 86px;
+  height: 86px;
+  font-size: 32px;
+  box-shadow: 0 0 0 8px rgba(168, 85, 247, 0.12);
+}
+
+.pre-call-camera-off {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--white);
+  color: var(--purple-700);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 8px rgba(168, 85, 247, 0.1);
+}
+
+.pre-call-quick-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 20px 14px;
+}
+
+.pre-call-device-controls {
+  margin: 0 20px 14px;
+}
+
+.pre-call-error {
+  margin: 0 20px 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #FEF2F2;
+  color: #991B1B;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.pre-call-error span {
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.pre-call-error button {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--white);
+  color: #B91C1C;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.pre-call-error button:hover {
+  background: #FEE2E2;
+}
+
+.pre-call-actions {
+  padding: 4px 20px 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .details-sidebar {
@@ -3363,6 +3526,29 @@ button.main-list-item {
   font-size: 11px;
   font-weight: 800;
   white-space: nowrap;
+}
+
+.call-message-callback {
+  min-height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--purple-50);
+  color: var(--purple-700);
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s, transform 0.2s;
+}
+
+.call-message-callback:hover {
+  background: var(--purple-100);
+  color: var(--purple-800);
+  transform: translateY(-1px);
+}
+
+.call-message-callback:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 2px;
 }
 
 .message-text {
@@ -5263,6 +5449,34 @@ button.main-list-item {
 
   .call-local-video-placeholder {
     width: 78px;
+  }
+
+  .pre-call-modal {
+    max-height: calc(100dvh - 24px);
+  }
+
+  .pre-call-header {
+    padding: 16px 14px 12px 16px;
+  }
+
+  .pre-call-preview {
+    margin: 14px 16px 12px;
+  }
+
+  .pre-call-preview-placeholder {
+    min-height: 168px;
+  }
+
+  .pre-call-device-controls {
+    margin: 0 16px 12px;
+  }
+
+  .pre-call-error {
+    margin: 0 16px 12px;
+  }
+
+  .pre-call-actions {
+    padding: 4px 16px 16px;
   }
 
   .message-content {
