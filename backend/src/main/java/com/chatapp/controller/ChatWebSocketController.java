@@ -1,13 +1,17 @@
 package com.chatapp.controller;
 
+import com.chatapp.dto.request.CallSignalRequest;
 import com.chatapp.dto.request.ReadReceiptRequest;
 import com.chatapp.dto.request.RoomTypingRequest;
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.request.SendRoomMessageRequest;
 import com.chatapp.dto.request.TypingRequest;
+import com.chatapp.dto.response.CallSignalResponse;
 import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.dto.response.ReadReceiptResponse;
 import com.chatapp.dto.response.TypingResponse;
+import com.chatapp.service.CallSessionService;
+import com.chatapp.service.CallRealtimeNotifier;
 import com.chatapp.model.User;
 import com.chatapp.service.ChatRoomService;
 import com.chatapp.service.MessageService;
@@ -30,6 +34,8 @@ public class ChatWebSocketController {
     private static final String TYPING_QUEUE = "/queue/typing";
     private static final String READ_RECEIPT_QUEUE = "/queue/read-receipts";
 
+    private final CallSessionService callSessionService;
+    private final CallRealtimeNotifier callRealtimeNotifier;
     private final MessageService messageService;
     private final UserService userService;
     private final ChatRoomService chatRoomService;
@@ -145,6 +151,22 @@ public class ChatWebSocketController {
                 READ_RECEIPT_QUEUE,
                 response
         );
+    }
+
+    @MessageMapping("/calls.signal")
+    public void signalCall(@Valid @Payload CallSignalRequest request, Principal principal) {
+        Principal authenticatedPrincipal = requireAuthenticatedPrincipal(principal);
+        CallSignalResponse response = callSessionService.handleSignal(
+                authenticatedPrincipal.getName(),
+                request
+        );
+
+        if (response.eventType() == CallSignalRequest.CallSignalType.CALL_BUSY) {
+            callRealtimeNotifier.notifyCallerOnly(response);
+            return;
+        }
+
+        callRealtimeNotifier.notifyParticipants(response);
     }
 
     private Principal requireAuthenticatedPrincipal(Principal principal) {

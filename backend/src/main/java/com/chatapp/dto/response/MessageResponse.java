@@ -1,6 +1,9 @@
 package com.chatapp.dto.response;
 
 import com.chatapp.model.ChatRoomMember;
+import com.chatapp.model.CallSession;
+import com.chatapp.model.CallSession.CallStatus;
+import com.chatapp.model.CallSession.CallType;
 import com.chatapp.model.Message;
 import com.chatapp.model.Message.MessageType;
 
@@ -23,6 +26,10 @@ public record MessageResponse(
         LinkPreviewResponse linkPreview,
         MessageReplyResponse replyTo,
         List<MessageReactionResponse> reactions,
+        Long callId,
+        CallType callType,
+        CallStatus callStatus,
+        Long callDurationSeconds,
         Boolean recalled,
         Long senderId,
         String senderUsername,
@@ -35,6 +42,7 @@ public record MessageResponse(
 ) {
     public static MessageResponse from(Message message) {
         boolean recalled = Boolean.TRUE.equals(message.getRecalled());
+        CallSession callSession = message.getCallSession();
         return new MessageResponse(
                 message.getId(),
                 recalled ? "" : message.getContent(),
@@ -54,6 +62,10 @@ public record MessageResponse(
                         .sorted(Comparator.comparing(MessageResponse::reactionSortKey))
                         .map(MessageReactionResponse::from)
                         .toList(),
+                callSession == null ? null : callSession.getId(),
+                callSession == null ? null : callSession.getType(),
+                callSession == null ? null : callSession.getStatus(),
+                callSession == null ? null : callDurationSeconds(callSession),
                 recalled,
                 message.getSender().getId(),
                 message.getSender().getUsername(),
@@ -68,6 +80,15 @@ public record MessageResponse(
 
     private static Long reactionSortKey(com.chatapp.model.MessageReaction reaction) {
         return reaction.getId() == null ? Long.MAX_VALUE : reaction.getId();
+    }
+
+    private static Long callDurationSeconds(CallSession callSession) {
+        if (callSession.getStartedAt() == null || callSession.getEndedAt() == null) {
+            return null;
+        }
+
+        long seconds = java.time.Duration.between(callSession.getStartedAt(), callSession.getEndedAt()).getSeconds();
+        return Math.max(seconds, 0);
     }
 
     private static String displayName(Message message) {

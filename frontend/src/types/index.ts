@@ -6,7 +6,7 @@ export type UserFriendshipStatus =
   | 'declined';
 
 export type FriendshipStatus = 'pending' | 'accepted' | 'declined';
-export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO';
+export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'CALL';
 
 export interface MediaAttachment {
   url: string;
@@ -82,6 +82,10 @@ export interface Message {
   linkPreview?: LinkPreview | null;
   replyTo?: MessageReply | null;
   reactions?: MessageReaction[];
+  callId?: number | null;
+  callType?: CallType | null;
+  callStatus?: CallStatus | null;
+  callDurationSeconds?: number | null;
   recalled?: boolean;
   senderId: number;
   senderUsername?: string;
@@ -132,6 +136,70 @@ export interface ReadReceiptEvent {
   readerId: number;
   senderId: number;
   readCount: number;
+}
+
+export interface RoomReadReceiptEvent {
+  roomId: number;
+  readerId: number;
+  readAt: string;
+}
+
+export interface MessageSeenByResponse {
+  messageId: number;
+  roomId: number;
+  seenBy: User[];
+}
+
+export type CallType = 'AUDIO' | 'VIDEO';
+
+export type CallStatus =
+  | 'RINGING'
+  | 'ACCEPTED'
+  | 'REJECTED'
+  | 'MISSED'
+  | 'ENDED'
+  | 'CANCELED'
+  | 'BUSY';
+
+export type CallRecipientRole = 'CALLER' | 'RECEIVER';
+
+export type CallSignalType =
+  | 'CALL_INVITE'
+  | 'CALL_ACCEPT'
+  | 'CALL_REJECT'
+  | 'CALL_CANCEL'
+  | 'CALL_END'
+  | 'CALL_MISSED'
+  | 'CALL_BUSY'
+  | 'WEBRTC_OFFER'
+  | 'WEBRTC_ANSWER'
+  | 'ICE_CANDIDATE';
+
+export interface CallSignalPayload {
+  eventType: CallSignalType;
+  callId?: number;
+  receiverId?: number;
+  callType?: CallType;
+  sdp?: string;
+  candidate?: string;
+  sdpMid?: string | null;
+  sdpMLineIndex?: number | null;
+}
+
+export interface CallSignalEvent {
+  eventType: CallSignalType;
+  callId: number;
+  callType: CallType;
+  status: CallStatus;
+  recipientRole?: CallRecipientRole | null;
+  caller: User;
+  receiver: User;
+  fromUser: User;
+  sdp?: string | null;
+  candidate?: string | null;
+  sdpMid?: string | null;
+  sdpMLineIndex?: number | null;
+  occurredAt: string;
 }
 
 export interface Friendship {

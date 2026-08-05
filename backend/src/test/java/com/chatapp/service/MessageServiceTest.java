@@ -5,13 +5,16 @@ import com.chatapp.dto.request.MessageReactionRequest;
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.response.MessagePageResponse;
 import com.chatapp.dto.response.MessageResponse;
+import com.chatapp.dto.response.MessageSeenByResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.ChatRoom;
+import com.chatapp.model.ChatRoomReadState;
 import com.chatapp.model.Message;
 import com.chatapp.model.Message.MessageType;
 import com.chatapp.model.MessageReaction;
 import com.chatapp.model.User;
+import com.chatapp.repository.ChatRoomReadStateRepository;
 import com.chatapp.repository.MessageRepository;
 import com.chatapp.repository.MessageReactionRepository;
 import org.junit.jupiter.api.Test;
@@ -45,6 +48,9 @@ class MessageServiceTest {
 
     @Mock
     private MessageReactionRepository messageReactionRepository;
+
+    @Mock
+    private ChatRoomReadStateRepository chatRoomReadStateRepository;
 
     @Mock
     private UserService userService;
@@ -373,6 +379,42 @@ class MessageServiceTest {
     }
 
     @Test
+    void getRoomMessageSeenByReturnsReadersExceptSender() {
+        User sender = user(1L, "sayu");
+        User reader = user(2L, "bob");
+        User unreadMember = user(3L, "alice");
+        ChatRoom room = room(10L, "Team");
+        room.addMember(sender);
+        room.addMember(reader);
+        room.addMember(unreadMember);
+        room.findMemberByUserId(reader.getId()).orElseThrow().setNickname("Bobby");
+        Message message = roomMessage(20L, "hello", sender, room);
+
+        when(userService.findByUsername("sayu")).thenReturn(sender);
+        when(chatRoomService.findGroupRoomForMember(sender, room.getId())).thenReturn(room);
+        when(messageRepository.findRoomMessageById(room.getId(), message.getId())).thenReturn(Optional.of(message));
+        when(chatRoomReadStateRepository.findByChatRoomIdAndLastReadAtGreaterThanEqualOrderByLastReadAtDesc(
+                room.getId(),
+                message.getTimestamp()
+        )).thenReturn(List.of(
+                readState(room, reader, message.getTimestamp().plusMinutes(1)),
+                readState(room, sender, message.getTimestamp().plusMinutes(2))
+        ));
+
+        MessageSeenByResponse response = messageService.getRoomMessageSeenBy(
+                "sayu",
+                room.getId(),
+                message.getId()
+        );
+
+        assertEquals(message.getId(), response.messageId());
+        assertEquals(room.getId(), response.roomId());
+        assertEquals(1, response.seenBy().size());
+        assertEquals(reader.getId(), response.seenBy().get(0).id());
+        assertEquals("Bobby", response.seenBy().get(0).nickname());
+    }
+
+    @Test
     void sendImageMessageSavesMediaMetadata() {
         User sender = user(1L, "sayu");
         User receiver = user(2L, "thinh");
@@ -634,6 +676,14 @@ class MessageServiceTest {
         Message message = roomMessage(id, "https://example.com/post-" + id, sender, room);
         applyLinkPreview(message, id);
         return message;
+    }
+
+    private static ChatRoomReadState readState(ChatRoom room, User user, LocalDateTime lastReadAt) {
+        ChatRoomReadState state = new ChatRoomReadState();
+        state.setChatRoom(room);
+        state.setUser(user);
+        state.setLastReadAt(lastReadAt);
+        return state;
     }
 
     private static void applyLinkPreview(Message message, Long id) {

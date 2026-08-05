@@ -9,6 +9,8 @@ import com.chatapp.dto.request.UpdateRoomMemberNicknameRequest;
 import com.chatapp.dto.response.ChatRoomResponse;
 import com.chatapp.dto.response.MessagePageResponse;
 import com.chatapp.dto.response.MessageResponse;
+import com.chatapp.dto.response.MessageSeenByResponse;
+import com.chatapp.dto.response.RoomReadReceiptResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.service.ChatRoomService;
 import com.chatapp.service.MessageService;
@@ -28,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -36,6 +39,7 @@ import java.util.List;
 public class ChatRoomController {
     private static final String ROOM_QUEUE = "/queue/rooms";
     private static final String MESSAGE_QUEUE = "/queue/messages";
+    private static final String ROOM_READ_RECEIPT_QUEUE = "/queue/room-read-receipts";
 
     private final ChatRoomService chatRoomService;
     private final MessageService messageService;
@@ -108,12 +112,23 @@ public class ChatRoomController {
         return messageService.getRoomAroundMessage(authentication.getName(), roomId, messageId, size);
     }
 
+    @GetMapping("/{roomId}/messages/{messageId}/seen-by")
+    public MessageSeenByResponse getRoomMessageSeenBy(
+            Authentication authentication,
+            @PathVariable Long roomId,
+            @PathVariable Long messageId
+    ) {
+        return messageService.getRoomMessageSeenBy(authentication.getName(), roomId, messageId);
+    }
+
     @PatchMapping("/{roomId}/read")
     public ChatRoomResponse markRoomAsRead(
             Authentication authentication,
             @PathVariable Long roomId
     ) {
-        return chatRoomService.markGroupAsRead(authentication.getName(), roomId);
+        ChatRoomResponse room = chatRoomService.markGroupAsRead(authentication.getName(), roomId);
+        notifyRoomReadReceipt(authentication.getName(), room);
+        return room;
     }
 
     @PatchMapping("/{roomId}")
@@ -253,5 +268,32 @@ public class ChatRoomController {
                                 message
                         )
                 );
+    }
+
+    private void notifyRoomReadReceipt(String readerUsername, ChatRoomResponse room) {
+        Long readerId = room.participants()
+                .stream()
+                .filter(participant -> participant.username().equals(readerUsername))
+                .map(participant -> participant.id())
+                .findFirst()
+                .orElse(null);
+
+        if (readerId == null) {
+            return;
+        }
+
+        RoomReadReceiptResponse receipt = new RoomReadReceiptResponse(
+                room.id(),
+                readerId,
+                LocalDateTime.now()
+        );
+
+        room.participants().forEach(participant ->
+                messagingTemplate.convertAndSendToUser(
+                        participant.username(),
+                        ROOM_READ_RECEIPT_QUEUE,
+                        receipt
+                )
+        );
     }
 }

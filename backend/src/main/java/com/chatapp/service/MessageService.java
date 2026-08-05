@@ -5,16 +5,24 @@ import com.chatapp.dto.request.MessageReactionRequest;
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.request.SendRoomMessageRequest;
 import com.chatapp.dto.response.MessagePageResponse;
+import com.chatapp.dto.response.MessageSeenByResponse;
 import com.chatapp.dto.response.ReadReceiptResponse;
 import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.dto.response.UnreadCountResponse;
+import com.chatapp.dto.response.UserResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
+import com.chatapp.model.CallSession;
+import com.chatapp.model.CallSession.CallStatus;
+import com.chatapp.model.CallSession.CallType;
 import com.chatapp.model.ChatRoom;
+import com.chatapp.model.ChatRoomMember;
+import com.chatapp.model.ChatRoomReadState;
 import com.chatapp.model.Message;
 import com.chatapp.model.MessageReaction;
 import com.chatapp.model.Message.MessageType;
 import com.chatapp.model.User;
+import com.chatapp.repository.ChatRoomReadStateRepository;
 import com.chatapp.repository.MessageRepository;
 import com.chatapp.repository.MessageReactionRepository;
 import lombok.RequiredArgsConstructor;
@@ -24,9 +32,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -41,6 +52,7 @@ public class MessageService {
 
     private final MessageRepository messageRepository;
     private final MessageReactionRepository messageReactionRepository;
+    private final ChatRoomReadStateRepository chatRoomReadStateRepository;
     private final UserService userService;
     private final ChatRoomService chatRoomService;
     private final FriendshipService friendshipService;
@@ -341,6 +353,23 @@ public class MessageService {
     }
 
     @Transactional
+    public MessageResponse saveCallHistoryMessage(CallSession callSession, User actor) {
+        User receiver = callSession.getCaller().getId().equals(actor.getId())
+                ? callSession.getReceiver()
+                : callSession.getCaller();
+
+        Message message = new Message();
+        message.setSender(actor);
+        message.setReceiver(receiver);
+        message.setCallSession(callSession);
+        message.setType(MessageType.CALL);
+        message.setContent(formatCallHistoryContent(callSession));
+        message.setRead(false);
+
+        return MessageResponse.from(messageRepository.saveAndFlush(message));
+    }
+
+    @Transactional
     public MessageResponse reactToMessage(String currentUsername, Long messageId, MessageReactionRequest request) {
         User currentUser = userService.findByUsername(currentUsername);
         Message message = findAccessibleMessage(currentUser, messageId);
@@ -398,6 +427,36 @@ public class MessageService {
         User currentUser = userService.findByUsername(currentUsername);
         Message message = findAccessibleMessage(currentUser, messageId);
         return getParticipantUsernames(currentUsername, message);
+    }
+
+    @Transactional(readOnly = true)
+    public MessageSeenByResponse getRoomMessageSeenBy(String currentUsername, Long roomId, Long messageId) {
+        User currentUser = userService.findByUsername(currentUsername);
+        ChatRoom room = chatRoomService.findGroupRoomForMember(currentUser, roomId);
+        Message message = messageRepository.findRoomMessageById(room.getId(), messageId)
+                .orElseThrow(() -> new AppException(ErrorCode.MESSAGE_NOT_FOUND));
+
+        if (message.getTimestamp() == null) {
+            return new MessageSeenByResponse(message.getId(), room.getId(), List.of());
+        }
+
+        Map<Long, ChatRoomMember> membersByUserId = room.getMembers()
+                .stream()
+                .collect(Collectors.toMap(member -> member.getUser().getId(), member -> member));
+
+        List<UserResponse> seenBy = chatRoomReadStateRepository
+                .findByChatRoomIdAndLastReadAtGreaterThanEqualOrderByLastReadAtDesc(
+                        room.getId(),
+                        message.getTimestamp()
+                )
+                .stream()
+                .filter(readState -> !readState.getUser().getId().equals(message.getSender().getId()))
+                .map(readState -> membersByUserId.get(readState.getUser().getId()))
+                .filter(Objects::nonNull)
+                .map(UserResponse::from)
+                .toList();
+
+        return new MessageSeenByResponse(message.getId(), room.getId(), seenBy);
     }
 
     private MessageResponse saveMessage(
@@ -509,6 +568,10 @@ public class MessageService {
             return;
         }
 
+        if (type == MessageType.CALL) {
+            throw new AppException(ErrorCode.INVALID_MESSAGE_CONTENT);
+        }
+
         validateMediaPayload(type, media);
     }
 
@@ -552,6 +615,10 @@ public class MessageService {
             return;
         }
 
+        if (type == MessageType.CALL) {
+            return;
+        }
+
         if (media == null) {
             return;
         }
@@ -572,6 +639,49 @@ public class MessageService {
         }
 
         return linkPreviewService.resolveFirstPreview(content);
+    }
+
+    private String formatCallHistoryContent(CallSession callSession) {
+        String typeLabel = callSession.getType() == CallType.VIDEO ? "Video" : "Audio";
+        CallStatus status = callSession.getStatus();
+
+        return switch (status) {
+            case ENDED -> {
+                Long durationSeconds = callDurationSeconds(callSession);
+                yield durationSeconds == null || durationSeconds == 0
+                        ? typeLabel + " call ended"
+                        : typeLabel + " call ended · " + formatCallDuration(durationSeconds);
+            }
+            case MISSED -> "Missed " + typeLabel.toLowerCase() + " call";
+            case REJECTED -> typeLabel + " call declined";
+            case CANCELED -> typeLabel + " call canceled";
+            case BUSY -> typeLabel + " call not answered · Busy";
+            case RINGING, ACCEPTED -> typeLabel + " call";
+        };
+    }
+
+    private Long callDurationSeconds(CallSession callSession) {
+        if (callSession.getStartedAt() == null || callSession.getEndedAt() == null) {
+            return null;
+        }
+
+        return Math.max(Duration.between(callSession.getStartedAt(), callSession.getEndedAt()).getSeconds(), 0);
+    }
+
+    private String formatCallDuration(long totalSeconds) {
+        long hours = totalSeconds / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
+
+        if (hours > 0) {
+            return "%dh %02dm".formatted(hours, minutes);
+        }
+
+        if (minutes > 0) {
+            return "%dm %02ds".formatted(minutes, seconds);
+        }
+
+        return "%ds".formatted(seconds);
     }
 
     private void applyLinkPreview(Message message, LinkPreviewMetadata linkPreview) {

@@ -4,19 +4,23 @@ import { WS_BASE_URL } from '../config/constants';
 import { getValidAccessToken } from './api';
 import type {
   ChatRoom,
+  CallSignalEvent,
   ConnectionStatus,
   Friendship,
   Message,
   PresenceEvent,
   ReadReceiptEvent,
+  RoomReadReceiptEvent,
   TypingEvent,
 } from '../types';
 
 type MessageHandler = (message: Message) => void;
 type MessageUpdateHandler = (message: Message) => void;
+type CallSignalHandler = (event: CallSignalEvent) => void;
 type PresenceHandler = (presence: PresenceEvent) => void;
 type TypingHandler = (typing: TypingEvent) => void;
 type ReadReceiptHandler = (receipt: ReadReceiptEvent) => void;
+type RoomReadReceiptHandler = (receipt: RoomReadReceiptEvent) => void;
 type ConnectionStatusHandler = (status: ConnectionStatus) => void;
 type RoomHandler = (room: ChatRoom) => void;
 type FriendRequestHandler = (friendship: Friendship) => void;
@@ -30,9 +34,11 @@ export class WebSocketService {
   private status: ConnectionStatus = 'offline';
   private onMessageReceived: MessageHandler | null = null;
   private onMessageUpdateReceived: MessageUpdateHandler | null = null;
+  private onCallSignalReceived: CallSignalHandler | null = null;
   private onPresenceReceived: PresenceHandler | null = null;
   private onTypingReceived: TypingHandler | null = null;
   private onReadReceiptReceived: ReadReceiptHandler | null = null;
+  private onRoomReadReceiptReceived: RoomReadReceiptHandler | null = null;
   private onConnectionStatusChanged: ConnectionStatusHandler | null = null;
   private onRoomReceived: RoomHandler | null = null;
   private onFriendRequestReceived: FriendRequestHandler | null = null;
@@ -45,13 +51,17 @@ export class WebSocketService {
     onConnectionStatusChanged?: ConnectionStatusHandler,
     onRoomReceived?: RoomHandler,
     onFriendRequestReceived?: FriendRequestHandler,
-    onMessageUpdateReceived?: MessageUpdateHandler
+    onMessageUpdateReceived?: MessageUpdateHandler,
+    onRoomReadReceiptReceived?: RoomReadReceiptHandler,
+    onCallSignalReceived?: CallSignalHandler
   ): Promise<void> {
     this.onMessageReceived = onMessageReceived;
     this.onMessageUpdateReceived = onMessageUpdateReceived ?? null;
+    this.onCallSignalReceived = onCallSignalReceived ?? null;
     this.onPresenceReceived = onPresenceReceived ?? null;
     this.onTypingReceived = onTypingReceived ?? null;
     this.onReadReceiptReceived = onReadReceiptReceived ?? null;
+    this.onRoomReadReceiptReceived = onRoomReadReceiptReceived ?? null;
     this.onConnectionStatusChanged = onConnectionStatusChanged ?? null;
     this.onRoomReceived = onRoomReceived ?? null;
     this.onFriendRequestReceived = onFriendRequestReceived ?? null;
@@ -150,12 +160,20 @@ export class WebSocketService {
             this.handleIncomingReadReceipt(message.body);
           });
 
+          client.subscribe('/user/queue/room-read-receipts', (message) => {
+            this.handleIncomingRoomReadReceipt(message.body);
+          });
+
           client.subscribe('/user/queue/rooms', (message) => {
             this.handleIncomingRoom(message.body);
           });
 
           client.subscribe('/user/queue/friend-requests', (message) => {
             this.handleIncomingFriendRequest(message.body);
+          });
+
+          client.subscribe('/user/queue/calls', (message) => {
+            this.handleIncomingCallSignal(message.body);
           });
 
           resolve();
@@ -242,9 +260,11 @@ export class WebSocketService {
     this.updateStatus('offline');
     this.onMessageReceived = null;
     this.onMessageUpdateReceived = null;
+    this.onCallSignalReceived = null;
     this.onPresenceReceived = null;
     this.onTypingReceived = null;
     this.onReadReceiptReceived = null;
+    this.onRoomReadReceiptReceived = null;
     this.onConnectionStatusChanged = null;
     this.onRoomReceived = null;
     this.onFriendRequestReceived = null;
@@ -325,6 +345,15 @@ export class WebSocketService {
     }
   }
 
+  private handleIncomingRoomReadReceipt(body: string) {
+    try {
+      const receipt = JSON.parse(body) as RoomReadReceiptEvent;
+      this.onRoomReadReceiptReceived?.(receipt);
+    } catch (error) {
+      console.error('Failed to parse WebSocket room read receipt event:', error);
+    }
+  }
+
   private handleIncomingRoom(body: string) {
     try {
       const room = JSON.parse(body) as ChatRoom;
@@ -340,6 +369,15 @@ export class WebSocketService {
       this.onFriendRequestReceived?.(friendship);
     } catch (error) {
       console.error('Failed to parse WebSocket friend request event:', error);
+    }
+  }
+
+  private handleIncomingCallSignal(body: string) {
+    try {
+      const event = JSON.parse(body) as CallSignalEvent;
+      this.onCallSignalReceived?.(event);
+    } catch (error) {
+      console.error('Failed to parse WebSocket call signal event:', error);
     }
   }
 }

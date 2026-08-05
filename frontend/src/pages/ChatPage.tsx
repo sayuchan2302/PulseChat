@@ -1,7 +1,18 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ChangeEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { API_BASE_URL, ROUTES } from '../config/constants';
+import { API_BASE_URL, CALL_RINGING_TIMEOUT_MS, ROUTES, RTC_ICE_SERVERS } from '../config/constants';
 import type {
+  CallSignalEvent,
+  CallSignalPayload,
+  CallType,
   ChatRoom,
   CloudinaryUploadSignature,
   ConnectionStatus,
@@ -13,9 +24,11 @@ import type {
   Message,
   MessagePage,
   MessageReply,
+  MessageSeenByResponse,
   MessageType,
   PresenceEvent,
   ReadReceiptEvent,
+  RoomReadReceiptEvent,
   TypingEvent,
   UnreadCount,
   User,
@@ -28,6 +41,7 @@ const PRIVATE_MESSAGE_DESTINATION = '/app/chat.send';
 const GROUP_MESSAGE_DESTINATION_PREFIX = '/app/rooms';
 const TYPING_DESTINATION = '/app/chat.typing';
 const READ_RECEIPT_DESTINATION = '/app/chat.read';
+const CALL_SIGNAL_DESTINATION = '/app/calls.signal';
 const STOP_TYPING_DELAY_MS = 1500;
 const USER_SEARCH_DEBOUNCE_MS = 300;
 const REMOTE_TYPING_VISIBLE_MS = 2500;
@@ -43,6 +57,7 @@ const LOAD_OLDER_SCROLL_THRESHOLD = 80;
 const READ_BOTTOM_THRESHOLD = 96;
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 180;
 const BROWSER_NOTIFICATION_CLOSE_MS = 9000;
+const CALL_RECONNECT_TIMEOUT_MS = 10000;
 const MIN_GROUP_MEMBERS = 3;
 const MIN_GROUP_INVITED_MEMBERS = MIN_GROUP_MEMBERS - 1;
 const BIO_MAX_LENGTH = 160;
@@ -145,6 +160,16 @@ type DeliveryStatus = 'sending' | 'sent' | 'failed';
 type ChatMessage = Message & {
   deliveryStatus?: DeliveryStatus;
 };
+
+type ActiveCall = {
+  callId?: number;
+  type: CallType;
+  status: 'ringing' | 'connecting' | 'connected' | 'ending';
+  direction: 'incoming' | 'outgoing';
+  peer: User;
+};
+
+type CallConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'closed';
 
 type SendMessagePayload = {
   receiverId: number;
@@ -396,6 +421,106 @@ function InfoIcon({ className }: HeaderIconProps) {
       <circle cx="12" cy="12" r="10" />
       <path d="M12 16v-4" />
       <path d="M12 8h.01" />
+    </svg>
+  );
+}
+
+function PhoneIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.35 1.9.66 2.8a2 2 0 0 1-.45 2.11L8.09 9.86a16 16 0 0 0 6.05 6.05l1.23-1.23a2 2 0 0 1 2.11-.45c.9.31 1.84.53 2.8.66A2 2 0 0 1 22 16.92z" />
+    </svg>
+  );
+}
+
+function VideoCallIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M15 10 20 7v10l-5-3" />
+      <rect x="3" y="6" width="12" height="12" rx="2" />
+    </svg>
+  );
+}
+
+function MicIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <path d="M12 19v3" />
+    </svg>
+  );
+}
+
+function MicOffIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m2 2 20 20" />
+      <path d="M9 9v3a3 3 0 0 0 5.12 2.12" />
+      <path d="M15 9.34V5a3 3 0 0 0-5.63-1.44" />
+      <path d="M19 10v2a7 7 0 0 1-.74 3.13" />
+      <path d="M5 10v2a7 7 0 0 0 11.67 5.22" />
+      <path d="M12 19v3" />
+    </svg>
+  );
+}
+
+function VideoOffIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m2 2 20 20" />
+      <path d="M15 10 20 7v8.5" />
+      <path d="M11.65 6H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 1.73-1" />
     </svg>
   );
 }
@@ -960,6 +1085,14 @@ function applyReadReceipt(messages: ChatMessage[], receipt: ReadReceiptEvent) {
   );
 }
 
+function appendSeenByUser(users: User[], nextUser: User) {
+  if (users.some((user) => user.id === nextUser.id)) {
+    return users;
+  }
+
+  return [...users, nextUser];
+}
+
 function isMessagesContainerNearBottom(container: HTMLElement | null, threshold = READ_BOTTOM_THRESHOLD) {
   if (!container) {
     return false;
@@ -1078,6 +1211,10 @@ function isMediaMessage(message: Message) {
   return type === 'IMAGE' || type === 'VIDEO';
 }
 
+function isCallMessage(message: Message) {
+  return getMessageType(message) === 'CALL';
+}
+
 function getMessagePreviewContent(message: Message) {
   if (message.recalled) {
     return 'Message recalled';
@@ -1094,6 +1231,10 @@ function getMessagePreviewContent(message: Message) {
 
   if (getMessageType(message) === 'VIDEO') {
     return 'Video';
+  }
+
+  if (isCallMessage(message)) {
+    return 'Call';
   }
 
   return '';
@@ -1415,7 +1556,7 @@ function hasCurrentUserReaction(message: ChatMessage, currentUserId: number | nu
 }
 
 function canUseMessageActions(message: ChatMessage) {
-  return message.id > 0 && message.deliveryStatus !== 'failed' && !message.recalled;
+  return message.id > 0 && message.deliveryStatus !== 'failed' && !message.recalled && !isCallMessage(message);
 }
 
 function getBrowserAwareConnectionStatus(status: ConnectionStatus): ConnectionStatus {
@@ -1428,6 +1569,26 @@ function getBrowserAwareConnectionStatus(status: ConnectionStatus): ConnectionSt
 
 function isBrowserNotificationSupported() {
   return typeof window !== 'undefined' && 'Notification' in window;
+}
+
+function getCallMediaErrorMessage(error: unknown, callType: CallType) {
+  if (error instanceof DOMException) {
+    if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
+      return callType === 'VIDEO'
+        ? 'Allow microphone and camera access to start the video call.'
+        : 'Allow microphone access to start the audio call.';
+    }
+
+    if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+      return callType === 'VIDEO'
+        ? 'No microphone or camera was found for this video call.'
+        : 'No microphone was found for this audio call.';
+    }
+  }
+
+  return callType === 'VIDEO'
+    ? 'Unable to access microphone or camera.'
+    : 'Unable to access microphone.';
 }
 
 function getBrowserNotificationPermission(): NotificationPermission {
@@ -2252,8 +2413,84 @@ function formatMessageTime(timestamp: string) {
   }).format(date);
 }
 
+function formatCallDurationLabel(totalSeconds?: number | null) {
+  if (!totalSeconds || totalSeconds <= 0) {
+    return '';
+  }
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, '0')}m`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+  }
+
+  return `${seconds}s`;
+}
+
+function formatCallTimer(totalSeconds: number) {
+  const safeSeconds = Math.max(totalSeconds, 0);
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function getMediaDeviceLabel(device: MediaDeviceInfo, index: number) {
+  if (device.label) {
+    return device.label;
+  }
+
+  return `${device.kind === 'audioinput' ? 'Microphone' : 'Camera'} ${index + 1}`;
+}
+
+function getCallEventLabel(message: Message) {
+  const content = message.content?.trim();
+  if (content) {
+    return content;
+  }
+
+  const typeLabel = message.callType === 'VIDEO' ? 'Video' : 'Audio';
+  if (message.callStatus === 'ENDED') {
+    const duration = formatCallDurationLabel(message.callDurationSeconds);
+    return duration ? `${typeLabel} call ended · ${duration}` : `${typeLabel} call ended`;
+  }
+
+  if (message.callStatus === 'MISSED') {
+    return `Missed ${typeLabel.toLowerCase()} call`;
+  }
+
+  if (message.callStatus === 'REJECTED') {
+    return `${typeLabel} call declined`;
+  }
+
+  if (message.callStatus === 'CANCELED') {
+    return `${typeLabel} call canceled`;
+  }
+
+  if (message.callStatus === 'BUSY') {
+    return `${typeLabel} call not answered · Busy`;
+  }
+
+  return `${typeLabel} call`;
+}
+
 function shouldGroupAdjacentMessages(firstMessage: ChatMessage | undefined, secondMessage: ChatMessage | undefined) {
   if (!firstMessage || !secondMessage || firstMessage.senderId !== secondMessage.senderId) {
+    return false;
+  }
+
+  if (isCallMessage(firstMessage) || isCallMessage(secondMessage)) {
     return false;
   }
 
@@ -2397,6 +2634,23 @@ export default function ChatPage() {
   const [sharedLinksHasMore, setSharedLinksHasMore] = useState(false);
   const [sharedMediaNextBefore, setSharedMediaNextBefore] = useState<number | null>(null);
   const [sharedLinksNextBefore, setSharedLinksNextBefore] = useState<number | null>(null);
+  const [roomSeenByByMessageId, setRoomSeenByByMessageId] = useState<Record<number, User[]>>({});
+  const [seenByLoadingMessageIds, setSeenByLoadingMessageIds] = useState<number[]>([]);
+  const [seenByPopupMessageId, setSeenByPopupMessageId] = useState<number | null>(null);
+  const [activeCall, setActiveCallState] = useState<ActiveCall | null>(null);
+  const [callError, setCallError] = useState('');
+  const [localCallStream, setLocalCallStream] = useState<MediaStream | null>(null);
+  const [remoteCallStream, setRemoteCallStream] = useState<MediaStream | null>(null);
+  const [micMuted, setMicMuted] = useState(false);
+  const [cameraOff, setCameraOff] = useState(false);
+  const [callConnectionState, setCallConnectionState] = useState<CallConnectionState>('idle');
+  const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
+  const [callElapsedSeconds, setCallElapsedSeconds] = useState(0);
+  const [callDevices, setCallDevices] = useState<MediaDeviceInfo[]>([]);
+  const [callDevicesLoading, setCallDevicesLoading] = useState(false);
+  const [callDeviceError, setCallDeviceError] = useState('');
+  const [selectedAudioInputId, setSelectedAudioInputId] = useState('');
+  const [selectedVideoInputId, setSelectedVideoInputId] = useState('');
   const [profileFullName, setProfileFullName] = useState('');
   const [profileBio, setProfileBio] = useState('');
   const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null);
@@ -2426,6 +2680,16 @@ export default function ChatPage() {
   );
   const browserNotificationPermissionRequestRef = useRef<Promise<NotificationPermission> | null>(null);
   const notificationAudioContextRef = useRef<AudioContext | null>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const roomSeenByLoadedMessageIdsRef = useRef<Set<number>>(new Set());
+  const activeCallRef = useRef<ActiveCall | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localCallStreamRef = useRef<MediaStream | null>(null);
+  const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const incomingCallRingtoneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteTypingTimeoutsRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const sendTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -2482,6 +2746,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     currentUserRef.current = currentUser;
+    currentUserIdRef.current = currentUser?.id ?? null;
   }, [currentUser]);
 
   useEffect(() => {
@@ -2495,6 +2760,33 @@ export default function ChatPage() {
   useEffect(() => {
     roomsRef.current = rooms;
   }, [rooms]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
+
+  useEffect(() => {
+    localCallStreamRef.current = localCallStream;
+  }, [localCallStream]);
+
+  useEffect(() => {
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = remoteCallStream;
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = remoteCallStream;
+    }
+  }, [remoteCallStream]);
+
+  useEffect(() => {
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = localCallStream;
+    }
+  }, [localCallStream]);
 
   useEffect(() => {
     browserNotificationPermissionRef.current = browserNotificationPermission;
@@ -2729,6 +3021,53 @@ export default function ChatPage() {
     });
   }, [resumeNotificationAudio]);
 
+  const playCallRingtonePulse = useCallback(async () => {
+    const audioContext = await resumeNotificationAudio();
+    if (!audioContext) {
+      return;
+    }
+
+    const startAt = audioContext.currentTime;
+    const masterGain = audioContext.createGain();
+    masterGain.gain.setValueAtTime(0.0001, startAt);
+    masterGain.gain.exponentialRampToValueAtTime(0.055, startAt + 0.02);
+    masterGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.9);
+    masterGain.connect(audioContext.destination);
+
+    [
+      { frequency: 523.25, delay: 0, duration: 0.28 },
+      { frequency: 659.25, delay: 0.2, duration: 0.34 },
+      { frequency: 783.99, delay: 0.46, duration: 0.3 },
+    ].forEach((note) => {
+      const oscillator = audioContext.createOscillator();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(note.frequency, startAt + note.delay);
+      oscillator.connect(masterGain);
+      oscillator.start(startAt + note.delay);
+      oscillator.stop(startAt + note.delay + note.duration);
+    });
+  }, [resumeNotificationAudio]);
+
+  const startIncomingCallRingtone = useCallback(() => {
+    if (incomingCallRingtoneIntervalRef.current) {
+      return;
+    }
+
+    void playCallRingtonePulse();
+    incomingCallRingtoneIntervalRef.current = window.setInterval(() => {
+      void playCallRingtonePulse();
+    }, 1450);
+  }, [playCallRingtonePulse]);
+
+  const stopIncomingCallRingtone = useCallback(() => {
+    if (!incomingCallRingtoneIntervalRef.current) {
+      return;
+    }
+
+    window.clearInterval(incomingCallRingtoneIntervalRef.current);
+    incomingCallRingtoneIntervalRef.current = null;
+  }, []);
+
   const requestBrowserNotificationPermission = useCallback(async () => {
     if (!isBrowserNotificationSupported()) {
       setBrowserNotificationPermission('denied');
@@ -2912,9 +3251,10 @@ export default function ChatPage() {
   }, [currentUser?.id, requestBrowserNotificationPermission]);
 
   useEffect(() => () => {
+    stopIncomingCallRingtone();
     void notificationAudioContextRef.current?.close();
     notificationAudioContextRef.current = null;
-  }, []);
+  }, [stopIncomingCallRingtone]);
 
   const resetMessagePagination = useCallback(() => {
     olderMessagesLoadingRef.current = false;
@@ -3288,6 +3628,70 @@ export default function ChatPage() {
     }
   }, [applyMessagePagination, applyPendingUnreadDivider, resetMessagePagination]);
 
+  const loadRoomMessageSeenBy = useCallback(async (roomId: number, messageId: number) => {
+    if (messageId <= 0 || roomSeenByLoadedMessageIdsRef.current.has(messageId)) {
+      return;
+    }
+
+    roomSeenByLoadedMessageIdsRef.current.add(messageId);
+    setSeenByLoadingMessageIds((currentIds) =>
+      currentIds.includes(messageId) ? currentIds : [...currentIds, messageId]
+    );
+
+    try {
+      const response = await apiClient.get<MessageSeenByResponse>(
+        `/rooms/${roomId}/messages/${messageId}/seen-by`
+      );
+      if (selectedRoomIdRef.current !== roomId) {
+        return;
+      }
+
+      const currentUserId = currentUserIdRef.current;
+      const seenBy = response.data.seenBy.filter((reader) => reader.id !== currentUserId);
+      setRoomSeenByByMessageId((currentSeenBy) => ({
+        ...currentSeenBy,
+        [messageId]: seenBy.reduce(
+          (readers, reader) => appendSeenByUser(readers, reader),
+          currentSeenBy[messageId] ?? []
+        ),
+      }));
+    } catch (error) {
+      console.error('Failed to load group message seen-by:', error);
+      roomSeenByLoadedMessageIdsRef.current.delete(messageId);
+    } finally {
+      setSeenByLoadingMessageIds((currentIds) =>
+        currentIds.filter((currentId) => currentId !== messageId)
+      );
+    }
+  }, []);
+
+  const visibleSentRoomMessageIds = useMemo(() => {
+    if (!selectedRoom || !currentUser) {
+      return [];
+    }
+
+    return messages
+      .filter((message) =>
+        message.id > 0 &&
+        message.chatRoomId === selectedRoom.id &&
+        message.senderId === currentUser.id &&
+        !message.recalled &&
+        message.deliveryStatus !== 'failed'
+      )
+      .slice(-12)
+      .map((message) => message.id);
+  }, [currentUser, messages, selectedRoom]);
+
+  useEffect(() => {
+    if (!selectedRoom) {
+      return;
+    }
+
+    visibleSentRoomMessageIds.forEach((messageId) => {
+      void loadRoomMessageSeenBy(selectedRoom.id, messageId);
+    });
+  }, [loadRoomMessageSeenBy, selectedRoom, visibleSentRoomMessageIds]);
+
   const loadOlderMessages = useCallback(async () => {
     if (
       olderMessagesLoadingRef.current ||
@@ -3532,6 +3936,13 @@ export default function ChatPage() {
   useEffect(() => {
     resetSharedContentState();
   }, [resetSharedContentState, selectedRoomId, selectedUserId]);
+
+  useEffect(() => {
+    roomSeenByLoadedMessageIdsRef.current.clear();
+    setRoomSeenByByMessageId({});
+    setSeenByLoadingMessageIds([]);
+    setSeenByPopupMessageId(null);
+  }, [selectedRoomId, selectedUserId]);
 
   useEffect(() => {
     clearMessageJumpEffects();
@@ -3953,6 +4364,57 @@ export default function ChatPage() {
     }
   }, []);
 
+  const applyRoomReadReceipt = useCallback((receipt: RoomReadReceiptEvent) => {
+    const currentUserId = currentUserIdRef.current;
+    if (
+      currentUserId === null ||
+      receipt.readerId === currentUserId ||
+      receipt.roomId !== selectedRoomIdRef.current
+    ) {
+      return;
+    }
+
+    const reader = findKnownUserById(receipt.readerId);
+    const readAt = Date.parse(receipt.readAt);
+    if (!reader || Number.isNaN(readAt)) {
+      return;
+    }
+
+    const readSentMessageIds = messagesRef.current
+      .filter((message) => {
+        const messageTimestamp = Date.parse(message.timestamp);
+        return (
+          message.id > 0 &&
+          message.chatRoomId === receipt.roomId &&
+          message.senderId === currentUserId &&
+          !message.recalled &&
+          !Number.isNaN(messageTimestamp) &&
+          messageTimestamp <= readAt
+        );
+      })
+      .map((message) => message.id);
+
+    if (readSentMessageIds.length === 0) {
+      return;
+    }
+
+    setRoomSeenByByMessageId((currentSeenBy) => {
+      let changed = false;
+      const nextSeenBy = { ...currentSeenBy };
+
+      readSentMessageIds.forEach((messageId) => {
+        const currentReaders = nextSeenBy[messageId] ?? [];
+        const nextReaders = appendSeenByUser(currentReaders, reader);
+        if (nextReaders !== currentReaders) {
+          nextSeenBy[messageId] = nextReaders;
+          changed = true;
+        }
+      });
+
+      return changed ? nextSeenBy : currentSeenBy;
+    });
+  }, [findKnownUserById]);
+
   const flushPendingReadConversation = useCallback(() => {
     const pendingConversation = pendingReadConversationRef.current;
     if (!pendingConversation) {
@@ -4009,6 +4471,21 @@ export default function ChatPage() {
   const applyMessageUpdate = useCallback((updatedMessage: Message) => {
     setMessages((currentMessages) => mergeKnownMessageUpdate(currentMessages, updatedMessage));
     updateSharedContentFromMessage(updatedMessage);
+    if (updatedMessage.recalled && updatedMessage.chatRoomId) {
+      roomSeenByLoadedMessageIdsRef.current.delete(updatedMessage.id);
+      setRoomSeenByByMessageId((currentSeenBy) => {
+        if (!currentSeenBy[updatedMessage.id]) {
+          return currentSeenBy;
+        }
+
+        const nextSeenBy = { ...currentSeenBy };
+        delete nextSeenBy[updatedMessage.id];
+        return nextSeenBy;
+      });
+      setSeenByPopupMessageId((currentMessageId) =>
+        currentMessageId === updatedMessage.id ? null : currentMessageId
+      );
+    }
     setReplyingToMessage((currentReplyingMessage) =>
       currentReplyingMessage?.id === updatedMessage.id
         ? { ...currentReplyingMessage, ...toDeliveredMessage(updatedMessage) }
@@ -4081,6 +4558,646 @@ export default function ChatPage() {
       );
     }
   }, []);
+
+  const sendCallSignal = useCallback((payload: CallSignalPayload) => {
+    const sent = wsService.sendMessage(CALL_SIGNAL_DESTINATION, payload);
+    if (!sent) {
+      setCallError('Call connection is not ready.');
+    }
+
+    return sent;
+  }, []);
+
+  const loadCallDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      return;
+    }
+
+    setCallDevicesLoading(true);
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setCallDevices(devices.filter((device) =>
+        device.kind === 'audioinput' || device.kind === 'videoinput'
+      ));
+      setCallDeviceError('');
+    } catch (error) {
+      console.error('Failed to load call devices:', error);
+      setCallDeviceError('Unable to load microphone or camera list.');
+    } finally {
+      setCallDevicesLoading(false);
+    }
+  }, []);
+
+  const applySelectedDeviceIdsFromStream = useCallback((stream: MediaStream) => {
+    const audioDeviceId = stream.getAudioTracks()[0]?.getSettings().deviceId;
+    const videoDeviceId = stream.getVideoTracks()[0]?.getSettings().deviceId;
+
+    if (audioDeviceId) {
+      setSelectedAudioInputId(audioDeviceId);
+    }
+
+    if (videoDeviceId) {
+      setSelectedVideoInputId(videoDeviceId);
+    }
+  }, []);
+
+  const getLocalCallMedia = useCallback((call: ActiveCall) => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('Browser does not support media calls.');
+    }
+
+    return navigator.mediaDevices.getUserMedia({
+      audio: selectedAudioInputId
+        ? { deviceId: { exact: selectedAudioInputId } }
+        : true,
+      video: call.type === 'VIDEO'
+        ? selectedVideoInputId
+          ? { deviceId: { exact: selectedVideoInputId } }
+          : true
+        : false,
+    });
+  }, [selectedAudioInputId, selectedVideoInputId]);
+
+  const stopCallMedia = useCallback(() => {
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.onicecandidate = null;
+      peerConnectionRef.current.ontrack = null;
+      peerConnectionRef.current.onconnectionstatechange = null;
+      peerConnectionRef.current.close();
+    }
+    peerConnectionRef.current = null;
+    pendingIceCandidatesRef.current = [];
+
+    localCallStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localCallStreamRef.current = null;
+    setLocalCallStream(null);
+    setRemoteCallStream(null);
+    setMicMuted(false);
+    setCameraOff(false);
+    setCallConnectionState('idle');
+    setCallStartedAt(null);
+    setCallElapsedSeconds(0);
+    setCallDeviceError('');
+    stopIncomingCallRingtone();
+  }, [stopIncomingCallRingtone]);
+
+  const finishCall = useCallback((message = '') => {
+    stopCallMedia();
+    setActiveCallState((currentCall) =>
+      currentCall ? { ...currentCall, status: 'ending' } : currentCall
+    );
+    if (message) {
+      setCallError(message);
+    }
+
+    window.setTimeout(() => {
+      setActiveCallState(null);
+      setCallError('');
+    }, 1500);
+  }, [stopCallMedia]);
+
+  useEffect(() => {
+    if (activeCall?.direction === 'incoming' && activeCall.status === 'ringing') {
+      startIncomingCallRingtone();
+      return stopIncomingCallRingtone;
+    }
+
+    stopIncomingCallRingtone();
+    return undefined;
+  }, [
+    activeCall,
+    startIncomingCallRingtone,
+    stopIncomingCallRingtone,
+  ]);
+
+  useEffect(() => {
+    if (!activeCall) {
+      return;
+    }
+
+    void loadCallDevices();
+  }, [activeCall, loadCallDevices]);
+
+  useEffect(() => {
+    if (!activeCall || activeCall.status !== 'connected' || callStartedAt === null) {
+      setCallElapsedSeconds(0);
+      return undefined;
+    }
+
+    const updateElapsedSeconds = () => {
+      setCallElapsedSeconds(Math.floor((Date.now() - callStartedAt) / 1000));
+    };
+
+    updateElapsedSeconds();
+    const intervalId = window.setInterval(updateElapsedSeconds, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [activeCall, callStartedAt]);
+
+  useEffect(() => {
+    if (
+      !activeCall ||
+      !['reconnecting', 'failed'].includes(callConnectionState) ||
+      activeCall.status === 'ending'
+    ) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const currentCall = activeCallRef.current;
+      if (!currentCall || currentCall.status === 'ending') {
+        return;
+      }
+
+      if (peerConnectionRef.current?.connectionState === 'connected') {
+        setCallConnectionState('connected');
+        setCallError('');
+        return;
+      }
+
+      if (currentCall.callId) {
+        sendCallSignal({
+          eventType: 'CALL_END',
+          callId: currentCall.callId,
+        });
+      }
+
+      finishCall('Call connection lost.');
+    }, CALL_RECONNECT_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [activeCall, callConnectionState, finishCall, sendCallSignal]);
+
+  useEffect(() => {
+    if (!activeCall || activeCall.status !== 'ringing') {
+      return undefined;
+    }
+
+    const callId = activeCall.callId;
+    const timeoutId = window.setTimeout(() => {
+      const currentCall = activeCallRef.current;
+      if (
+        currentCall?.status !== 'ringing' ||
+        (callId !== undefined && currentCall.callId !== callId)
+      ) {
+        return;
+      }
+
+      finishCall(currentCall.direction === 'incoming' ? 'Missed call.' : 'No answer.');
+    }, CALL_RINGING_TIMEOUT_MS + 12_000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [activeCall, finishCall]);
+
+  const getCurrentCallRole = useCallback((event: CallSignalEvent) => {
+    if (event.recipientRole === 'CALLER') {
+      return 'caller' as const;
+    }
+
+    if (event.recipientRole === 'RECEIVER') {
+      return 'receiver' as const;
+    }
+
+    const currentAccount = currentUserRef.current;
+    if (currentAccount) {
+      if (
+        event.caller.id === currentAccount.id ||
+        event.caller.username === currentAccount.username
+      ) {
+        return 'caller' as const;
+      }
+
+      if (
+        event.receiver.id === currentAccount.id ||
+        event.receiver.username === currentAccount.username
+      ) {
+        return 'receiver' as const;
+      }
+
+      return null;
+    }
+
+    const currentUserId = currentUserIdRef.current;
+    if (currentUserId === null) {
+      return null;
+    }
+
+    if (event.caller.id === currentUserId) {
+      return 'caller' as const;
+    }
+
+    if (event.receiver.id === currentUserId) {
+      return 'receiver' as const;
+    }
+
+    return null;
+  }, []);
+
+  const isCallSignalFromCurrentUser = useCallback((event: CallSignalEvent) => {
+    if (event.recipientRole === 'CALLER') {
+      return (
+        event.fromUser.id === event.caller.id ||
+        event.fromUser.username === event.caller.username
+      );
+    }
+
+    if (event.recipientRole === 'RECEIVER') {
+      return (
+        event.fromUser.id === event.receiver.id ||
+        event.fromUser.username === event.receiver.username
+      );
+    }
+
+    const currentAccount = currentUserRef.current;
+    if (currentAccount) {
+      return (
+        event.fromUser.id === currentAccount.id ||
+        event.fromUser.username === currentAccount.username
+      );
+    }
+
+    return currentUserIdRef.current !== null && event.fromUser.id === currentUserIdRef.current;
+  }, []);
+
+  const getCallPeer = useCallback((event: CallSignalEvent) => {
+    const role = getCurrentCallRole(event);
+    if (!role) {
+      return null;
+    }
+
+    return role === 'caller' ? event.receiver : event.caller;
+  }, [getCurrentCallRole]);
+
+  const buildCallFromSignal = useCallback((
+    event: CallSignalEvent,
+    status: ActiveCall['status']
+  ): ActiveCall | null => {
+    const role = getCurrentCallRole(event);
+    const peer = getCallPeer(event);
+    if (!peer || !role) {
+      return null;
+    }
+
+    return {
+      callId: event.callId,
+      type: event.callType,
+      status,
+      direction: role === 'caller' ? 'outgoing' : 'incoming',
+      peer,
+    };
+  }, [getCallPeer, getCurrentCallRole]);
+
+  const flushPendingIceCandidates = useCallback(async (peerConnection: RTCPeerConnection) => {
+    const candidates = pendingIceCandidatesRef.current;
+    pendingIceCandidatesRef.current = [];
+
+    for (const candidate of candidates) {
+      try {
+        await peerConnection.addIceCandidate(candidate);
+      } catch (error) {
+        console.error('Failed to apply queued ICE candidate:', error);
+      }
+    }
+  }, []);
+
+  const createPeerConnection = useCallback(async (
+    call: ActiveCall,
+    initiator: boolean
+  ) => {
+    if (peerConnectionRef.current) {
+      return peerConnectionRef.current;
+    }
+
+    const localStream = await getLocalCallMedia(call);
+    localCallStreamRef.current = localStream;
+    setLocalCallStream(localStream);
+    applySelectedDeviceIdsFromStream(localStream);
+    void loadCallDevices();
+
+    const peerConnection = new RTCPeerConnection({
+      iceServers: RTC_ICE_SERVERS,
+    });
+    peerConnectionRef.current = peerConnection;
+    setCallConnectionState('connecting');
+
+    localStream.getTracks().forEach((track) => {
+      peerConnection.addTrack(track, localStream);
+    });
+
+    peerConnection.onicecandidate = (event) => {
+      const currentCall = activeCallRef.current;
+      if (!event.candidate || !currentCall?.callId) {
+        return;
+      }
+
+      sendCallSignal({
+        eventType: 'ICE_CANDIDATE',
+        callId: currentCall.callId,
+        candidate: event.candidate.candidate,
+        sdpMid: event.candidate.sdpMid,
+        sdpMLineIndex: event.candidate.sdpMLineIndex,
+      });
+    };
+
+    peerConnection.ontrack = (event) => {
+      const [remoteStream] = event.streams;
+      if (remoteStream) {
+        setRemoteCallStream(remoteStream);
+      }
+    };
+
+    peerConnection.onconnectionstatechange = () => {
+      if (peerConnection.connectionState === 'connected') {
+        setCallConnectionState('connected');
+        setCallStartedAt((currentStartedAt) => currentStartedAt ?? Date.now());
+        setActiveCallState((currentCall) =>
+          currentCall ? { ...currentCall, status: 'connected' } : currentCall
+        );
+        setCallError('');
+        return;
+      }
+
+      if (peerConnection.connectionState === 'connecting') {
+        setCallConnectionState('connecting');
+        return;
+      }
+
+      if (peerConnection.connectionState === 'disconnected') {
+        setCallConnectionState('reconnecting');
+        setCallError('Trying to reconnect the call.');
+        return;
+      }
+
+      if (peerConnection.connectionState === 'failed') {
+        setCallConnectionState('failed');
+        setCallError('Call connection failed.');
+        return;
+      }
+
+      if (peerConnection.connectionState === 'closed') {
+        setCallConnectionState('closed');
+      }
+    };
+
+    if (initiator && call.callId) {
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      sendCallSignal({
+        eventType: 'WEBRTC_OFFER',
+        callId: call.callId,
+        sdp: offer.sdp,
+      });
+    }
+
+    return peerConnection;
+  }, [applySelectedDeviceIdsFromStream, getLocalCallMedia, loadCallDevices, sendCallSignal]);
+
+  const startPeerConnection = useCallback(async (call: ActiveCall, initiator: boolean) => {
+    try {
+      await createPeerConnection(call, initiator);
+    } catch (error) {
+      console.error('Failed to start call media:', error);
+      const message = getCallMediaErrorMessage(error, call.type);
+      setCallError(message);
+      if (call.callId) {
+        sendCallSignal({
+          eventType: 'CALL_END',
+          callId: call.callId,
+        });
+      }
+      finishCall(message);
+    }
+  }, [createPeerConnection, finishCall, sendCallSignal]);
+
+  const handleWebRtcOffer = useCallback(async (event: CallSignalEvent) => {
+    if (!event.sdp || isCallSignalFromCurrentUser(event)) {
+      return;
+    }
+
+    const call = activeCallRef.current ?? buildCallFromSignal(event, 'connecting');
+    if (!call) {
+      return;
+    }
+
+    setActiveCallState({ ...call, status: 'connecting' });
+
+    try {
+      const peerConnection = await createPeerConnection(call, false);
+      await peerConnection.setRemoteDescription({ type: 'offer', sdp: event.sdp });
+      await flushPendingIceCandidates(peerConnection);
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      sendCallSignal({
+        eventType: 'WEBRTC_ANSWER',
+        callId: event.callId,
+        sdp: answer.sdp,
+      });
+    } catch (error) {
+      console.error('Failed to handle WebRTC offer:', error);
+      setCallError('Unable to connect the call.');
+      sendCallSignal({
+        eventType: 'CALL_END',
+        callId: event.callId,
+      });
+      finishCall('Unable to connect the call.');
+    }
+  }, [
+    buildCallFromSignal,
+    createPeerConnection,
+    finishCall,
+    flushPendingIceCandidates,
+    isCallSignalFromCurrentUser,
+    sendCallSignal,
+  ]);
+
+  const handleWebRtcAnswer = useCallback(async (event: CallSignalEvent) => {
+    if (!event.sdp || isCallSignalFromCurrentUser(event)) {
+      return;
+    }
+
+    const peerConnection = peerConnectionRef.current;
+    if (!peerConnection) {
+      return;
+    }
+
+    try {
+      await peerConnection.setRemoteDescription({ type: 'answer', sdp: event.sdp });
+      await flushPendingIceCandidates(peerConnection);
+    } catch (error) {
+      console.error('Failed to handle WebRTC answer:', error);
+      setCallError('Unable to complete the call connection.');
+    }
+  }, [flushPendingIceCandidates, isCallSignalFromCurrentUser]);
+
+  const handleIceCandidate = useCallback(async (event: CallSignalEvent) => {
+    if (!event.candidate || isCallSignalFromCurrentUser(event)) {
+      return;
+    }
+
+    const candidate: RTCIceCandidateInit = {
+      candidate: event.candidate,
+      sdpMid: event.sdpMid ?? undefined,
+      sdpMLineIndex: event.sdpMLineIndex ?? undefined,
+    };
+    const peerConnection = peerConnectionRef.current;
+    if (!peerConnection || !peerConnection.remoteDescription) {
+      pendingIceCandidatesRef.current.push(candidate);
+      return;
+    }
+
+    try {
+      await peerConnection.addIceCandidate(candidate);
+    } catch (error) {
+      console.error('Failed to add ICE candidate:', error);
+    }
+  }, [isCallSignalFromCurrentUser]);
+
+  const handleCallSignal = useCallback((event: CallSignalEvent) => {
+    const currentRole = getCurrentCallRole(event);
+    if (!currentRole) {
+      return;
+    }
+
+    const isFromCurrentUser = isCallSignalFromCurrentUser(event);
+    const nextCall = buildCallFromSignal(event, 'ringing');
+    if (!nextCall) {
+      return;
+    }
+
+    if (event.eventType === 'CALL_INVITE') {
+      if (currentRole === 'caller') {
+        setActiveCallState(nextCall);
+        setCallError('');
+        return;
+      }
+
+      const currentCall = activeCallRef.current;
+      if (currentCall && currentCall.callId !== event.callId) {
+        sendCallSignal({
+          eventType: 'CALL_REJECT',
+          callId: event.callId,
+        });
+        return;
+      }
+
+      setActiveCallState(nextCall);
+      setCallError('');
+      notifyWithBrowserNotification({
+        title: event.callType === 'VIDEO' ? 'Incoming video call' : 'Incoming audio call',
+        body: `${getUserDisplayName(event.caller)} is calling you.`,
+        path: getUserChatRoute(event.caller.username),
+        user: event.caller,
+        browserTag: `call-${event.callId}`,
+      });
+      return;
+    }
+
+    if (
+      activeCallRef.current?.callId !== event.callId &&
+      !['WEBRTC_OFFER', 'WEBRTC_ANSWER', 'ICE_CANDIDATE'].includes(event.eventType)
+    ) {
+      setActiveCallState(nextCall);
+    }
+
+    if (event.eventType === 'CALL_ACCEPT') {
+      const connectingCall = { ...nextCall, status: 'connecting' as const };
+      setActiveCallState(connectingCall);
+      if (currentRole === 'receiver') {
+        void startPeerConnection(connectingCall, false);
+      } else if (!isFromCurrentUser && currentRole === 'caller') {
+        void startPeerConnection(connectingCall, true);
+      }
+      return;
+    }
+
+    if (event.eventType === 'CALL_REJECT') {
+      finishCall('Call declined.');
+      return;
+    }
+
+    if (event.eventType === 'CALL_BUSY') {
+      finishCall('User is busy.');
+      return;
+    }
+
+    if (event.eventType === 'CALL_MISSED') {
+      finishCall('Missed call.');
+      return;
+    }
+
+    if (event.eventType === 'CALL_CANCEL') {
+      finishCall('Call canceled.');
+      return;
+    }
+
+    if (event.eventType === 'CALL_END') {
+      finishCall('Call ended.');
+      return;
+    }
+
+    if (event.eventType === 'WEBRTC_OFFER') {
+      void handleWebRtcOffer(event);
+      return;
+    }
+
+    if (event.eventType === 'WEBRTC_ANSWER') {
+      void handleWebRtcAnswer(event);
+      return;
+    }
+
+    if (event.eventType === 'ICE_CANDIDATE') {
+      void handleIceCandidate(event);
+    }
+  }, [
+    buildCallFromSignal,
+    finishCall,
+    getCurrentCallRole,
+    handleIceCandidate,
+    handleWebRtcAnswer,
+    handleWebRtcOffer,
+    isCallSignalFromCurrentUser,
+    notifyWithBrowserNotification,
+    sendCallSignal,
+    startPeerConnection,
+  ]);
+
+  const sendActiveCallCloseSignal = useCallback(() => {
+    const currentCall = activeCallRef.current;
+    if (!currentCall?.callId) {
+      return;
+    }
+
+    if (currentCall.status === 'ringing' && currentCall.direction !== 'outgoing') {
+      return;
+    }
+
+    const eventType =
+      currentCall.status === 'ringing' && currentCall.direction === 'outgoing'
+        ? 'CALL_CANCEL'
+        : 'CALL_END';
+
+    wsService.sendMessage(CALL_SIGNAL_DESTINATION, {
+      eventType,
+      callId: currentCall.callId,
+    });
+  }, []);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      sendActiveCallCloseSignal();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [sendActiveCallCloseSignal]);
 
   useEffect(() => {
     if (!currentUser?.id) {
@@ -4380,6 +5497,20 @@ export default function ChatPage() {
           }
 
           applyMessageUpdate(updatedMessage);
+        },
+        (roomReadReceipt) => {
+          if (!active) {
+            return;
+          }
+
+          applyRoomReadReceipt(roomReadReceipt);
+        },
+        (callSignal) => {
+          if (!active) {
+            return;
+          }
+
+          handleCallSignal(callSignal);
         }
       )
       .catch((error) => {
@@ -4392,6 +5523,8 @@ export default function ChatPage() {
       clearTypingTimeout();
       clearRemoteTypingTimeout();
       clearOptimisticSendTimeouts();
+      sendActiveCallCloseSignal();
+      stopCallMedia();
       wsService.disconnect();
     };
   }, [
@@ -4402,10 +5535,12 @@ export default function ChatPage() {
     addIncomingSharedContent,
     addPendingUnreadMessage,
     applyMessageUpdate,
+    applyRoomReadReceipt,
     applyRoomMembershipUpdate,
     buildFriendshipNotification,
     buildMessageNotification,
     currentUser?.id,
+    handleCallSignal,
     hideRemoteTyping,
     loadFriendSummary,
     loadIncomingFriendRequests,
@@ -4416,7 +5551,9 @@ export default function ChatPage() {
     markConversationAsRead,
     markRoomAsRead,
     notifyWithBrowserNotification,
+    sendActiveCallCloseSignal,
     showRemoteTyping,
+    stopCallMedia,
   ]);
 
   useLayoutEffect(() => {
@@ -4552,6 +5689,190 @@ export default function ChatPage() {
       setMessages((currentMessages) => markOptimisticMessageFailed(currentMessages, payload.clientId));
     }
   };
+
+  const handleStartCall = useCallback((callType: CallType) => {
+    if (!selectedUser || activeCallRef.current) {
+      return;
+    }
+
+    const optimisticCall: ActiveCall = {
+      type: callType,
+      status: 'ringing',
+      direction: 'outgoing',
+      peer: selectedUser,
+    };
+
+    void loadCallDevices();
+    setCallConnectionState('idle');
+    setCallStartedAt(null);
+    setCallElapsedSeconds(0);
+    setCallDeviceError('');
+
+    if (
+      sendCallSignal({
+        eventType: 'CALL_INVITE',
+        receiverId: selectedUser.id,
+        callType,
+      })
+    ) {
+      setActiveCallState(optimisticCall);
+      setCallError('');
+    }
+  }, [loadCallDevices, selectedUser, sendCallSignal]);
+
+  const handleAcceptCall = useCallback(() => {
+    const currentCall = activeCallRef.current;
+    if (!currentCall?.callId || currentCall.direction !== 'incoming') {
+      return;
+    }
+
+    stopIncomingCallRingtone();
+    void loadCallDevices();
+
+    if (sendCallSignal({ eventType: 'CALL_ACCEPT', callId: currentCall.callId })) {
+      setActiveCallState({ ...currentCall, status: 'connecting' });
+      setCallError('');
+    }
+  }, [loadCallDevices, sendCallSignal, stopIncomingCallRingtone]);
+
+  const handleRejectCall = useCallback(() => {
+    const currentCall = activeCallRef.current;
+    if (!currentCall?.callId) {
+      finishCall('Call declined.');
+      return;
+    }
+
+    sendCallSignal({ eventType: 'CALL_REJECT', callId: currentCall.callId });
+    finishCall('Call declined.');
+  }, [finishCall, sendCallSignal]);
+
+  const handleEndCall = useCallback(() => {
+    const currentCall = activeCallRef.current;
+    if (!currentCall?.callId) {
+      finishCall('Call ended.');
+      return;
+    }
+
+    const eventType =
+      currentCall.status === 'ringing' && currentCall.direction === 'outgoing'
+        ? 'CALL_CANCEL'
+        : 'CALL_END';
+
+    sendCallSignal({ eventType, callId: currentCall.callId });
+    finishCall(eventType === 'CALL_CANCEL' ? 'Call canceled.' : 'Call ended.');
+  }, [finishCall, sendCallSignal]);
+
+  const handleToggleMic = useCallback(() => {
+    const localStream = localCallStreamRef.current;
+    const nextMuted = !micMuted;
+    localStream?.getAudioTracks().forEach((track) => {
+      track.enabled = !nextMuted;
+    });
+    setMicMuted(nextMuted);
+  }, [micMuted]);
+
+  const handleToggleCamera = useCallback(() => {
+    const localStream = localCallStreamRef.current;
+    const nextCameraOff = !cameraOff;
+    localStream?.getVideoTracks().forEach((track) => {
+      track.enabled = !nextCameraOff;
+    });
+    setCameraOff(nextCameraOff);
+  }, [cameraOff]);
+
+  const replaceLocalCallTrack = useCallback(async (kind: 'audio' | 'video', deviceId: string) => {
+    if (kind === 'audio') {
+      setSelectedAudioInputId(deviceId);
+    } else {
+      setSelectedVideoInputId(deviceId);
+    }
+
+    const currentCall = activeCallRef.current;
+    if (!currentCall || (kind === 'video' && currentCall.type !== 'VIDEO')) {
+      return;
+    }
+
+    const currentStream = localCallStreamRef.current;
+    if (!currentStream) {
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCallDeviceError('Browser does not support media device switching.');
+      return;
+    }
+
+    setCallDeviceError('');
+
+    try {
+      const constraints: MediaStreamConstraints =
+        kind === 'audio'
+          ? {
+            audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+            video: false,
+          }
+          : {
+            audio: false,
+            video: deviceId ? { deviceId: { exact: deviceId } } : true,
+          };
+      const replacementStream = await navigator.mediaDevices.getUserMedia(constraints);
+      const [replacementTrack] =
+        kind === 'audio'
+          ? replacementStream.getAudioTracks()
+          : replacementStream.getVideoTracks();
+
+      if (!replacementTrack) {
+        throw new Error(`No ${kind} track found for selected device.`);
+      }
+
+      replacementTrack.enabled = kind === 'audio' ? !micMuted : !cameraOff;
+
+      const sender = peerConnectionRef.current
+        ?.getSenders()
+        .find((candidate) => candidate.track?.kind === kind);
+      if (sender) {
+        await sender.replaceTrack(replacementTrack);
+      }
+
+      const oldTracks =
+        kind === 'audio' ? currentStream.getAudioTracks() : currentStream.getVideoTracks();
+      oldTracks.forEach((track) => {
+        currentStream.removeTrack(track);
+        track.stop();
+      });
+      currentStream.addTrack(replacementTrack);
+      replacementStream
+        .getTracks()
+        .filter((track) => track !== replacementTrack)
+        .forEach((track) => track.stop());
+
+      const nextStream = new MediaStream(currentStream.getTracks());
+      localCallStreamRef.current = nextStream;
+      setLocalCallStream(nextStream);
+
+      const nextDeviceId = replacementTrack.getSettings().deviceId || deviceId;
+      if (kind === 'audio') {
+        setSelectedAudioInputId(nextDeviceId);
+      } else {
+        setSelectedVideoInputId(nextDeviceId);
+      }
+
+      void loadCallDevices();
+    } catch (error) {
+      console.error(`Failed to switch ${kind} device:`, error);
+      setCallDeviceError(
+        kind === 'audio' ? 'Unable to switch microphone.' : 'Unable to switch camera.'
+      );
+    }
+  }, [cameraOff, loadCallDevices, micMuted]);
+
+  const handleAudioInputChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    void replaceLocalCallTrack('audio', event.target.value);
+  }, [replaceLocalCallTrack]);
+
+  const handleVideoInputChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    void replaceLocalCallTrack('video', event.target.value);
+  }, [replaceLocalCallTrack]);
 
   const navigateIfNeeded = useCallback((path: string, options: { replace?: boolean } = {}) => {
     if (location.pathname !== path) {
@@ -4913,6 +6234,20 @@ export default function ChatPage() {
   const handleRoomSelect = (room: ChatRoom) => {
     navigateIfNeeded(getRoomChatRoute(room.id));
     activateRoomConversation(room);
+  };
+
+  const handleOpenActiveCallConversation = () => {
+    const currentCall = activeCallRef.current;
+    if (!currentCall) {
+      return;
+    }
+
+    const knownPeer = findKnownUserById(currentCall.peer.id) ?? currentCall.peer;
+    const peerForChat = canChatWithUser(knownPeer)
+      ? knownPeer
+      : { ...knownPeer, friendshipStatus: 'accepted' as const };
+    navigateIfNeeded(getUserChatRoute(peerForChat.username));
+    activateUserConversation(peerForChat);
   };
 
   const handleUserSearchChange = (value: string) => {
@@ -5898,6 +7233,8 @@ export default function ChatPage() {
       stopRoomTyping(selectedRoomIdRef.current);
     }
 
+    sendActiveCallCloseSignal();
+
     const refreshToken = localStorage.getItem('refreshToken');
     if (refreshToken) {
       void apiClient.post('/auth/logout', { refreshToken }).catch((error) => {
@@ -5912,6 +7249,26 @@ export default function ChatPage() {
 
   const currentUserDisplayName = getUserDisplayName(currentUser) || 'Profile';
   const currentUserOnline = Boolean(currentUser?.online);
+  const activeCallPeerName = getUserDisplayName(activeCall?.peer ?? null);
+  const activeCallIsVideo = activeCall?.type === 'VIDEO';
+  const activeCallTimerLabel = activeCall?.status === 'connected'
+    ? formatCallTimer(callElapsedSeconds)
+    : '';
+  const activeCallConversationOpen = Boolean(
+    activeCall &&
+    selectedUser?.id === activeCall.peer.id &&
+    !selectedRoom &&
+    mainView === 'chat'
+  );
+  const audioInputDevices = useMemo(
+    () => callDevices.filter((device) => device.kind === 'audioinput'),
+    [callDevices]
+  );
+  const videoInputDevices = useMemo(
+    () => callDevices.filter((device) => device.kind === 'videoinput'),
+    [callDevices]
+  );
+  const canStartPrivateCall = Boolean(selectedUser && canChatWithUser(selectedUser) && !activeCall);
   const normalizedUserSearchQuery = userSearchQuery.trim();
   const normalizedFriendSearchQuery = friendSearchQuery.trim();
   const hasUserSearch = Boolean(normalizedUserSearchQuery);
@@ -6113,6 +7470,23 @@ export default function ChatPage() {
     );
   };
 
+  const renderCallMessageBody = (message: ChatMessage) => {
+    const isVideoCall = message.callType === 'VIDEO';
+    return (
+      <div className={`call-message-event ${message.callStatus?.toLowerCase() ?? ''}`}>
+        <span className="call-message-icon-wrap" aria-hidden="true">
+          {isVideoCall ? (
+            <VideoCallIcon className="call-message-icon" />
+          ) : (
+            <PhoneIcon className="call-message-icon" />
+          )}
+        </span>
+        <span>{getCallEventLabel(message)}</span>
+        <small>{formatMessageTime(message.timestamp)}</small>
+      </div>
+    );
+  };
+
   const renderMessageBody = (message: ChatMessage) => {
     const mediaUrl = getMediaUrl(message.mediaUrl);
 
@@ -6174,6 +7548,263 @@ export default function ChatPage() {
           <div className="message-text">{renderLinkedText(message.content)}</div>
         ) : null}
         {renderLinkPreviewCard(message.linkPreview, handleMessageAssetLoaded)}
+      </div>
+    );
+  };
+
+  const renderGroupSeenBy = (message: ChatMessage, seenByUsers: User[]) => {
+    if (seenByUsers.length === 0) {
+      return null;
+    }
+
+    const visibleUsers = seenByUsers.slice(0, 3);
+    const extraCount = seenByUsers.length - visibleUsers.length;
+    const seenByLabel = `Seen by ${seenByUsers.map(getUserDisplayName).join(', ')}`;
+    const isOpen = seenByPopupMessageId === message.id;
+
+    return (
+      <div className="message-seen-by-row">
+        <button
+          type="button"
+          className="message-seen-by-btn"
+          onClick={() =>
+            setSeenByPopupMessageId((currentMessageId) =>
+              currentMessageId === message.id ? null : message.id
+            )
+          }
+          aria-label={seenByLabel}
+          title={seenByLabel}
+        >
+          <span className="message-seen-by-avatars">
+            {visibleUsers.map((reader) => (
+              <span key={reader.id} className="message-seen-by-avatar-shell">
+                {renderUserAvatar(reader, 'user-avatar message-seen-by-avatar')}
+              </span>
+            ))}
+          </span>
+          {extraCount > 0 ? <span className="message-seen-by-count">+{extraCount}</span> : null}
+        </button>
+
+        {isOpen ? (
+          <div className="message-seen-by-popover" role="dialog" aria-label="Seen by members">
+            <strong>Seen by</strong>
+            <div className="message-seen-by-list">
+              {seenByUsers.map((reader) => (
+                <div key={reader.id} className="message-seen-by-item">
+                  {renderUserAvatar(reader, 'user-avatar message-seen-by-list-avatar')}
+                  <span>{getUserDisplayName(reader)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderCallOverlay = () => {
+    if (!activeCall) {
+      return null;
+    }
+
+    const isIncomingRinging = activeCall.direction === 'incoming' && activeCall.status === 'ringing';
+    const isOutgoingRinging = activeCall.direction === 'outgoing' && activeCall.status === 'ringing';
+    const hasSelectedAudioDevice = audioInputDevices.some(
+      (device) => device.deviceId === selectedAudioInputId
+    );
+    const hasSelectedVideoDevice = videoInputDevices.some(
+      (device) => device.deviceId === selectedVideoInputId
+    );
+    const canShowDeviceControls = Boolean(
+      localCallStream && activeCall.status !== 'ringing' && activeCall.status !== 'ending'
+    );
+    const statusLabel = isIncomingRinging
+      ? `Incoming ${activeCall.type === 'VIDEO' ? 'video' : 'audio'} call`
+      : isOutgoingRinging
+        ? 'Ringing...'
+        : callConnectionState === 'reconnecting'
+          ? 'Reconnecting...'
+          : callConnectionState === 'failed'
+            ? 'Connection failed'
+            : activeCall.status === 'connected'
+              ? `Connected${activeCallTimerLabel ? ` · ${activeCallTimerLabel}` : ''}`
+              : activeCall.status === 'ending'
+                ? 'Ending call'
+                : 'Connecting...';
+
+    return (
+      <div className="call-overlay" role="dialog" aria-modal="false" aria-label="Active call">
+        <audio ref={remoteAudioRef} autoPlay playsInline />
+        <div
+          className={`call-card ${activeCallIsVideo ? 'video' : 'audio'} ${activeCall.status} ${callConnectionState}`}
+        >
+          <div className="call-header-row">
+            <div className="call-identity">
+              {renderUserAvatar(activeCall.peer, 'user-avatar call-avatar')}
+              <div>
+                <strong>{activeCallPeerName}</strong>
+                <span className="call-status-row">
+                  <span className={`call-status-dot ${callConnectionState}`} aria-hidden="true" />
+                  {statusLabel}
+                </span>
+              </div>
+            </div>
+            {!activeCallConversationOpen ? (
+              <button
+                type="button"
+                className="call-open-chat-btn"
+                onClick={handleOpenActiveCallConversation}
+              >
+                Open chat
+              </button>
+            ) : null}
+          </div>
+
+          {activeCallIsVideo && activeCall.status !== 'ringing' ? (
+            <div className="call-video-stage">
+              {remoteCallStream ? (
+                <video ref={remoteVideoRef} className="call-remote-video" autoPlay playsInline />
+              ) : (
+                <div className="call-video-placeholder">
+                  {renderUserAvatar(activeCall.peer, 'user-avatar call-video-avatar')}
+                  <span>Waiting for video...</span>
+                </div>
+              )}
+              {localCallStream ? (
+                cameraOff ? (
+                  <div className="call-local-video-placeholder" title="Camera is off">
+                    <VideoOffIcon className="call-action-icon" />
+                  </div>
+                ) : (
+                  <video
+                    ref={localVideoRef}
+                    className="call-local-video"
+                    autoPlay
+                    muted
+                    playsInline
+                  />
+                )
+              ) : null}
+            </div>
+          ) : (
+            <div className={`call-audio-stage ${activeCall.status}`}>
+              <div className="call-audio-avatar-shell">
+                {renderUserAvatar(activeCall.peer, 'user-avatar call-stage-avatar')}
+              </div>
+              {activeCallTimerLabel ? <span>{activeCallTimerLabel}</span> : null}
+            </div>
+          )}
+
+          {callError ? <div className="call-error">{callError}</div> : null}
+
+          {canShowDeviceControls ? (
+            <div className="call-device-controls" aria-label="Call devices">
+              <label className="call-device-field">
+                <span>Mic</span>
+                <select
+                  className="call-device-select"
+                  value={selectedAudioInputId}
+                  onChange={handleAudioInputChange}
+                  disabled={callDevicesLoading}
+                >
+                  <option value="">Default microphone</option>
+                  {selectedAudioInputId && !hasSelectedAudioDevice ? (
+                    <option value={selectedAudioInputId}>Selected microphone</option>
+                  ) : null}
+                  {audioInputDevices.map((device, index) => (
+                    <option key={device.deviceId || `audio-${index}`} value={device.deviceId}>
+                      {getMediaDeviceLabel(device, index)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {activeCallIsVideo ? (
+                <label className="call-device-field">
+                  <span>Camera</span>
+                  <select
+                    className="call-device-select"
+                    value={selectedVideoInputId}
+                    onChange={handleVideoInputChange}
+                    disabled={callDevicesLoading}
+                  >
+                    <option value="">Default camera</option>
+                    {selectedVideoInputId && !hasSelectedVideoDevice ? (
+                      <option value={selectedVideoInputId}>Selected camera</option>
+                    ) : null}
+                    {videoInputDevices.map((device, index) => (
+                      <option key={device.deviceId || `video-${index}`} value={device.deviceId}>
+                        {getMediaDeviceLabel(device, index)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+
+              {callDevicesLoading ? (
+                <span className="call-device-helper">Loading devices...</span>
+              ) : null}
+              {callDeviceError ? <span className="call-device-error">{callDeviceError}</span> : null}
+            </div>
+          ) : null}
+
+          <div className="call-actions">
+            {isIncomingRinging ? (
+              <>
+                <button type="button" className="call-action-btn accept" onClick={handleAcceptCall}>
+                  <PhoneIcon className="call-action-icon" />
+                  <span>Accept</span>
+                </button>
+                <button type="button" className="call-action-btn end" onClick={handleRejectCall}>
+                  <CloseIcon className="call-action-icon" />
+                  <span>Decline</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={`call-round-btn ${micMuted ? 'active' : ''}`}
+                  onClick={handleToggleMic}
+                  disabled={!localCallStream}
+                  aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
+                  title={micMuted ? 'Unmute' : 'Mute'}
+                >
+                  {micMuted ? (
+                    <MicOffIcon className="call-action-icon" />
+                  ) : (
+                    <MicIcon className="call-action-icon" />
+                  )}
+                </button>
+                {activeCallIsVideo ? (
+                  <button
+                    type="button"
+                    className={`call-round-btn ${cameraOff ? 'active' : ''}`}
+                    onClick={handleToggleCamera}
+                    disabled={!localCallStream}
+                    aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'}
+                    title={cameraOff ? 'Camera on' : 'Camera off'}
+                  >
+                    {cameraOff ? (
+                      <VideoOffIcon className="call-action-icon" />
+                    ) : (
+                      <VideoCallIcon className="call-action-icon" />
+                    )}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="call-round-btn end"
+                  onClick={handleEndCall}
+                  aria-label="End call"
+                  title="End call"
+                >
+                  <PhoneIcon className="call-action-icon" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       </div>
     );
   };
@@ -7802,17 +9433,43 @@ export default function ChatPage() {
                     ) : null}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className={`conversation-details-toggle ${detailsOpen ? 'active' : ''}`}
-                  onClick={handleToggleConversationDetails}
-                  aria-label={detailsOpen ? 'Hide conversation details' : 'Show conversation details'}
-                  aria-expanded={detailsOpen}
-                  aria-controls="conversation-details"
-                  title={detailsOpen ? 'Hide details' : 'Show details'}
-                >
-                  <InfoIcon className="conversation-details-icon" />
-                </button>
+                <div className="conversation-header-actions">
+                  {selectedUser ? (
+                    <>
+                      <button
+                        type="button"
+                        className="conversation-call-btn"
+                        onClick={() => handleStartCall('AUDIO')}
+                        disabled={!canStartPrivateCall}
+                        aria-label={`Start audio call with ${getUserDisplayName(selectedUser)}`}
+                        title="Audio call"
+                      >
+                        <PhoneIcon className="conversation-call-icon" />
+                      </button>
+                      <button
+                        type="button"
+                        className="conversation-call-btn"
+                        onClick={() => handleStartCall('VIDEO')}
+                        disabled={!canStartPrivateCall}
+                        aria-label={`Start video call with ${getUserDisplayName(selectedUser)}`}
+                        title="Video call"
+                      >
+                        <VideoCallIcon className="conversation-call-icon" />
+                      </button>
+                    </>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={`conversation-details-toggle ${detailsOpen ? 'active' : ''}`}
+                    onClick={handleToggleConversationDetails}
+                    aria-label={detailsOpen ? 'Hide conversation details' : 'Show conversation details'}
+                    aria-expanded={detailsOpen}
+                    aria-controls="conversation-details"
+                    title={detailsOpen ? 'Hide details' : 'Show details'}
+                  >
+                    <InfoIcon className="conversation-details-icon" />
+                  </button>
+                </div>
               </div>
 
               <div
@@ -7894,11 +9551,34 @@ export default function ChatPage() {
                         Boolean(selectedUser) &&
                         isSentByCurrentUser &&
                         message.id === latestSeenOutgoingMessageId;
+                      const groupSeenByUsers =
+                        selectedRoom && isSentByCurrentUser && message.id > 0 && !message.recalled
+                          ? roomSeenByByMessageId[message.id] ?? []
+                          : [];
+                      const groupSeenByLoading =
+                        selectedRoom &&
+                        isSentByCurrentUser &&
+                        message.id > 0 &&
+                        !message.recalled &&
+                        seenByLoadingMessageIds.includes(message.id);
                       const isMessageSearchMatch = Boolean(
                         messageSearchExpanded &&
                         messageSearchQuery.trim() &&
                         messageSearchResultIds.has(message.id)
                       );
+                      const isCallEventMessage = isCallMessage(message);
+
+                      if (isCallEventMessage) {
+                        return (
+                          <div
+                            key={item.key}
+                            data-message-id={message.id > 0 ? message.id : undefined}
+                            className={`message call-system ${isMessageSearchMatch ? 'message-search-match' : ''} ${highlightedMessageId === message.id ? 'highlighted' : ''}`}
+                          >
+                            {renderCallMessageBody(message)}
+                          </div>
+                        );
+                      }
 
                       return (
                         <div
@@ -7943,6 +9623,13 @@ export default function ChatPage() {
                           {isLatestSeenOutgoingMessage ? (
                             <div className="message-seen-avatar-row">
                               {renderUserAvatar(selectedUser, 'user-avatar message-seen-avatar')}
+                            </div>
+                          ) : null}
+                          {groupSeenByUsers.length > 0 ? (
+                            renderGroupSeenBy(message, groupSeenByUsers)
+                          ) : groupSeenByLoading ? (
+                            <div className="message-seen-by-row loading" aria-label="Loading seen by">
+                              <span className="message-seen-by-loading-dot" />
                             </div>
                           ) : null}
                         </div>
@@ -8115,6 +9802,8 @@ export default function ChatPage() {
           </>
         ) : null}
       </div>
+
+      {renderCallOverlay()}
 
       {mediaViewerUrl ? (
         <div

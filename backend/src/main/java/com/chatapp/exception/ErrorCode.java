@@ -71,6 +71,13 @@ public enum ErrorCode {
         ROOM_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "ROOM_008", "Group member not found"),
         ROOM_OWNER_CANNOT_BE_REMOVED(HttpStatus.CONFLICT, "ROOM_009", "The group owner cannot be removed"),
 
+        SELF_CALL_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "CALL_001", "Cannot call yourself"),
+        CALL_NOT_FOUND(HttpStatus.NOT_FOUND, "CALL_002", "Call session not found"),
+        CALL_ACCESS_DENIED(HttpStatus.FORBIDDEN, "CALL_003", "You cannot access this call"),
+        CALL_NOT_RINGING(HttpStatus.CONFLICT, "CALL_004", "Call is not ringing"),
+        CALL_NOT_ACTIVE(HttpStatus.CONFLICT, "CALL_005", "Call is not active"),
+        INVALID_CALL_SIGNAL(HttpStatus.BAD_REQUEST, "CALL_006", "Call signal is invalid"),
+
         VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "COMMON_001", "Validation failed"),
         MALFORMED_REQUEST(HttpStatus.BAD_REQUEST, "COMMON_002", "Malformed request body"),
         DATA_INTEGRITY_VIOLATION(HttpStatus.CONFLICT, "COMMON_003", "Data integrity violation"),

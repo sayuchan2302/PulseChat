@@ -22,6 +22,7 @@ import java.util.Set;
                 @Index(name = "idx_messages_room_timestamp", columnList = "chat_room_id, timestamp"),
                 @Index(name = "idx_messages_room_id", columnList = "chat_room_id, id"),
                 @Index(name = "idx_messages_reply_to", columnList = "reply_to_message_id"),
+                @Index(name = "idx_messages_call_session", columnList = "call_session_id"),
                 @Index(name = "uk_messages_sender_client", columnList = "sender_id, client_id", unique = true)
         }
 )
@@ -99,6 +100,10 @@ public class Message {
     @JoinColumn(name = "reply_to_message_id")
     private Message replyToMessage;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "call_session_id")
+    private CallSession callSession;
+
     @Column(nullable = false)
     private Boolean recalled = false;
 
@@ -116,6 +121,6 @@ public class Message {
     private LocalDateTime updatedAt;
 
     public enum MessageType {
-        TEXT, IMAGE, VIDEO
+        TEXT, IMAGE, VIDEO, CALL
     }
 }

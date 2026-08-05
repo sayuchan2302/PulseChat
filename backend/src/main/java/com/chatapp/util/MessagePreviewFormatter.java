@@ -25,6 +25,7 @@ public final class MessagePreviewFormatter {
         return switch (type) {
             case IMAGE -> "Photo";
             case VIDEO -> "Video";
+            case CALL -> "Call";
             case TEXT -> message.getContent();
         };
     }
