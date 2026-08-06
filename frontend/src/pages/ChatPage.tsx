@@ -437,6 +437,45 @@ function InfoIcon({ className }: HeaderIconProps) {
   );
 }
 
+function MinimizeIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+function ExpandIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M8 3H3v5" />
+      <path d="M21 8V3h-5" />
+      <path d="M3 16v5h5" />
+      <path d="M16 21h5v-5" />
+    </svg>
+  );
+}
+
 function PhoneIcon({ className }: HeaderIconProps) {
   return (
     <svg
@@ -2681,6 +2720,7 @@ export default function ChatPage() {
   const [seenByLoadingMessageIds, setSeenByLoadingMessageIds] = useState<number[]>([]);
   const [seenByPopupMessageId, setSeenByPopupMessageId] = useState<number | null>(null);
   const [activeCall, setActiveCallState] = useState<ActiveCall | null>(null);
+  const [callMinimized, setCallMinimized] = useState(false);
   const [callError, setCallError] = useState('');
   const [localCallStream, setLocalCallStream] = useState<MediaStream | null>(null);
   const [remoteCallStream, setRemoteCallStream] = useState<MediaStream | null>(null);
@@ -2821,6 +2861,12 @@ export default function ChatPage() {
 
   useEffect(() => {
     activeCallRef.current = activeCall;
+  }, [activeCall]);
+
+  useEffect(() => {
+    if (!activeCall || (activeCall.direction === 'incoming' && activeCall.status === 'ringing')) {
+      setCallMinimized(false);
+    }
   }, [activeCall]);
 
   useEffect(() => {
@@ -4773,6 +4819,7 @@ export default function ChatPage() {
   }, [stopIncomingCallRingtone]);
 
   const finishCall = useCallback((message = '') => {
+    setCallMinimized(false);
     stopCallMedia();
     setActiveCallState((currentCall) =>
       currentCall ? { ...currentCall, status: 'ending' } : currentCall
@@ -6531,6 +6578,23 @@ export default function ChatPage() {
     activateRoomConversation(room);
   };
 
+  const handleMinimizeActiveCall = useCallback(() => {
+    const currentCall = activeCallRef.current;
+    if (
+      !currentCall ||
+      currentCall.status === 'ending' ||
+      (currentCall.direction === 'incoming' && currentCall.status === 'ringing')
+    ) {
+      return;
+    }
+
+    setCallMinimized(true);
+  }, []);
+
+  const handleRestoreActiveCall = useCallback(() => {
+    setCallMinimized(false);
+  }, []);
+
   const handleOpenActiveCallConversation = () => {
     const currentCall = activeCallRef.current;
     if (!currentCall) {
@@ -6543,6 +6607,7 @@ export default function ChatPage() {
       : { ...knownPeer, friendshipStatus: 'accepted' as const };
     navigateIfNeeded(getUserChatRoute(peerForChat.username));
     activateUserConversation(peerForChat);
+    handleMinimizeActiveCall();
   };
 
   const getCallMessagePeer = useCallback((message: ChatMessage) => {
@@ -8162,9 +8227,102 @@ export default function ChatPage() {
               : activeCall.status === 'ending'
                 ? 'Ending call'
                 : 'Connecting...';
+    const canMinimizeCall = !isIncomingRinging && activeCall.status !== 'ending';
+    const callOverlayClassName = `call-overlay ${callMinimized ? 'minimized' : ''}`;
+
+    if (callMinimized && canMinimizeCall) {
+      return (
+        <div className={callOverlayClassName}>
+          <audio ref={remoteAudioRef} autoPlay playsInline />
+          <div
+            className={`call-mini ${activeCallIsVideo ? 'video' : 'audio'} ${activeCall.status} ${callConnectionState}`}
+            role="region"
+            aria-label="Minimized active call"
+          >
+            <button
+              type="button"
+              className="call-mini-main"
+              onClick={handleRestoreActiveCall}
+              aria-label={`Restore call with ${activeCallPeerName}`}
+            >
+              {renderUserAvatar(activeCall.peer, 'user-avatar call-mini-avatar')}
+              <span className="call-mini-copy">
+                <strong>{activeCallPeerName}</strong>
+                <span>
+                  <span className={`call-status-dot ${callConnectionState}`} aria-hidden="true" />
+                  {statusLabel}
+                </span>
+              </span>
+            </button>
+
+            <div className="call-mini-actions" aria-label="Minimized call controls">
+              {!activeCallConversationOpen ? (
+                <button
+                  type="button"
+                  className="call-mini-btn"
+                  onClick={handleOpenActiveCallConversation}
+                  aria-label="Open active call chat"
+                  title="Open chat"
+                >
+                  <JumpIcon className="call-action-icon" />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={`call-mini-btn ${micMuted ? 'active' : ''}`}
+                onClick={handleToggleMic}
+                disabled={!localCallStream}
+                aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
+                title={micMuted ? 'Unmute' : 'Mute'}
+              >
+                {micMuted ? (
+                  <MicOffIcon className="call-action-icon" />
+                ) : (
+                  <MicIcon className="call-action-icon" />
+                )}
+              </button>
+              {activeCallIsVideo ? (
+                <button
+                  type="button"
+                  className={`call-mini-btn ${cameraOff ? 'active' : ''}`}
+                  onClick={handleToggleCamera}
+                  disabled={!localCallStream}
+                  aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'}
+                  title={cameraOff ? 'Camera on' : 'Camera off'}
+                >
+                  {cameraOff ? (
+                    <VideoOffIcon className="call-action-icon" />
+                  ) : (
+                    <VideoCallIcon className="call-action-icon" />
+                  )}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="call-mini-btn"
+                onClick={handleRestoreActiveCall}
+                aria-label="Expand active call"
+                title="Expand call"
+              >
+                <ExpandIcon className="call-action-icon" />
+              </button>
+              <button
+                type="button"
+                className="call-mini-btn end"
+                onClick={handleEndCall}
+                aria-label="End call"
+                title="End call"
+              >
+                <PhoneIcon className="call-action-icon" />
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     return (
-      <div className="call-overlay" role="dialog" aria-modal="false" aria-label="Active call">
+      <div className={callOverlayClassName} role="dialog" aria-modal="false" aria-label="Active call">
         <audio ref={remoteAudioRef} autoPlay playsInline />
         <div
           className={`call-card ${activeCallIsVideo ? 'video' : 'audio'} ${activeCall.status} ${callConnectionState}`}
@@ -8180,15 +8338,28 @@ export default function ChatPage() {
                 </span>
               </div>
             </div>
-            {!activeCallConversationOpen ? (
-              <button
-                type="button"
-                className="call-open-chat-btn"
-                onClick={handleOpenActiveCallConversation}
-              >
-                Open chat
-              </button>
-            ) : null}
+            <div className="call-header-actions">
+              {!activeCallConversationOpen ? (
+                <button
+                  type="button"
+                  className="call-open-chat-btn"
+                  onClick={handleOpenActiveCallConversation}
+                >
+                  Open chat
+                </button>
+              ) : null}
+              {canMinimizeCall ? (
+                <button
+                  type="button"
+                  className="call-header-icon-btn"
+                  onClick={handleMinimizeActiveCall}
+                  aria-label="Minimize active call"
+                  title="Minimize"
+                >
+                  <MinimizeIcon className="call-action-icon" />
+                </button>
+              ) : null}
+            </div>
           </div>
 
           {activeCallIsVideo && activeCall.status !== 'ringing' ? (

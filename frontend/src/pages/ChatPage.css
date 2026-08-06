@@ -1431,6 +1431,10 @@ button.main-list-item {
   display: none;
 }
 
+.call-overlay.minimized {
+  width: min(430px, calc(100vw - 32px));
+}
+
 .call-card {
   width: 100%;
   padding: 16px;
@@ -1526,6 +1530,14 @@ button.main-list-item {
   box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12);
 }
 
+.call-header-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .call-open-chat-btn {
   min-height: 34px;
   padding: 0 12px;
@@ -1545,7 +1557,158 @@ button.main-list-item {
   transform: translateY(-1px);
 }
 
-.call-open-chat-btn:focus-visible {
+.call-header-icon-btn {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid var(--purple-100);
+  border-radius: 8px;
+  background: var(--purple-50);
+  color: var(--purple-700);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
+}
+
+.call-header-icon-btn:hover {
+  background: var(--purple-100);
+  border-color: var(--purple-300);
+  color: var(--purple-800);
+  transform: translateY(-1px);
+}
+
+.call-open-chat-btn:focus-visible,
+.call-header-icon-btn:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 2px;
+}
+
+.call-mini {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--purple-100);
+  border-radius: 8px;
+  background: var(--white);
+  color-scheme: light;
+  box-shadow: 0 18px 42px rgba(88, 28, 135, 0.22);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.call-mini.reconnecting {
+  border-color: #FBBF24;
+}
+
+.call-mini.failed,
+.call-mini.closed {
+  border-color: #FCA5A5;
+}
+
+.call-mini-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+
+.call-mini-main:hover .call-mini-avatar {
+  box-shadow: 0 0 0 4px rgba(168, 85, 247, 0.12);
+}
+
+.call-mini-avatar {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  font-size: 17px;
+}
+
+.call-mini-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.call-mini-copy strong {
+  min-width: 0;
+  color: var(--gray-800);
+  font-size: 14px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-mini-copy span {
+  min-width: 0;
+  color: var(--gray-500);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.call-mini-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.call-mini-btn {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 8px;
+  background: var(--purple-50);
+  color: var(--purple-700);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, color 0.2s, transform 0.2s;
+}
+
+.call-mini-btn:hover:not(:disabled),
+.call-mini-btn.active {
+  background: var(--purple-100);
+  color: var(--purple-800);
+  transform: translateY(-1px);
+}
+
+.call-mini-btn:disabled {
+  cursor: not-allowed;
+  background: var(--gray-100);
+  color: var(--gray-400);
+  transform: none;
+}
+
+.call-mini-btn.end {
+  background: #FEE2E2;
+  color: #B91C1C;
+}
+
+.call-mini-btn.end:hover {
+  background: #FECACA;
+}
+
+.call-mini-btn.end .call-action-icon {
+  transform: rotate(135deg);
+}
+
+.call-mini-main:focus-visible,
+.call-mini-btn:focus-visible {
   outline: 2px solid var(--purple-500);
   outline-offset: 2px;
 }
