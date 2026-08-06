@@ -1,115 +1,77 @@
-# Chat App
+# 💬 Chat App
 
-Real-time chat application built with React, Spring Boot, PostgreSQL, and STOMP WebSocket.
+A full-stack real-time chat application inspired by modern Messenger-style experiences.
 
-## Tech Stack
+## ✨ Highlights
 
-**Frontend:** React 19 + TypeScript + Vite + Axios + STOMP/SockJS
-**Backend:** Spring Boot 3.2 + Spring Security + Spring WebSocket + JPA  
-**Database:** PostgreSQL  
-**Auth:** JWT
+- 🔐 JWT authentication with access and refresh tokens
+- 💬 Real-time private and group messaging with STOMP WebSocket
+- 👥 Friend requests, friends list, user search, and profile preview
+- 🖼️ Image/video messages with in-chat media preview
+- 🔗 Link previews and shared media/link gallery
+- 😀 Emoji picker, reactions, replies, recall, read receipts, and unread badges
+- 📞 1-1 audio/video calls with WebRTC and a minimized call bar
+- 👤 User profile, local avatar upload, presence, and last-seen status
 
-## Current Status
+## 🧰 Tech Stack
 
-The project is in the implementation roadmap stage.
+| Layer | Tools |
+| --- | --- |
+| Frontend | React 19, TypeScript, Vite, Axios, STOMP/SockJS |
+| Backend | Spring Boot 3.2, Spring Security, Spring WebSocket, Spring Data JPA |
+| Database | PostgreSQL |
+| Realtime | WebSocket, STOMP, WebRTC |
+| Media | Local avatar upload, Cloudinary-ready message media |
 
-Implemented now:
-- React auth page and chat page shell
-- Axios API client with Bearer token interceptor
-- STOMP/SockJS client service
-- Spring Boot app bootstrap
-- JPA entities for users, messages, and chat rooms
-- CORS and STOMP endpoint config
-- Auth controllers, services, repository, JWT filter, and `/users/me`
-
-Still planned:
-- Message persistence APIs
-- WebSocket message controller
-- Group chat, presence, read receipts, tests, migrations, and production setup
-
-See [implementation-phases.md](implementation-phases.md) for the phase-by-phase implementation plan.
-
-## Project Structure
-
-```text
-chat-app/
-├── frontend/
-│   └── src/
-│       ├── config/
-│       ├── context/
-│       ├── pages/
-│       ├── services/
-│       └── types/
-└── backend/
-    └── src/main/
-        ├── java/com/chatapp/
-        │   ├── config/
-        │   └── model/
-        └── resources/
-```
-
-## Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
+
 - Node.js 18+
 - Java 17+
-- Maven 3.8+
 - PostgreSQL 14+
 
-### Setup
-
-1. **Database**
+### 1. Database
 
 ```sql
 CREATE DATABASE "chat-app";
 ```
 
-2. **Backend**
+### 2. Backend
 
 ```bash
 cd backend
-cp .env.example .env
-# Update .env with your local database and JWT values
-mvn spring-boot:run
+copy .env.example .env
+.\mvnw.cmd spring-boot:run
 ```
 
-3. **Frontend**
+Backend runs at `http://localhost:8080/api`.
+
+### 3. Frontend
 
 ```bash
 cd frontend
-cp .env.example .env
+copy .env.example .env
 npm install
 npm run dev
 ```
 
-URLs:
-- Frontend: http://localhost:5173
-- Backend REST base: http://localhost:8080/api
-- Backend SockJS endpoint: http://localhost:8080/api/ws
+Frontend runs at `http://localhost:5173`.
 
-## Planned API Contract
+## 📁 Project Structure
 
-### Authentication
-- `POST /api/auth/register` - Register user
-- `POST /api/auth/login` - Login user
+```text
+chat-app/
+├── backend/    # Spring Boot REST API, WebSocket, auth, PostgreSQL models
+└── frontend/   # React chat UI, realtime client, media and call experience
+```
 
-### Users
-- `GET /api/users/me` - Get current user
-- `GET /api/users` - List users
+## ✅ Validation
 
-### Messages
-- `GET /api/messages/{userId}` - Get 1-1 conversation history
-- `POST /api/messages` - Send 1-1 message
-
-### WebSocket
-- `CONNECT /api/ws` - SockJS/STOMP connection
-- `SUBSCRIBE /user/queue/messages` - Private messages
-- `SUBSCRIBE /topic/public` - Public events
-- `SEND /app/chat.send` - Send message event
-
-## Validation
-
-Frontend:
+```bash
+cd backend
+.\mvnw.cmd test
+```
 
 ```bash
 cd frontend
@@ -117,20 +79,12 @@ npm run build
 npm run lint
 ```
 
-Backend:
+## 🔒 Notes
 
-```bash
-cd backend
-mvn test
-```
+- Keep secrets in `.env` files only.
+- Do not commit database credentials, JWT secrets, or Cloudinary secrets.
+- The project uses `spring.jpa.hibernate.ddl-auto=update` for solo development convenience.
 
-## Security Notes
-
-- Keep real database credentials and JWT secrets in `.env`.
-- Do not commit `.env` files.
-- `application.yml` intentionally avoids sensitive defaults.
-- Use DTOs for API responses so password hashes and lazy JPA graphs are never serialized directly.
-
-## License
+## 📄 License
 
 MIT
