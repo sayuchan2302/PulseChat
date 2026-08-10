@@ -1659,6 +1659,19 @@ button.main-list-item {
   line-height: 1.2;
 }
 
+.call-mini-copy .call-mini-sharing {
+  color: var(--purple-700);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-mini-share-icon {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
+
 .call-mini-actions {
   flex: 0 0 auto;
   display: inline-flex;
@@ -1685,6 +1698,11 @@ button.main-list-item {
   background: var(--purple-100);
   color: var(--purple-800);
   transform: translateY(-1px);
+}
+
+.call-mini-btn.sharing.active {
+  background: var(--purple-600);
+  color: var(--white);
 }
 
 .call-mini-btn:disabled {
@@ -1741,6 +1759,10 @@ button.main-list-item {
   box-shadow: 0 10px 22px rgba(17, 24, 39, 0.22);
 }
 
+.call-local-video.screen {
+  object-fit: contain;
+}
+
 .call-local-video.hidden {
   display: none;
 }
@@ -1773,6 +1795,38 @@ button.main-list-item {
   color: var(--gray-500);
   font-size: 13px;
   font-weight: 800;
+}
+
+.call-share-indicator {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  max-width: calc(100% - 20px);
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--purple-100);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--purple-700);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  box-shadow: 0 10px 22px rgba(88, 28, 135, 0.14);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.call-share-indicator span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-share-indicator-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
 }
 
 .call-audio-stage {
@@ -1867,6 +1921,11 @@ button.main-list-item {
 
 .call-error button:hover {
   background: #FEE2E2;
+}
+
+.call-share-error {
+  background: var(--purple-50);
+  color: var(--purple-800);
 }
 
 .call-device-controls {
@@ -1992,6 +2051,11 @@ button.main-list-item {
   background: var(--purple-100);
   color: var(--purple-800);
   transform: translateY(-1px);
+}
+
+.call-round-btn.sharing.active {
+  background: var(--purple-600);
+  color: var(--white);
 }
 
 .call-round-btn:disabled {

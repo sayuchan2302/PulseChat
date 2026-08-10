@@ -513,6 +513,28 @@ function VideoCallIcon({ className }: HeaderIconProps) {
   );
 }
 
+function ScreenShareIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="3" y="4" width="18" height="13" rx="2" />
+      <path d="M8 21h8" />
+      <path d="M12 17v4" />
+      <path d="M12 13V8" />
+      <path d="m9 10 3-3 3 3" />
+    </svg>
+  );
+}
+
 function MicIcon({ className }: HeaderIconProps) {
   return (
     <svg
@@ -1654,6 +1676,24 @@ function getCallMediaErrorMessage(error: unknown, callType: CallType) {
     : 'Unable to access microphone.';
 }
 
+function getScreenShareErrorMessage(error: unknown) {
+  if (error instanceof DOMException) {
+    if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
+      return 'Screen sharing was canceled or blocked.';
+    }
+
+    if (error.name === 'NotFoundError' || error.name === 'AbortError') {
+      return 'No screen was selected.';
+    }
+
+    if (error.name === 'NotReadableError') {
+      return 'Unable to capture the selected screen.';
+    }
+  }
+
+  return 'Unable to share your screen.';
+}
+
 function buildCallMediaConstraints(
   callType: CallType,
   audioInputId: string,
@@ -2726,6 +2766,9 @@ export default function ChatPage() {
   const [remoteCallStream, setRemoteCallStream] = useState<MediaStream | null>(null);
   const [micMuted, setMicMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(false);
+  const [screenSharing, setScreenSharing] = useState(false);
+  const [remoteScreenSharing, setRemoteScreenSharing] = useState(false);
+  const [screenShareError, setScreenShareError] = useState('');
   const [callConnectionState, setCallConnectionState] = useState<CallConnectionState>('idle');
   const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
   const [callElapsedSeconds, setCallElapsedSeconds] = useState(0);
@@ -2781,6 +2824,10 @@ export default function ChatPage() {
   const preCallPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
   const micMutedRef = useRef(false);
   const cameraOffRef = useRef(false);
+  const screenSharingRef = useRef(false);
+  const screenShareStreamRef = useRef<MediaStream | null>(null);
+  const screenShareCameraTrackRef = useRef<MediaStreamTrack | null>(null);
+  const screenShareStoppingRef = useRef(false);
   const selectedAudioInputIdRef = useRef('');
   const selectedVideoInputIdRef = useRef('');
   const incomingCallRingtoneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -2884,6 +2931,10 @@ export default function ChatPage() {
   useEffect(() => {
     cameraOffRef.current = cameraOff;
   }, [cameraOff]);
+
+  useEffect(() => {
+    screenSharingRef.current = screenSharing;
+  }, [screenSharing]);
 
   useEffect(() => {
     selectedAudioInputIdRef.current = selectedAudioInputId;
@@ -4794,6 +4845,25 @@ export default function ChatPage() {
     );
   }, []);
 
+  const stopScreenShareResources = useCallback(() => {
+    screenShareStreamRef.current?.getTracks().forEach((track) => {
+      track.onended = null;
+      track.stop();
+    });
+    screenShareStreamRef.current = null;
+
+    const cameraTrack = screenShareCameraTrackRef.current;
+    if (cameraTrack && !localCallStreamRef.current?.getTracks().includes(cameraTrack)) {
+      cameraTrack.stop();
+    }
+    screenShareCameraTrackRef.current = null;
+    screenSharingRef.current = false;
+    screenShareStoppingRef.current = false;
+    setScreenSharing(false);
+    setRemoteScreenSharing(false);
+    setScreenShareError('');
+  }, []);
+
   const stopCallMedia = useCallback(() => {
     if (peerConnectionRef.current) {
       peerConnectionRef.current.onicecandidate = null;
@@ -4805,6 +4875,7 @@ export default function ChatPage() {
     peerConnectionRef.current = null;
     pendingIceCandidatesRef.current = [];
 
+    stopScreenShareResources();
     localCallStreamRef.current?.getTracks().forEach((track) => track.stop());
     localCallStreamRef.current = null;
     setLocalCallStream(null);
@@ -4816,7 +4887,7 @@ export default function ChatPage() {
     setCallElapsedSeconds(0);
     setCallDeviceError('');
     stopIncomingCallRingtone();
-  }, [stopIncomingCallRingtone]);
+  }, [stopIncomingCallRingtone, stopScreenShareResources]);
 
   const finishCall = useCallback((message = '') => {
     setCallMinimized(false);
@@ -5271,6 +5342,8 @@ export default function ChatPage() {
       if (currentRole === 'caller') {
         setActiveCallState(nextCall);
         setCallError('');
+        setRemoteScreenSharing(false);
+        setScreenShareError('');
         return;
       }
 
@@ -5287,6 +5360,8 @@ export default function ChatPage() {
       setPreCallSetup(null);
       setActiveCallState(nextCall);
       setCallError('');
+      setRemoteScreenSharing(false);
+      setScreenShareError('');
       notifyWithBrowserNotification({
         title: event.callType === 'VIDEO' ? 'Incoming video call' : 'Incoming audio call',
         body: `${getUserDisplayName(event.caller)} is calling you.`,
@@ -5299,7 +5374,13 @@ export default function ChatPage() {
 
     if (
       activeCallRef.current?.callId !== event.callId &&
-      !['WEBRTC_OFFER', 'WEBRTC_ANSWER', 'ICE_CANDIDATE'].includes(event.eventType)
+      ![
+        'WEBRTC_OFFER',
+        'WEBRTC_ANSWER',
+        'ICE_CANDIDATE',
+        'SCREEN_SHARE_START',
+        'SCREEN_SHARE_STOP',
+      ].includes(event.eventType)
     ) {
       setActiveCallState(nextCall);
     }
@@ -5337,6 +5418,20 @@ export default function ChatPage() {
 
     if (event.eventType === 'CALL_END') {
       finishCall('Call ended.');
+      return;
+    }
+
+    if (event.eventType === 'SCREEN_SHARE_START') {
+      if (!isFromCurrentUser) {
+        setRemoteScreenSharing(true);
+      }
+      return;
+    }
+
+    if (event.eventType === 'SCREEN_SHARE_STOP') {
+      if (!isFromCurrentUser) {
+        setRemoteScreenSharing(false);
+      }
       return;
     }
 
@@ -5907,6 +6002,10 @@ export default function ChatPage() {
     setCallStartedAt(null);
     setCallElapsedSeconds(0);
     setCallDeviceError('');
+    setScreenSharing(false);
+    setRemoteScreenSharing(false);
+    setScreenShareError('');
+    screenSharingRef.current = false;
 
     if (
       sendCallSignal({
@@ -5937,6 +6036,8 @@ export default function ChatPage() {
     setPreCallSubmitting(false);
     setCallDeviceError('');
     setCallError('');
+    setScreenShareError('');
+    setRemoteScreenSharing(false);
     void loadCallDevices();
     void startPreCallPreview(callType);
   }, [loadCallDevices, startPreCallPreview]);
@@ -6058,6 +6159,10 @@ export default function ChatPage() {
     setPreCallSetup({ type: currentCall.type, target: currentCall.peer });
     setPreCallError('');
     setPreCallSubmitting(false);
+    setScreenSharing(false);
+    setRemoteScreenSharing(false);
+    setScreenShareError('');
+    screenSharingRef.current = false;
     void loadCallDevices();
     void startPreCallPreview(currentCall.type);
   }, [loadCallDevices, sendCallSignal, startPreCallPreview, stopCallMedia]);
@@ -6114,6 +6219,10 @@ export default function ChatPage() {
   }, [micMuted]);
 
   const handleToggleCamera = useCallback(() => {
+    if (screenSharingRef.current) {
+      return;
+    }
+
     const localStream = localCallStreamRef.current;
     const nextCameraOff = !cameraOff;
     localStream?.getVideoTracks().forEach((track) => {
@@ -6130,6 +6239,10 @@ export default function ChatPage() {
     }
 
     const currentCall = activeCallRef.current;
+    if (kind === 'video' && screenSharingRef.current) {
+      return;
+    }
+
     if (!currentCall || (kind === 'video' && currentCall.type !== 'VIDEO')) {
       return;
     }
@@ -6207,6 +6320,164 @@ export default function ChatPage() {
       );
     }
   }, [cameraOff, loadCallDevices, micMuted]);
+
+  const handleStopScreenShare = useCallback(async (notify = true) => {
+    if (screenShareStoppingRef.current) {
+      return;
+    }
+
+    screenShareStoppingRef.current = true;
+    const currentCall = activeCallRef.current;
+    const currentStream = localCallStreamRef.current;
+    const screenShareStream = screenShareStreamRef.current;
+    const cameraTrack = screenShareCameraTrackRef.current;
+
+    try {
+      if (cameraTrack) {
+        cameraTrack.enabled = !cameraOffRef.current;
+      }
+
+      const sender = peerConnectionRef.current
+        ?.getSenders()
+        .find((candidate) => candidate.track?.kind === 'video');
+      if (sender) {
+        await sender.replaceTrack(cameraTrack ?? null);
+      }
+
+      if (currentStream) {
+        currentStream.getVideoTracks().forEach((track) => {
+          currentStream.removeTrack(track);
+        });
+
+        if (cameraTrack) {
+          currentStream.addTrack(cameraTrack);
+        }
+
+        const nextStream = new MediaStream(currentStream.getTracks());
+        localCallStreamRef.current = nextStream;
+        setLocalCallStream(nextStream);
+
+        if (cameraTrack) {
+          applySelectedDeviceIdsFromStream(nextStream);
+        }
+      }
+
+      screenShareStream?.getTracks().forEach((track) => {
+        track.onended = null;
+        track.stop();
+      });
+      screenShareStreamRef.current = null;
+      screenShareCameraTrackRef.current = null;
+      screenSharingRef.current = false;
+      setScreenSharing(false);
+      setScreenShareError('');
+
+      if (
+        notify &&
+        currentCall?.callId &&
+        canSendWebRtcSignalForCall(currentCall, currentCall.callId)
+      ) {
+        sendCallSignal({
+          eventType: 'SCREEN_SHARE_STOP',
+          callId: currentCall.callId,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to stop screen sharing:', error);
+      setScreenShareError('Unable to stop screen sharing.');
+    } finally {
+      screenShareStoppingRef.current = false;
+    }
+  }, [applySelectedDeviceIdsFromStream, sendCallSignal]);
+
+  const handleStartScreenShare = useCallback(async () => {
+    const currentCall = activeCallRef.current;
+    const currentStream = localCallStreamRef.current;
+    const peerConnection = peerConnectionRef.current;
+
+    if (
+      !currentCall?.callId ||
+      currentCall.type !== 'VIDEO' ||
+      !canSendWebRtcSignalForCall(currentCall, currentCall.callId)
+    ) {
+      return;
+    }
+
+    if (screenSharingRef.current || screenShareStoppingRef.current) {
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setScreenShareError('Browser does not support screen sharing.');
+      return;
+    }
+
+    if (!currentStream || !peerConnection) {
+      setScreenShareError('Call video is not ready.');
+      return;
+    }
+
+    setScreenShareError('');
+    let displayStream: MediaStream | null = null;
+
+    try {
+      displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false,
+      });
+      const [screenTrack] = displayStream.getVideoTracks();
+      if (!screenTrack) {
+        throw new Error('No screen track selected.');
+      }
+
+      const sender = peerConnection
+        .getSenders()
+        .find((candidate) => candidate.track?.kind === 'video');
+      if (!sender) {
+        throw new Error('Video sender is not ready.');
+      }
+
+      const [cameraTrack] = currentStream.getVideoTracks();
+      screenShareCameraTrackRef.current = cameraTrack ?? null;
+
+      await sender.replaceTrack(screenTrack);
+
+      currentStream.getVideoTracks().forEach((track) => {
+        currentStream.removeTrack(track);
+      });
+      currentStream.addTrack(screenTrack);
+
+      const nextStream = new MediaStream(currentStream.getTracks());
+      localCallStreamRef.current = nextStream;
+      screenShareStreamRef.current = displayStream;
+      screenSharingRef.current = true;
+      setLocalCallStream(nextStream);
+      setScreenSharing(true);
+      setScreenShareError('');
+
+      screenTrack.onended = () => {
+        if (!screenShareStoppingRef.current) {
+          void handleStopScreenShare();
+        }
+      };
+
+      sendCallSignal({
+        eventType: 'SCREEN_SHARE_START',
+        callId: currentCall.callId,
+      });
+    } catch (error) {
+      console.error('Failed to start screen sharing:', error);
+      displayStream?.getTracks().forEach((track) => {
+        track.onended = null;
+        track.stop();
+      });
+      screenShareStreamRef.current = null;
+      screenShareCameraTrackRef.current = null;
+      screenSharingRef.current = false;
+      setScreenSharing(false);
+      setScreenShareError(getScreenShareErrorMessage(error));
+    }
+  }, [handleStopScreenShare, sendCallSignal]);
 
   const handleAudioInputChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     void replaceLocalCallTrack('audio', event.target.value);
@@ -8214,6 +8485,21 @@ export default function ChatPage() {
       activeCall.status !== 'ending' &&
       (callConnectionState === 'failed' || callConnectionState === 'closed')
     );
+    const canToggleScreenShare = Boolean(
+      activeCallIsVideo &&
+      !isIncomingRinging &&
+      activeCall.status !== 'ringing' &&
+      activeCall.status !== 'ending' &&
+      localCallStream &&
+      callConnectionState !== 'failed' &&
+      callConnectionState !== 'closed'
+    );
+    const screenShareLabel = screenSharing
+      ? 'You are sharing your screen'
+      : remoteScreenSharing
+        ? `${activeCallPeerName} is sharing screen`
+        : '';
+    const screenShareButtonTitle = screenSharing ? 'Stop sharing screen' : 'Share screen';
     const statusLabel = isIncomingRinging
       ? `Incoming ${activeCall.type === 'VIDEO' ? 'video' : 'audio'} call`
       : isOutgoingRinging
@@ -8252,6 +8538,12 @@ export default function ChatPage() {
                   <span className={`call-status-dot ${callConnectionState}`} aria-hidden="true" />
                   {statusLabel}
                 </span>
+                {screenShareLabel ? (
+                  <span className="call-mini-sharing">
+                    <ScreenShareIcon className="call-mini-share-icon" />
+                    {screenShareLabel}
+                  </span>
+                ) : null}
               </span>
             </button>
 
@@ -8284,11 +8576,31 @@ export default function ChatPage() {
               {activeCallIsVideo ? (
                 <button
                   type="button"
+                  className={`call-mini-btn sharing ${screenSharing ? 'active' : ''}`}
+                  onClick={() => {
+                    void (screenSharing ? handleStopScreenShare() : handleStartScreenShare());
+                  }}
+                  disabled={!screenSharing && !canToggleScreenShare}
+                  aria-label={screenShareButtonTitle}
+                  title={screenShareButtonTitle}
+                >
+                  <ScreenShareIcon className="call-action-icon" />
+                </button>
+              ) : null}
+              {activeCallIsVideo ? (
+                <button
+                  type="button"
                   className={`call-mini-btn ${cameraOff ? 'active' : ''}`}
                   onClick={handleToggleCamera}
-                  disabled={!localCallStream}
+                  disabled={!localCallStream || screenSharing}
                   aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'}
-                  title={cameraOff ? 'Camera on' : 'Camera off'}
+                  title={
+                    screenSharing
+                      ? 'Stop sharing screen before changing camera'
+                      : cameraOff
+                        ? 'Camera on'
+                        : 'Camera off'
+                  }
                 >
                   {cameraOff ? (
                     <VideoOffIcon className="call-action-icon" />
@@ -8373,19 +8685,25 @@ export default function ChatPage() {
                 </div>
               )}
               {localCallStream ? (
-                cameraOff ? (
+                cameraOff && !screenSharing ? (
                   <div className="call-local-video-placeholder" title="Camera is off">
                     <VideoOffIcon className="call-action-icon" />
                   </div>
                 ) : (
                   <video
                     ref={localVideoRef}
-                    className="call-local-video"
+                    className={`call-local-video ${screenSharing ? 'screen' : ''}`}
                     autoPlay
                     muted
                     playsInline
                   />
                 )
+              ) : null}
+              {screenShareLabel ? (
+                <div className="call-share-indicator">
+                  <ScreenShareIcon className="call-share-indicator-icon" />
+                  <span>{screenShareLabel}</span>
+                </div>
               ) : null}
             </div>
           ) : (
@@ -8405,6 +8723,12 @@ export default function ChatPage() {
                   Retry
                 </button>
               ) : null}
+            </div>
+          ) : null}
+
+          {screenShareError ? (
+            <div className="call-error call-share-error">
+              <span>{screenShareError}</span>
             </div>
           ) : null}
 
@@ -8437,7 +8761,7 @@ export default function ChatPage() {
                     className="call-device-select"
                     value={selectedVideoInputId}
                     onChange={handleVideoInputChange}
-                    disabled={callDevicesLoading}
+                    disabled={callDevicesLoading || screenSharing}
                   >
                     <option value="">Default camera</option>
                     {selectedVideoInputId && !hasSelectedVideoDevice ? (
@@ -8488,20 +8812,40 @@ export default function ChatPage() {
                   )}
                 </button>
                 {activeCallIsVideo ? (
-                  <button
-                    type="button"
-                    className={`call-round-btn ${cameraOff ? 'active' : ''}`}
-                    onClick={handleToggleCamera}
-                    disabled={!localCallStream}
-                    aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'}
-                    title={cameraOff ? 'Camera on' : 'Camera off'}
-                  >
-                    {cameraOff ? (
-                      <VideoOffIcon className="call-action-icon" />
-                    ) : (
-                      <VideoCallIcon className="call-action-icon" />
-                    )}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className={`call-round-btn sharing ${screenSharing ? 'active' : ''}`}
+                      onClick={() => {
+                        void (screenSharing ? handleStopScreenShare() : handleStartScreenShare());
+                      }}
+                      disabled={!screenSharing && !canToggleScreenShare}
+                      aria-label={screenShareButtonTitle}
+                      title={screenShareButtonTitle}
+                    >
+                      <ScreenShareIcon className="call-action-icon" />
+                    </button>
+                    <button
+                      type="button"
+                      className={`call-round-btn ${cameraOff ? 'active' : ''}`}
+                      onClick={handleToggleCamera}
+                      disabled={!localCallStream || screenSharing}
+                      aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'}
+                      title={
+                        screenSharing
+                          ? 'Stop sharing screen before changing camera'
+                          : cameraOff
+                            ? 'Camera on'
+                            : 'Camera off'
+                      }
+                    >
+                      {cameraOff ? (
+                        <VideoOffIcon className="call-action-icon" />
+                      ) : (
+                        <VideoCallIcon className="call-action-icon" />
+                      )}
+                    </button>
+                  </>
                 ) : null}
                 <button
                   type="button"

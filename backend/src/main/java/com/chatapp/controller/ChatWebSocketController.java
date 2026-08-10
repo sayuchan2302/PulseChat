@@ -167,7 +167,7 @@ public class ChatWebSocketController {
                     request
             );
         } catch (AppException exception) {
-            if (isStaleWebRtcSignal(request, exception)) {
+            if (isStaleTransientCallSignal(request, exception)) {
                 log.debug(
                         "Ignoring stale {} for call {} from {}: {}",
                         request.eventType(),
@@ -195,17 +195,19 @@ public class ChatWebSocketController {
         callRealtimeNotifier.notifyParticipants(response);
     }
 
-    private boolean isStaleWebRtcSignal(CallSignalRequest request, AppException exception) {
-        return isWebRtcSignal(request) && (
+    private boolean isStaleTransientCallSignal(CallSignalRequest request, AppException exception) {
+        return isTransientCallSignal(request) && (
                 exception.getErrorCode() == ErrorCode.CALL_NOT_ACTIVE ||
                         exception.getErrorCode() == ErrorCode.CALL_NOT_FOUND
         );
     }
 
-    private boolean isWebRtcSignal(CallSignalRequest request) {
+    private boolean isTransientCallSignal(CallSignalRequest request) {
         return request.eventType() == CallSignalRequest.CallSignalType.WEBRTC_OFFER ||
                 request.eventType() == CallSignalRequest.CallSignalType.WEBRTC_ANSWER ||
-                request.eventType() == CallSignalRequest.CallSignalType.ICE_CANDIDATE;
+                request.eventType() == CallSignalRequest.CallSignalType.ICE_CANDIDATE ||
+                request.eventType() == CallSignalRequest.CallSignalType.SCREEN_SHARE_START ||
+                request.eventType() == CallSignalRequest.CallSignalType.SCREEN_SHARE_STOP;
     }
 
     private Principal requireAuthenticatedPrincipal(Principal principal) {
