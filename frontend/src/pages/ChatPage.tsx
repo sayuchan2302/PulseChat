@@ -170,10 +170,20 @@ type ActiveCall = {
 };
 
 type CallConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'closed';
+type CallPermissionStatus = PermissionState | 'unsupported' | 'unknown';
+type CallPermissionSnapshot = {
+  microphone: CallPermissionStatus;
+  camera: CallPermissionStatus;
+};
 type PreCallSetup = {
   type: CallType;
   target: User;
 } | null;
+
+const UNKNOWN_CALL_PERMISSIONS: CallPermissionSnapshot = {
+  microphone: 'unknown',
+  camera: 'unknown',
+};
 
 function canSendWebRtcSignalForCall(call: ActiveCall | null, callId?: number) {
   return Boolean(
@@ -1648,8 +1658,8 @@ function getCallMediaErrorMessage(error: unknown, callType: CallType) {
   if (error instanceof DOMException) {
     if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
       return callType === 'VIDEO'
-        ? 'Allow microphone and camera access to start the video call.'
-        : 'Allow microphone access to start the audio call.';
+        ? 'Allow microphone and camera access, then retry the video call.'
+        : 'Allow microphone access, then retry the audio call.';
     }
 
     if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
@@ -1674,6 +1684,35 @@ function getCallMediaErrorMessage(error: unknown, callType: CallType) {
   return callType === 'VIDEO'
     ? 'Unable to access microphone or camera.'
     : 'Unable to access microphone.';
+}
+
+async function queryCallPermission(name: 'microphone' | 'camera'): Promise<CallPermissionStatus> {
+  if (!navigator.permissions?.query) {
+    return 'unsupported';
+  }
+
+  try {
+    const permission = await navigator.permissions.query({ name: name as PermissionName });
+    return permission.state;
+  } catch {
+    return 'unsupported';
+  }
+}
+
+function getCallPermissionLabel(status: CallPermissionStatus) {
+  switch (status) {
+    case 'granted':
+      return 'Allowed';
+    case 'prompt':
+      return 'Ask';
+    case 'denied':
+      return 'Blocked';
+    case 'unsupported':
+      return 'Browser controlled';
+    case 'unknown':
+    default:
+      return 'Checking';
+  }
 }
 
 function getScreenShareErrorMessage(error: unknown) {
@@ -2775,6 +2814,9 @@ export default function ChatPage() {
   const [callDevices, setCallDevices] = useState<MediaDeviceInfo[]>([]);
   const [callDevicesLoading, setCallDevicesLoading] = useState(false);
   const [callDeviceError, setCallDeviceError] = useState('');
+  const [callPermissions, setCallPermissions] = useState<CallPermissionSnapshot>(
+    UNKNOWN_CALL_PERMISSIONS
+  );
   const [selectedAudioInputId, setSelectedAudioInputId] = useState('');
   const [selectedVideoInputId, setSelectedVideoInputId] = useState('');
   const [preCallSetup, setPreCallSetup] = useState<PreCallSetup>(null);
@@ -4767,6 +4809,15 @@ export default function ChatPage() {
     }
   }, []);
 
+  const refreshCallPermissions = useCallback(async (callType: CallType) => {
+    const [microphone, camera] = await Promise.all([
+      queryCallPermission('microphone'),
+      callType === 'VIDEO' ? queryCallPermission('camera') : Promise.resolve('unsupported' as const),
+    ]);
+
+    setCallPermissions({ microphone, camera });
+  }, []);
+
   const applySelectedDeviceIdsFromStream = useCallback((stream: MediaStream) => {
     const audioDeviceId = stream.getAudioTracks()[0]?.getSettings().deviceId;
     const videoDeviceId = stream.getVideoTracks()[0]?.getSettings().deviceId;
@@ -4817,10 +4868,12 @@ export default function ChatPage() {
       setPreCallPreviewStream(stream);
       applySelectedDeviceIdsFromStream(stream);
       void loadCallDevices();
+      void refreshCallPermissions(callType);
       return stream;
     } catch (error) {
       console.error('Failed to start pre-call preview:', error);
       setPreCallError(getCallMediaErrorMessage(error, callType));
+      void refreshCallPermissions(callType);
       return null;
     } finally {
       setPreCallPreviewLoading(false);
@@ -4828,6 +4881,7 @@ export default function ChatPage() {
   }, [
     applySelectedDeviceIdsFromStream,
     loadCallDevices,
+    refreshCallPermissions,
     selectedAudioInputId,
     selectedVideoInputId,
   ]);
@@ -4926,6 +4980,16 @@ export default function ChatPage() {
 
     void loadCallDevices();
   }, [activeCall, loadCallDevices]);
+
+  useEffect(() => {
+    const callType = preCallSetup?.type ?? activeCall?.type;
+    if (!callType) {
+      setCallPermissions(UNKNOWN_CALL_PERMISSIONS);
+      return;
+    }
+
+    void refreshCallPermissions(callType);
+  }, [activeCall?.type, preCallSetup?.type, refreshCallPermissions]);
 
   useEffect(() => {
     if (!activeCall || activeCall.status !== 'connected' || callStartedAt === null) {
@@ -5134,6 +5198,7 @@ export default function ChatPage() {
     setLocalCallStream(localStream);
     applySelectedDeviceIdsFromStream(localStream);
     void loadCallDevices();
+    void refreshCallPermissions(call.type);
 
     const peerConnection = new RTCPeerConnection({
       iceServers: RTC_ICE_SERVERS,
@@ -5224,7 +5289,13 @@ export default function ChatPage() {
     }
 
     return peerConnection;
-  }, [applySelectedDeviceIdsFromStream, getLocalCallMedia, loadCallDevices, sendCallSignal]);
+  }, [
+    applySelectedDeviceIdsFromStream,
+    getLocalCallMedia,
+    loadCallDevices,
+    refreshCallPermissions,
+    sendCallSignal,
+  ]);
 
   const startPeerConnection = useCallback(async (call: ActiveCall, initiator: boolean) => {
     try {
@@ -8043,6 +8114,37 @@ export default function ChatPage() {
   const mediaViewerType = mediaViewerMessage ? getMessageType(mediaViewerMessage) : 'IMAGE';
   const activeReplyPreview = createReplyFromMessage(replyingToMessage);
 
+  const renderCallPermissionStatus = (callType: CallType) => {
+    const permissionItems = [
+      { key: 'microphone', label: 'Mic', status: callPermissions.microphone },
+      ...(callType === 'VIDEO'
+        ? [{ key: 'camera', label: 'Camera', status: callPermissions.camera }]
+        : []),
+    ];
+
+    return (
+      <div className="call-permission-row" aria-label="Call permissions">
+        {permissionItems.map((item) => (
+          <span
+            key={item.key}
+            className={`call-permission-pill ${item.status}`}
+            title={`${item.label}: ${getCallPermissionLabel(item.status)}`}
+          >
+            <span>{item.label}</span>
+            <strong>{getCallPermissionLabel(item.status)}</strong>
+          </span>
+        ))}
+        <button
+          type="button"
+          className="call-permission-refresh"
+          onClick={() => void refreshCallPermissions(callType)}
+        >
+          Refresh
+        </button>
+      </div>
+    );
+  };
+
   const renderReplyQuote = (reply?: MessageReply | null) => {
     if (!reply) {
       return null;
@@ -8161,8 +8263,15 @@ export default function ChatPage() {
             type="button"
             className="call-message-callback"
             onClick={() => handleCallBackFromMessage(message)}
+            aria-label={`Call ${getUserDisplayName(callPeer)} again`}
+            title={`Call ${getUserDisplayName(callPeer)} again`}
           >
-            Call back
+            {isVideoCall ? (
+              <VideoCallIcon className="call-message-callback-icon" />
+            ) : (
+              <PhoneIcon className="call-message-callback-icon" />
+            )}
+            <span>Call again</span>
           </button>
         ) : null}
       </div>
@@ -8349,6 +8458,8 @@ export default function ChatPage() {
               </div>
             )}
           </div>
+
+          {renderCallPermissionStatus(preCallSetup.type)}
 
           <div className="pre-call-quick-actions" aria-label="Call setup controls">
             <button
@@ -8637,7 +8748,7 @@ export default function ChatPage() {
       <div className={callOverlayClassName} role="dialog" aria-modal="false" aria-label="Active call">
         <audio ref={remoteAudioRef} autoPlay playsInline />
         <div
-          className={`call-card ${activeCallIsVideo ? 'video' : 'audio'} ${activeCall.status} ${callConnectionState}`}
+          className={`call-card ${activeCallIsVideo ? 'video' : 'audio'} ${activeCall.direction} ${activeCall.status} ${callConnectionState}`}
         >
           <div className="call-header-row">
             <div className="call-identity">
@@ -8647,6 +8758,9 @@ export default function ChatPage() {
                 <span className="call-status-row">
                   <span className={`call-status-dot ${callConnectionState}`} aria-hidden="true" />
                   {statusLabel}
+                </span>
+                <span className="call-type-chip">
+                  {activeCall.type === 'VIDEO' ? 'Video call' : 'Audio call'}
                 </span>
               </div>
             </div>
@@ -8734,6 +8848,8 @@ export default function ChatPage() {
 
           {canShowDeviceControls ? (
             <div className="call-device-controls" aria-label="Call devices">
+              {renderCallPermissionStatus(activeCall.type)}
+
               <label className="call-device-field">
                 <span>Mic</span>
                 <select

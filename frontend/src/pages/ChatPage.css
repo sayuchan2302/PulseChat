@@ -1457,6 +1457,13 @@ button.main-list-item {
   border-color: #FCA5A5;
 }
 
+.call-card.incoming.ringing {
+  border-color: var(--purple-200);
+  box-shadow:
+    0 0 0 4px rgba(168, 85, 247, 0.1),
+    0 22px 48px rgba(88, 28, 135, 0.22);
+}
+
 .call-header-row {
   min-width: 0;
   display: flex;
@@ -1504,6 +1511,22 @@ button.main-list-item {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.call-type-chip {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--purple-100);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--purple-700) !important;
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  white-space: nowrap;
 }
 
 .call-status-dot {
@@ -1928,6 +1951,76 @@ button.main-list-item {
   color: var(--purple-800);
 }
 
+.call-permission-row {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.call-permission-pill {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--purple-100);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--gray-500);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.call-permission-pill strong {
+  color: var(--purple-700);
+  font-size: 11px;
+}
+
+.call-permission-pill.granted {
+  background: #ECFDF5;
+  border-color: #A7F3D0;
+  color: #047857;
+}
+
+.call-permission-pill.granted strong {
+  color: #047857;
+}
+
+.call-permission-pill.denied {
+  background: #FEF2F2;
+  border-color: #FECACA;
+  color: #B91C1C;
+}
+
+.call-permission-pill.denied strong {
+  color: #B91C1C;
+}
+
+.call-permission-refresh {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--purple-100);
+  border-radius: 999px;
+  background: var(--purple-50);
+  color: var(--purple-700);
+  font-size: 11px;
+  font-weight: 900;
+  transition: background 0.2s, color 0.2s, transform 0.2s;
+}
+
+.call-permission-refresh:hover {
+  background: var(--purple-100);
+  color: var(--purple-800);
+  transform: translateY(-1px);
+}
+
+.call-permission-refresh:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 2px;
+}
+
 .call-device-controls {
   padding: 10px;
   border: 1px solid var(--purple-100);
@@ -2125,6 +2218,10 @@ button.main-list-item {
   border-radius: 10px;
   aspect-ratio: 16 / 10;
   background: var(--purple-50);
+}
+
+.pre-call-modal>.call-permission-row {
+  margin: 0 20px 12px;
 }
 
 .pre-call-video-preview {
@@ -3761,6 +3858,10 @@ button.main-list-item {
   border-radius: 999px;
   background: var(--purple-50);
   color: var(--purple-700);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   font-size: 11px;
   font-weight: 900;
   white-space: nowrap;
@@ -3776,6 +3877,12 @@ button.main-list-item {
 .call-message-callback:focus-visible {
   outline: 2px solid var(--purple-500);
   outline-offset: 2px;
+}
+
+.call-message-callback-icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
 }
 
 .message-text {
