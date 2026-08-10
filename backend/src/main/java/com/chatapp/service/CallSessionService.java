@@ -40,7 +40,8 @@ public class CallSessionService {
             case CALL_CANCEL -> cancel(currentUser, request);
             case CALL_END -> end(currentUser, request);
             case CALL_MISSED, CALL_BUSY -> throw new AppException(ErrorCode.INVALID_CALL_SIGNAL);
-            case WEBRTC_OFFER, WEBRTC_ANSWER, ICE_CANDIDATE -> relayWebRtcSignal(currentUser, request);
+            case WEBRTC_OFFER, WEBRTC_ANSWER, ICE_CANDIDATE, SCREEN_SHARE_START, SCREEN_SHARE_STOP ->
+                    relayActiveCallSignal(currentUser, request);
         };
     }
 
@@ -174,7 +175,7 @@ public class CallSessionService {
         );
     }
 
-    private CallSignalResponse relayWebRtcSignal(User participant, CallSignalRequest request) {
+    private CallSignalResponse relayActiveCallSignal(User participant, CallSignalRequest request) {
         CallSession callSession = findCallSession(request);
         validateParticipant(callSession, participant);
         validateAccepted(callSession);

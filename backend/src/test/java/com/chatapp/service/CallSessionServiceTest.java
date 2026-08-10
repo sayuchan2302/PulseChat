@@ -214,6 +214,35 @@ class CallSessionServiceTest {
     }
 
     @Test
+    void screenShareStartRelaysForAcceptedCallWithoutPayload() {
+        User caller = user(1L, "sayu");
+        User receiver = user(2L, "thinh");
+        CallSession callSession = callSession(10L, caller, receiver, CallStatus.ACCEPTED);
+        when(userService.findByUsername("sayu")).thenReturn(caller);
+        when(callSessionRepository.findWithParticipantsById(callSession.getId()))
+                .thenReturn(Optional.of(callSession));
+
+        CallSignalResponse response = callSessionService.handleSignal(
+                "sayu",
+                new CallSignalRequest(
+                        CallSignalType.SCREEN_SHARE_START,
+                        callSession.getId(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                )
+        );
+
+        assertEquals(CallSignalType.SCREEN_SHARE_START, response.eventType());
+        assertEquals(CallStatus.ACCEPTED, response.status());
+        assertEquals(caller.getId(), response.fromUser().id());
+        verify(callSessionRepository, never()).saveAndFlush(any(CallSession.class));
+    }
+
+    @Test
     void receiverAcceptsRingingCall() {
         User caller = user(1L, "sayu");
         User receiver = user(2L, "thinh");

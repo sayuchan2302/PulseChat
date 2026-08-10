@@ -23,6 +23,8 @@ public record CallSignalRequest(
         CALL_BUSY,
         WEBRTC_OFFER,
         WEBRTC_ANSWER,
-        ICE_CANDIDATE
+        ICE_CANDIDATE,
+        SCREEN_SHARE_START,
+        SCREEN_SHARE_STOP
     }
 }
