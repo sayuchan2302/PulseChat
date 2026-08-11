@@ -22,6 +22,7 @@ import java.util.UUID;
 public class LocalMediaStorageService {
     private static final long MAX_IMAGE_SIZE_BYTES = 10L * 1024 * 1024;
     private static final long MAX_VIDEO_SIZE_BYTES = 50L * 1024 * 1024;
+    private static final long MAX_AUDIO_SIZE_BYTES = 20L * 1024 * 1024;
     private static final String PUBLIC_MEDIA_PATH = "/uploads/media";
 
     private static final Map<String, String> EXTENSIONS_BY_CONTENT_TYPE = Map.ofEntries(
@@ -34,7 +35,14 @@ public class LocalMediaStorageService {
             Map.entry("video/webm", "webm"),
             Map.entry("video/quicktime", "mov"),
             Map.entry("video/x-msvideo", "avi"),
-            Map.entry("video/x-matroska", "mkv"));
+            Map.entry("video/x-matroska", "mkv"),
+            Map.entry("audio/webm", "webm"),
+            Map.entry("audio/mpeg", "mp3"),
+            Map.entry("audio/mp3", "mp3"),
+            Map.entry("audio/mp4", "mp4"),
+            Map.entry("audio/ogg", "ogg"),
+            Map.entry("audio/wav", "wav"),
+            Map.entry("audio/x-wav", "wav"));
 
     @Value("${app.uploads.media-dir:uploads/media}")
     private String mediaDirectory;
@@ -54,11 +62,12 @@ public class LocalMediaStorageService {
 
         boolean isImage = contentType.startsWith("image/");
         boolean isVideo = contentType.startsWith("video/");
-        if (!isImage && !isVideo) {
+        boolean isAudio = contentType.startsWith("audio/");
+        if (!isImage && !isVideo && !isAudio) {
             throw new AppException(ErrorCode.INVALID_MEDIA_FILE);
         }
 
-        validateFileSize(mediaFile, isVideo);
+        validateFileSize(mediaFile, isVideo, isAudio);
 
         String format = determineFormat(mediaFile, contentType);
         String publicId = UUID.randomUUID().toString();
@@ -77,7 +86,9 @@ public class LocalMediaStorageService {
         }
 
         String url = normalizedContextPath() + PUBLIC_MEDIA_PATH + "/" + filename;
-        String resourceType = isVideo ? "video" : "image";
+        // Audio uses resourceType "video" (Cloudinary convention) so the same pipeline
+        // applies
+        String resourceType = isImage ? "image" : "video";
 
         return new LocalMediaUploadResponse(
                 url,
@@ -87,8 +98,15 @@ public class LocalMediaStorageService {
                 mediaFile.getSize());
     }
 
-    private void validateFileSize(MultipartFile file, boolean isVideo) {
-        long maxSize = isVideo ? MAX_VIDEO_SIZE_BYTES : MAX_IMAGE_SIZE_BYTES;
+    private void validateFileSize(MultipartFile file, boolean isVideo, boolean isAudio) {
+        long maxSize;
+        if (isVideo) {
+            maxSize = MAX_VIDEO_SIZE_BYTES;
+        } else if (isAudio) {
+            maxSize = MAX_AUDIO_SIZE_BYTES;
+        } else {
+            maxSize = MAX_IMAGE_SIZE_BYTES;
+        }
         if (file.getSize() > maxSize) {
             throw new AppException(ErrorCode.INVALID_MEDIA_FILE);
         }
@@ -105,7 +123,11 @@ public class LocalMediaStorageService {
             return originalName.substring(originalName.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
         }
 
-        return contentType.startsWith("video/") ? "mp4" : "png";
+        if (contentType.startsWith("video/"))
+            return "mp4";
+        if (contentType.startsWith("audio/"))
+            return "webm";
+        return "png";
     }
 
     private String normalizedContextPath() {

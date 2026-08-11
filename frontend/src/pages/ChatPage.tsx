@@ -608,6 +608,213 @@ function VideoOffIcon({ className }: HeaderIconProps) {
   );
 }
 
+// ─── Voice Recorder Button ────────────────────────────────────────────────────
+
+const MAX_VOICE_DURATION_MS = 120_000; // 2 minutes
+
+interface VoiceRecorderButtonProps {
+  disabled?: boolean;
+  onRecorded: (blob: Blob, durationSeconds: number) => void;
+}
+
+function VoiceRecorderButton({ disabled, onRecorded }: VoiceRecorderButtonProps) {
+  const [recording, setRecording] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef = useRef<number>(0);
+  const autoStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopRecording = useCallback((cancelled = false) => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (autoStopRef.current) clearTimeout(autoStopRef.current);
+    timerRef.current = null;
+    autoStopRef.current = null;
+
+    const mr = mediaRecorderRef.current;
+    if (!mr || mr.state === 'inactive') return;
+
+    mr.onstop = () => {
+      if (!cancelled && chunksRef.current.length > 0) {
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
+        const dur = Math.round((Date.now() - startTimeRef.current) / 1000);
+        onRecorded(blob, dur);
+      }
+      chunksRef.current = [];
+      mediaRecorderRef.current = null;
+    };
+    mr.stop();
+    mr.stream.getTracks().forEach((t) => t.stop());
+    setRecording(false);
+    setElapsed(0);
+  }, [onRecorded]);
+
+  const startRecording = useCallback(async () => {
+    if (disabled || recording) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      mediaRecorderRef.current = mr;
+      chunksRef.current = [];
+      startTimeRef.current = Date.now();
+
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      mr.start(200);
+      setRecording(true);
+      setElapsed(0);
+
+      timerRef.current = setInterval(() => {
+        setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+      }, 500);
+
+      autoStopRef.current = setTimeout(() => stopRecording(false), MAX_VOICE_DURATION_MS);
+    } catch {
+      // Microphone not available or denied
+    }
+  }, [disabled, recording, stopRecording]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (autoStopRef.current) clearTimeout(autoStopRef.current);
+      mediaRecorderRef.current?.stream?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
+  const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
+  const secs = String(elapsed % 60).padStart(2, '0');
+
+  if (recording) {
+    return (
+      <div className="voice-recorder-active">
+        <span className="voice-recorder-dot" aria-hidden="true" />
+        <span className="voice-recorder-timer">{mins}:{secs}</span>
+        <button
+          type="button"
+          className="voice-recorder-cancel"
+          onClick={() => stopRecording(true)}
+          aria-label="Cancel recording"
+          title="Cancel"
+        >
+          ✕
+        </button>
+        <button
+          type="button"
+          className="voice-recorder-send"
+          onClick={() => stopRecording(false)}
+          aria-label="Send voice message"
+          title="Send"
+        >
+          ▶
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="composer-icon-btn voice-record-btn"
+      onClick={startRecording}
+      disabled={disabled}
+      aria-label="Record voice message"
+      title="Voice message"
+    >
+      <MicIcon className="composer-icon" />
+    </button>
+  );
+}
+
+// ─── Voice Message Player ─────────────────────────────────────────────────────
+
+interface VoiceMessagePlayerProps {
+  src: string;
+  durationSeconds?: number | null;
+}
+
+function VoiceMessagePlayer({ src, durationSeconds }: VoiceMessagePlayerProps) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(durationSeconds ?? 0);
+
+  const formatTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  };
+
+  const toggle = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (playing) {
+      audio.pause();
+    } else {
+      void audio.play();
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    const audio = audioRef.current;
+    if (!audio || !audio.duration) return;
+    setProgress((audio.currentTime / audio.duration) * 100);
+  };
+
+  const handleLoadedMetadata = () => {
+    const audio = audioRef.current;
+    if (audio && audio.duration && Number.isFinite(audio.duration)) {
+      setDuration(audio.duration);
+    }
+  };
+
+  const handleScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const audio = audioRef.current;
+    if (!audio || !audio.duration) return;
+    const pct = Number(e.target.value);
+    audio.currentTime = (pct / 100) * audio.duration;
+    setProgress(pct);
+  };
+
+  return (
+    <div className="voice-player">
+      <audio
+        ref={audioRef}
+        src={src}
+        preload="metadata"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => { setPlaying(false); setProgress(0); }}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+      />
+      <button
+        type="button"
+        className="voice-player-btn"
+        onClick={toggle}
+        aria-label={playing ? 'Pause' : 'Play'}
+      >
+        {playing ? '⏸' : '▶'}
+      </button>
+      <div className="voice-player-track">
+        <input
+          type="range"
+          className="voice-player-scrub"
+          min={0}
+          max={100}
+          step={0.1}
+          value={progress}
+          onChange={handleScrub}
+          aria-label="Seek"
+        />
+      </div>
+      <span className="voice-player-time">{formatTime(duration)}</span>
+    </div>
+  );
+}
+
 function SearchIcon({ className }: HeaderIconProps) {
   return (
     <svg
@@ -1291,7 +1498,7 @@ function getMessageType(message: Message): MessageType {
 
 function isMediaMessage(message: Message) {
   const type = getMessageType(message);
-  return type === 'IMAGE' || type === 'VIDEO';
+  return type === 'IMAGE' || type === 'VIDEO' || type === 'AUDIO';
 }
 
 function isCallMessage(message: Message) {
@@ -1314,6 +1521,10 @@ function getMessagePreviewContent(message: Message) {
 
   if (getMessageType(message) === 'VIDEO') {
     return 'Video';
+  }
+
+  if (getMessageType(message) === 'AUDIO') {
+    return '🎙 Voice message';
   }
 
   if (isCallMessage(message)) {
@@ -1370,9 +1581,8 @@ function getMessageSearchSnippet(message: Message, query: string) {
     matchIndex + normalizedQuery.length + contextAfter
   );
 
-  return `${startIndex > 0 ? '...' : ''}${normalizedSource.slice(startIndex, endIndex)}${
-    endIndex < normalizedSource.length ? '...' : ''
-  }`;
+  return `${startIndex > 0 ? '...' : ''}${normalizedSource.slice(startIndex, endIndex)}${endIndex < normalizedSource.length ? '...' : ''
+    }`;
 }
 
 function escapeRegExp(value: string) {
@@ -1483,6 +1693,11 @@ function getPendingMediaType(file: File): Pick<PendingMedia, 'type' | 'resourceT
     return { type: 'VIDEO', resourceType: 'video' };
   }
 
+  if (file.type.startsWith('audio/')) {
+    // Cloudinary stores audio under resource_type "video"
+    return { type: 'AUDIO', resourceType: 'video' };
+  }
+
   return null;
 }
 
@@ -1493,6 +1708,10 @@ function getMediaSizeError(file: File, pendingMediaType: Pick<PendingMedia, 'typ
 
   if (pendingMediaType.type === 'VIDEO' && file.size > MAX_VIDEO_MEDIA_SIZE_BYTES) {
     return `Video must be ${MAX_VIDEO_MEDIA_SIZE_MB}MB or smaller.`;
+  }
+
+  if (pendingMediaType.type === 'AUDIO' && file.size > 20 * 1024 * 1024) {
+    return 'Voice message must be 20MB or smaller.';
   }
 
   return '';
@@ -7582,6 +7801,25 @@ export default function ChatPage() {
     }
   };
 
+  const handleVoiceRecorded = useCallback((blob: Blob, durationSeconds: number) => {
+    const mimeType = blob.type || 'audio/webm';
+    const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+    const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: mimeType });
+    const previewUrl = URL.createObjectURL(blob);
+    const pendingVoice: PendingMedia = {
+      file,
+      previewUrl,
+      type: 'AUDIO',
+      resourceType: 'video',
+      mediaDuration: durationSeconds,
+    };
+    setPendingMedia(pendingVoice);
+    setTimeout(() => {
+      const form = document.querySelector<HTMLFormElement>('.message-input-form');
+      form?.requestSubmit();
+    }, 50);
+  }, []);
+
   const handleMessageInputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
       return;
@@ -8328,6 +8566,20 @@ export default function ChatPage() {
           {message.content ? (
             <div className="message-media-caption">{renderLinkedText(message.content)}</div>
           ) : null}
+        </div>
+      );
+    }
+
+    if (getMessageType(message) === 'AUDIO' && mediaUrl) {
+      return (
+        <div className="message-media-content">
+          {renderReplyQuote(message.replyTo)}
+          <div className="message-voice">
+            <VoiceMessagePlayer
+              src={mediaUrl}
+              durationSeconds={message.mediaDuration}
+            />
+          </div>
         </div>
       );
     }
@@ -9786,9 +10038,8 @@ export default function ChatPage() {
               {showInitialSearchLoading
                 ? 'Searching...'
                 : messageSearchItems.length > 0
-                  ? `${activeSearchPosition} of ${messageSearchItems.length}${
-                      messageSearchHasMore ? '+' : ''
-                    }`
+                  ? `${activeSearchPosition} of ${messageSearchItems.length}${messageSearchHasMore ? '+' : ''
+                  }`
                   : 'No results'}
             </span>
             <div className="message-search-nav" aria-label="Search result navigation">
@@ -10881,6 +11132,10 @@ export default function ChatPage() {
                     >
                       <MediaIcon className="composer-icon" />
                     </button>
+                    <VoiceRecorderButton
+                      disabled={mediaUploading}
+                      onRecorded={handleVoiceRecorded}
+                    />
                     <button
                       ref={emojiButtonRef}
                       type="button"
