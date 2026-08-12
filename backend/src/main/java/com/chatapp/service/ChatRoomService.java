@@ -72,8 +72,7 @@ public class ChatRoomService {
         List<ChatRoom> rooms = chatRoomRepository
                 .findDistinctByMembersUserIdAndTypeOrderByCreatedAtDesc(
                         currentUser.getId(),
-                        ChatRoom.RoomType.GROUP
-                );
+                        ChatRoom.RoomType.GROUP);
         List<Long> roomIds = rooms.stream().map(ChatRoom::getId).toList();
         Map<Long, Message> latestMessagesByRoomId = findLatestMessagesByRoomId(roomIds);
         Map<Long, Long> unreadCountsByRoomId = countUnreadMessagesByRoomId(currentUser.getId(), roomIds);
@@ -85,8 +84,7 @@ public class ChatRoomService {
                         room,
                         latestMessagesByRoomId.get(room.getId()),
                         unreadCountsByRoomId.getOrDefault(room.getId(), 0L),
-                        settingsByRoomId.get(room.getId())
-                ))
+                        settingsByRoomId.get(room.getId())))
                 .sorted(this::compareByConversationActivity)
                 .toList();
     }
@@ -122,8 +120,7 @@ public class ChatRoomService {
     public ChatRoomResponse updateGroup(
             String currentUsername,
             Long roomId,
-            UpdateChatRoomRequest request
-    ) {
+            UpdateChatRoomRequest request) {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
         validateGroupOwner(room, currentUser);
@@ -141,8 +138,7 @@ public class ChatRoomService {
     public ChatRoomResponse addMembers(
             String currentUsername,
             Long roomId,
-            AddRoomMembersRequest request
-    ) {
+            AddRoomMembersRequest request) {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
         validateGroupOwner(room, currentUser);
@@ -192,8 +188,7 @@ public class ChatRoomService {
             String currentUsername,
             Long roomId,
             Long memberId,
-            UpdateRoomMemberNicknameRequest request
-    ) {
+            UpdateRoomMemberNicknameRequest request) {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
         validateGroupOwner(room, currentUser);
@@ -209,8 +204,7 @@ public class ChatRoomService {
     public ChatRoomResponse transferOwner(
             String currentUsername,
             Long roomId,
-            TransferRoomOwnerRequest request
-    ) {
+            TransferRoomOwnerRequest request) {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
         validateGroupOwner(room, currentUser);
@@ -245,6 +239,30 @@ public class ChatRoomService {
         ChatRoom savedRoom = chatRoomRepository.saveAndFlush(room);
         Message latestMessage = findLatestMessagesByRoomId(List.of(savedRoom.getId())).get(savedRoom.getId());
         return ChatRoomResponse.from(savedRoom, latestMessage, 0, findSetting(currentUser.getId(), savedRoom.getId()));
+    }
+
+    @Transactional
+    public ChatRoomResponse pinRoomMessage(String currentUsername, Long roomId, Long messageId) {
+        User currentUser = userService.findByUsername(currentUsername);
+        ChatRoom room = findGroupRoomForMember(currentUser, roomId);
+
+        Message message = messageRepository.findById(messageId)
+                .orElseThrow(() -> new AppException(ErrorCode.MESSAGE_NOT_FOUND));
+
+        if (message.getChatRoom() == null || !message.getChatRoom().getId().equals(roomId)) {
+            throw new AppException(ErrorCode.MESSAGE_NOT_FOUND);
+        }
+
+        room.setPinnedMessage(message);
+        return toGroupResponseForUser(currentUser, chatRoomRepository.saveAndFlush(room));
+    }
+
+    @Transactional
+    public ChatRoomResponse unpinRoomMessage(String currentUsername, Long roomId) {
+        User currentUser = userService.findByUsername(currentUsername);
+        ChatRoom room = findGroupRoomForMember(currentUser, roomId);
+        room.setPinnedMessage(null);
+        return toGroupResponseForUser(currentUser, chatRoomRepository.saveAndFlush(room));
     }
 
     @Transactional(readOnly = true)
@@ -282,8 +300,7 @@ public class ChatRoomService {
                 room,
                 latestMessage,
                 unreadCount,
-                findSetting(currentUser.getId(), room.getId())
-        );
+                findSetting(currentUser.getId(), room.getId()));
     }
 
     private void validateGroupOwner(ChatRoom room, User currentUser) {
@@ -326,8 +343,7 @@ public class ChatRoomService {
                 .stream()
                 .collect(Collectors.toMap(
                         message -> message.getChatRoom().getId(),
-                        Function.identity()
-                ));
+                        Function.identity()));
     }
 
     private Map<Long, Long> countUnreadMessagesByRoomId(Long currentUserId, List<Long> roomIds) {
@@ -339,8 +355,7 @@ public class ChatRoomService {
                 .stream()
                 .collect(Collectors.toMap(
                         MessageRepository.RoomUnreadCountProjection::getRoomId,
-                        MessageRepository.RoomUnreadCountProjection::getUnreadCount
-                ));
+                        MessageRepository.RoomUnreadCountProjection::getUnreadCount));
     }
 
     private Map<Long, ConversationSetting> findSettingsByRoomId(Long currentUserId, List<Long> roomIds) {
@@ -348,8 +363,8 @@ public class ChatRoomService {
             return Map.of();
         }
 
-        List<ConversationSetting> settings =
-                conversationSettingRepository.findByUserIdAndChatRoomIdIn(currentUserId, roomIds);
+        List<ConversationSetting> settings = conversationSettingRepository.findByUserIdAndChatRoomIdIn(currentUserId,
+                roomIds);
         if (settings == null || settings.isEmpty()) {
             return Map.of();
         }
@@ -359,8 +374,8 @@ public class ChatRoomService {
     }
 
     private ConversationSetting findSetting(Long currentUserId, Long roomId) {
-        java.util.Optional<ConversationSetting> setting =
-                conversationSettingRepository.findByUserIdAndChatRoomId(currentUserId, roomId);
+        java.util.Optional<ConversationSetting> setting = conversationSettingRepository
+                .findByUserIdAndChatRoomId(currentUserId, roomId);
         return setting == null ? null : setting.orElse(null);
     }
 

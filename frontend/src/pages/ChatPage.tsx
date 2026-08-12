@@ -2969,6 +2969,8 @@ export default function ChatPage() {
   const [messageInput, setMessageInput] = useState('');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [replyingToMessage, setReplyingToMessage] = useState<ChatMessage | null>(null);
+  const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
+
   const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null);
   const [mediaUploading, setMediaUploading] = useState(false);
   const [mediaError, setMediaError] = useState('');
@@ -3215,6 +3217,17 @@ export default function ChatPage() {
   useEffect(() => {
     cameraOffRef.current = cameraOff;
   }, [cameraOff]);
+
+  // Sync pinned message when switching conversations
+  useEffect(() => {
+    if (selectedRoom) {
+      setPinnedMessage(selectedRoom.pinnedMessage ?? null);
+    } else if (selectedUser) {
+      setPinnedMessage(selectedUser.pinnedMessage ?? null);
+    } else {
+      setPinnedMessage(null);
+    }
+  }, [selectedRoom?.id, selectedUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     screenSharingRef.current = screenSharing;
@@ -7658,6 +7671,39 @@ export default function ChatPage() {
     }
   };
 
+  const handlePinMessage = useCallback(async (message: ChatMessage) => {
+    try {
+      if (selectedRoom) {
+        await apiClient.patch(`/rooms/${selectedRoom.id}/pin-message`, null, {
+          params: { messageId: message.id },
+        });
+        // Local state update – banner shows immediately
+        setPinnedMessage(message as unknown as Message);
+      } else if (selectedUser) {
+        await apiClient.patch(`/messages/dm/${selectedUser.id}/pin-message`, null, {
+          params: { messageId: message.id },
+        });
+        setPinnedMessage(message as unknown as Message);
+      }
+    } catch (error) {
+      console.error('Failed to pin message:', error);
+    }
+  }, [selectedRoom, selectedUser]);
+
+  const handleUnpinMessage = useCallback(async () => {
+    try {
+      if (selectedRoom) {
+        await apiClient.delete(`/rooms/${selectedRoom.id}/pin-message`);
+        setPinnedMessage(null);
+      } else if (selectedUser) {
+        await apiClient.delete(`/messages/dm/${selectedUser.id}/pin-message`);
+        setPinnedMessage(null);
+      }
+    } catch (error) {
+      console.error('Failed to unpin message:', error);
+    }
+  }, [selectedRoom, selectedUser]);
+
   const handleMessageInputChange = (value: string) => {
     setMessageInput(value);
     if (!selectedUser && !selectedRoom) {
@@ -8499,6 +8545,17 @@ export default function ChatPage() {
             <RecallIcon className="message-action-icon" />
           </button>
         ) : null}
+        <button
+          type="button"
+          className="message-action-btn"
+          onClick={() => void handlePinMessage(message)}
+          aria-label="Pin message"
+          title={pinnedMessage?.id === message.id ? 'Unpin' : 'Pin'}
+        >
+          <span style={{ fontSize: '13px' }}>
+            {pinnedMessage?.id === message.id ? '📌' : '📌'}
+          </span>
+        </button>
       </div>
     );
   };
@@ -10916,6 +10973,39 @@ export default function ChatPage() {
                   </button>
                 </div>
               </div>
+
+              {pinnedMessage ? (
+                <div className="pinned-message-banner">
+                  <button
+                    type="button"
+                    className="pinned-message-banner-body"
+                    onClick={() => {
+                      const msg = messages.find((m) => m.id === pinnedMessage.id);
+                      if (msg) scrollToMessage(msg.id);
+                    }}
+                    aria-label="Go to pinned message"
+                  >
+                    <span className="pinned-banner-icon">📌</span>
+                    <span className="pinned-banner-content">
+                      <span className="pinned-banner-label">Pinned message</span>
+                      <span className="pinned-banner-text">
+                        {pinnedMessage.recalled
+                          ? 'Message recalled'
+                          : pinnedMessage.content || '📎 Media'}
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="pinned-banner-close"
+                    onClick={() => void handleUnpinMessage()}
+                    aria-label="Unpin message"
+                    title="Unpin"
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : null}
 
               <div
                 ref={messagesContainerRef}

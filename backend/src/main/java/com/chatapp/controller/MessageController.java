@@ -45,8 +45,7 @@ public class MessageController {
             Authentication authentication,
             @PathVariable Long userId,
             @RequestParam(required = false) Long before,
-            @RequestParam(required = false) Integer size
-    ) {
+            @RequestParam(required = false) Integer size) {
         return messageService.getConversation(authentication.getName(), userId, before, size);
     }
 
@@ -55,8 +54,7 @@ public class MessageController {
             Authentication authentication,
             @PathVariable Long userId,
             @RequestParam(required = false) Long before,
-            @RequestParam(required = false) Integer size
-    ) {
+            @RequestParam(required = false) Integer size) {
         return messageService.getConversationMedia(authentication.getName(), userId, before, size);
     }
 
@@ -65,8 +63,7 @@ public class MessageController {
             Authentication authentication,
             @PathVariable Long userId,
             @RequestParam(required = false) Long before,
-            @RequestParam(required = false) Integer size
-    ) {
+            @RequestParam(required = false) Integer size) {
         return messageService.getConversationLinks(authentication.getName(), userId, before, size);
     }
 
@@ -76,8 +73,7 @@ public class MessageController {
             @PathVariable Long userId,
             @RequestParam String query,
             @RequestParam(required = false) Long before,
-            @RequestParam(required = false) Integer size
-    ) {
+            @RequestParam(required = false) Integer size) {
         return messageService.searchConversation(authentication.getName(), userId, query, before, size);
     }
 
@@ -86,8 +82,7 @@ public class MessageController {
             Authentication authentication,
             @PathVariable Long userId,
             @PathVariable Long messageId,
-            @RequestParam(required = false) Integer size
-    ) {
+            @RequestParam(required = false) Integer size) {
         return messageService.getConversationAroundMessage(authentication.getName(), userId, messageId, size);
     }
 
@@ -99,8 +94,7 @@ public class MessageController {
     @PostMapping
     public ResponseEntity<MessageResponse> sendMessage(
             Authentication authentication,
-            @Valid @RequestBody SendMessageRequest request
-    ) {
+            @Valid @RequestBody SendMessageRequest request) {
         MessageResponse message = messageService.sendMessage(authentication.getName(), request);
         notifyMessageParticipants(authentication.getName(), message.id(), message);
 
@@ -111,8 +105,7 @@ public class MessageController {
     public MessageResponse reactToMessage(
             Authentication authentication,
             @PathVariable Long messageId,
-            @Valid @RequestBody MessageReactionRequest request
-    ) {
+            @Valid @RequestBody MessageReactionRequest request) {
         MessageResponse message = messageService.reactToMessage(authentication.getName(), messageId, request);
         notifyMessageUpdateParticipants(authentication.getName(), messageId, message);
         return message;
@@ -121,8 +114,7 @@ public class MessageController {
     @DeleteMapping("/{messageId}/reactions")
     public MessageResponse removeReaction(
             Authentication authentication,
-            @PathVariable Long messageId
-    ) {
+            @PathVariable Long messageId) {
         MessageResponse message = messageService.removeReaction(authentication.getName(), messageId);
         notifyMessageUpdateParticipants(authentication.getName(), messageId, message);
         return message;
@@ -131,11 +123,41 @@ public class MessageController {
     @PatchMapping("/{messageId}/recall")
     public MessageResponse recallMessage(
             Authentication authentication,
-            @PathVariable Long messageId
-    ) {
+            @PathVariable Long messageId) {
         MessageResponse message = messageService.recallMessage(authentication.getName(), messageId);
         notifyMessageUpdateParticipants(authentication.getName(), messageId, message);
         return message;
+    }
+
+    @PatchMapping("/dm/{userId}/pin-message")
+    public ResponseEntity<Void> pinDmMessage(
+            Authentication authentication,
+            @PathVariable Long userId,
+            @RequestParam Long messageId) {
+        messageService.pinDmMessage(authentication.getName(), userId, messageId);
+        List<String> participantUsernames = messageService.getMessageParticipantUsernames(
+                authentication.getName(), messageId);
+        var payload = java.util.Map.of("pinnedMessageId", messageId);
+        participantUsernames
+                .forEach(username -> messagingTemplate.convertAndSendToUser(username, "/queue/pin-update", payload));
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/dm/{userId}/pin-message")
+    public ResponseEntity<Void> unpinDmMessage(
+            Authentication authentication,
+            @PathVariable Long userId) {
+        messageService.unpinDmMessage(authentication.getName(), userId);
+        // Simplest broadcast: notify both the current user and the target user by
+        // username directly
+        String currentUsername = authentication.getName();
+        String otherUsername = messageService.getUsernameById(userId);
+        var payload = java.util.Map.of("pinnedMessageId", (Object) null);
+        messagingTemplate.convertAndSendToUser(currentUsername, "/queue/pin-update", payload);
+        if (otherUsername != null) {
+            messagingTemplate.convertAndSendToUser(otherUsername, "/queue/pin-update", payload);
+        }
+        return ResponseEntity.noContent().build();
     }
 
     private void notifyMessageUpdateParticipants(String currentUsername, Long messageId, MessageResponse message) {
@@ -150,15 +172,11 @@ public class MessageController {
             String currentUsername,
             Long messageId,
             MessageResponse message,
-            String queue
-    ) {
+            String queue) {
         messageService.getMessageParticipantUsernames(currentUsername, messageId)
-                .forEach(username ->
-                        messagingTemplate.convertAndSendToUser(
-                                username,
-                                queue,
-                                message
-                        )
-                );
+                .forEach(username -> messagingTemplate.convertAndSendToUser(
+                        username,
+                        queue,
+                        message));
     }
 }

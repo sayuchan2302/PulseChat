@@ -21,58 +21,52 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(
-        name = "conversation_settings",
-        uniqueConstraints = {
-                @UniqueConstraint(
-                        name = "uk_conversation_settings_private",
-                        columnNames = {"user_id", "target_user_id"}
-                ),
-                @UniqueConstraint(
-                        name = "uk_conversation_settings_room",
-                        columnNames = {"user_id", "chat_room_id"}
-                )
-        },
-        indexes = {
+@Table(name = "conversation_settings", uniqueConstraints = {
+                @UniqueConstraint(name = "uk_conversation_settings_private", columnNames = { "user_id",
+                                "target_user_id" }),
+                @UniqueConstraint(name = "uk_conversation_settings_room", columnNames = { "user_id", "chat_room_id" })
+}, indexes = {
                 @Index(name = "idx_conversation_settings_user_private", columnList = "user_id, target_user_id"),
                 @Index(name = "idx_conversation_settings_user_room", columnList = "user_id, chat_room_id"),
                 @Index(name = "idx_conversation_settings_user_flags", columnList = "user_id, pinned, archived")
-        }
-)
+})
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 public class ConversationSetting {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+        @Id
+        @GeneratedValue(strategy = GenerationType.IDENTITY)
+        private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
-    private User user;
+        @ManyToOne(fetch = FetchType.LAZY)
+        @JoinColumn(name = "user_id", nullable = false)
+        private User user;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "target_user_id")
-    private User targetUser;
+        @ManyToOne(fetch = FetchType.LAZY)
+        @JoinColumn(name = "target_user_id")
+        private User targetUser;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "chat_room_id")
-    private ChatRoom chatRoom;
+        @ManyToOne(fetch = FetchType.LAZY)
+        @JoinColumn(name = "chat_room_id")
+        private ChatRoom chatRoom;
 
-    @Column(nullable = false)
-    private Boolean pinned = false;
+        @Column(nullable = false)
+        private Boolean pinned = false;
 
-    @Column(nullable = false)
-    private Boolean muted = false;
+        @Column(nullable = false)
+        private Boolean muted = false;
 
-    @Column(nullable = false)
-    private Boolean archived = false;
+        @Column(nullable = false)
+        private Boolean archived = false;
 
-    @CreationTimestamp
-    @Column(updatable = false)
-    private LocalDateTime createdAt;
+        @Column(name = "pinned_message_id")
+        private Long pinnedMessageId;
 
-    @UpdateTimestamp
-    private LocalDateTime updatedAt;
+        @CreationTimestamp
+        @Column(updatable = false)
+        private LocalDateTime createdAt;
+
+        @UpdateTimestamp
+        private LocalDateTime updatedAt;
 }

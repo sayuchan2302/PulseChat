@@ -21,8 +21,10 @@ import com.chatapp.model.ChatRoomReadState;
 import com.chatapp.model.Message;
 import com.chatapp.model.MessageReaction;
 import com.chatapp.model.Message.MessageType;
+import com.chatapp.model.ConversationSetting;
 import com.chatapp.model.User;
 import com.chatapp.repository.ChatRoomReadStateRepository;
+import com.chatapp.repository.ConversationSettingRepository;
 import com.chatapp.repository.MessageRepository;
 import com.chatapp.repository.MessageReactionRepository;
 import lombok.RequiredArgsConstructor;
@@ -57,23 +59,23 @@ public class MessageService {
     private final ChatRoomService chatRoomService;
     private final FriendshipService friendshipService;
     private final LinkPreviewService linkPreviewService;
+    private final ConversationSettingRepository conversationSettingRepository;
 
     @Transactional(readOnly = true)
     public MessagePageResponse getConversation(
             String currentUsername,
             Long otherUserId,
             Long before,
-            Integer size
-    ) {
-        PrivateConversationParticipants participants = findPrivateConversationParticipants(currentUsername, otherUserId);
+            Integer size) {
+        PrivateConversationParticipants participants = findPrivateConversationParticipants(currentUsername,
+                otherUserId);
 
         int pageSize = normalizePageSize(size);
         List<Message> messages = messageRepository.findConversationPage(
                 participants.currentUser().getId(),
                 participants.otherUser().getId(),
                 before,
-                PageRequest.of(0, pageSize + 1)
-        );
+                PageRequest.of(0, pageSize + 1));
 
         return toMessagePage(messages, pageSize);
     }
@@ -96,8 +98,7 @@ public class MessageService {
         List<Message> messages = messageRepository.findRoomMessagePage(
                 roomId,
                 before,
-                PageRequest.of(0, pageSize + 1)
-        );
+                PageRequest.of(0, pageSize + 1));
 
         return toMessagePage(messages, pageSize);
     }
@@ -107,9 +108,9 @@ public class MessageService {
             String currentUsername,
             Long otherUserId,
             Long before,
-            Integer size
-    ) {
-        PrivateConversationParticipants participants = findPrivateConversationParticipants(currentUsername, otherUserId);
+            Integer size) {
+        PrivateConversationParticipants participants = findPrivateConversationParticipants(currentUsername,
+                otherUserId);
 
         int pageSize = normalizePageSize(size);
         List<Message> messages = messageRepository.findConversationMediaPage(
@@ -117,8 +118,7 @@ public class MessageService {
                 participants.otherUser().getId(),
                 MEDIA_MESSAGE_TYPES,
                 before,
-                PageRequest.of(0, pageSize + 1)
-        );
+                PageRequest.of(0, pageSize + 1));
 
         return toGalleryMessagePage(messages, pageSize);
     }
@@ -128,17 +128,16 @@ public class MessageService {
             String currentUsername,
             Long otherUserId,
             Long before,
-            Integer size
-    ) {
-        PrivateConversationParticipants participants = findPrivateConversationParticipants(currentUsername, otherUserId);
+            Integer size) {
+        PrivateConversationParticipants participants = findPrivateConversationParticipants(currentUsername,
+                otherUserId);
 
         int pageSize = normalizePageSize(size);
         List<Message> messages = messageRepository.findConversationLinkPage(
                 participants.currentUser().getId(),
                 participants.otherUser().getId(),
                 before,
-                PageRequest.of(0, pageSize + 1)
-        );
+                PageRequest.of(0, pageSize + 1));
 
         return toGalleryMessagePage(messages, pageSize);
     }
@@ -152,8 +151,7 @@ public class MessageService {
                 roomId,
                 MEDIA_MESSAGE_TYPES,
                 before,
-                PageRequest.of(0, pageSize + 1)
-        );
+                PageRequest.of(0, pageSize + 1));
 
         return toGalleryMessagePage(messages, pageSize);
     }
@@ -166,8 +164,7 @@ public class MessageService {
         List<Message> messages = messageRepository.findRoomLinkPage(
                 roomId,
                 before,
-                PageRequest.of(0, pageSize + 1)
-        );
+                PageRequest.of(0, pageSize + 1));
 
         return toGalleryMessagePage(messages, pageSize);
     }
@@ -178,9 +175,9 @@ public class MessageService {
             Long otherUserId,
             String query,
             Long before,
-            Integer size
-    ) {
-        PrivateConversationParticipants participants = findPrivateConversationParticipants(currentUsername, otherUserId);
+            Integer size) {
+        PrivateConversationParticipants participants = findPrivateConversationParticipants(currentUsername,
+                otherUserId);
         String queryPattern = normalizeSearchPattern(query);
         if (queryPattern == null) {
             return emptyMessagePage();
@@ -192,8 +189,7 @@ public class MessageService {
                 participants.otherUser().getId(),
                 queryPattern,
                 before,
-                PageRequest.of(0, pageSize + 1)
-        );
+                PageRequest.of(0, pageSize + 1));
 
         return toGalleryMessagePage(messages, pageSize);
     }
@@ -204,8 +200,7 @@ public class MessageService {
             Long roomId,
             String query,
             Long before,
-            Integer size
-    ) {
+            Integer size) {
         chatRoomService.findGroupRoomForMember(currentUsername, roomId);
         String queryPattern = normalizeSearchPattern(query);
         if (queryPattern == null) {
@@ -217,8 +212,7 @@ public class MessageService {
                 roomId,
                 queryPattern,
                 before,
-                PageRequest.of(0, pageSize + 1)
-        );
+                PageRequest.of(0, pageSize + 1));
 
         return toGalleryMessagePage(messages, pageSize);
     }
@@ -228,14 +222,13 @@ public class MessageService {
             String currentUsername,
             Long otherUserId,
             Long messageId,
-            Integer size
-    ) {
-        PrivateConversationParticipants participants = findPrivateConversationParticipants(currentUsername, otherUserId);
+            Integer size) {
+        PrivateConversationParticipants participants = findPrivateConversationParticipants(currentUsername,
+                otherUserId);
         Message anchorMessage = messageRepository.findConversationMessageById(
-                        participants.currentUser().getId(),
-                        participants.otherUser().getId(),
-                        messageId
-                )
+                participants.currentUser().getId(),
+                participants.otherUser().getId(),
+                messageId)
                 .orElseThrow(() -> new AppException(ErrorCode.MESSAGE_NOT_FOUND));
 
         int pageSize = normalizePageSize(size);
@@ -246,15 +239,12 @@ public class MessageService {
                         participants.currentUser().getId(),
                         participants.otherUser().getId(),
                         anchorId,
-                        pageable
-                ),
+                        pageable),
                 (anchorId, pageable) -> messageRepository.findConversationMessagesAfter(
                         participants.currentUser().getId(),
                         participants.otherUser().getId(),
                         anchorId,
-                        pageable
-                )
-        );
+                        pageable));
     }
 
     @Transactional(readOnly = true)
@@ -262,8 +252,7 @@ public class MessageService {
             String currentUsername,
             Long roomId,
             Long messageId,
-            Integer size
-    ) {
+            Integer size) {
         chatRoomService.findGroupRoomForMember(currentUsername, roomId);
         Message anchorMessage = messageRepository.findRoomMessageById(roomId, messageId)
                 .orElseThrow(() -> new AppException(ErrorCode.MESSAGE_NOT_FOUND));
@@ -273,8 +262,7 @@ public class MessageService {
                 anchorMessage,
                 pageSize,
                 (anchorId, pageable) -> messageRepository.findRoomMessagesBefore(roomId, anchorId, pageable),
-                (anchorId, pageable) -> messageRepository.findRoomMessagesAfter(roomId, anchorId, pageable)
-        );
+                (anchorId, pageable) -> messageRepository.findRoomMessagesAfter(roomId, anchorId, pageable));
     }
 
     @Transactional
@@ -306,8 +294,7 @@ public class MessageService {
                                 type,
                                 request.media(),
                                 linkPreview,
-                                replyToMessage
-                        );
+                                replyToMessage);
                     });
         }
 
@@ -319,8 +306,7 @@ public class MessageService {
     public MessageResponse sendRoomMessage(
             String currentUsername,
             Long roomId,
-            SendRoomMessageRequest request
-    ) {
+            SendRoomMessageRequest request) {
         User sender = userService.findByUsername(currentUsername);
         ChatRoom room = chatRoomService.findGroupRoomForMember(sender, roomId);
         String clientId = normalizeClientId(request.clientId());
@@ -343,8 +329,7 @@ public class MessageService {
                                 type,
                                 request.media(),
                                 linkPreview,
-                                replyToMessage
-                        );
+                                replyToMessage);
                     });
         }
 
@@ -422,11 +407,60 @@ public class MessageService {
         return MessageResponse.from(messageRepository.saveAndFlush(message));
     }
 
+    @Transactional
+    public void pinDmMessage(String currentUsername, Long otherUserId, Long messageId) {
+        PrivateConversationParticipants participants = findPrivateConversationParticipants(currentUsername,
+                otherUserId);
+        Message message = findMessageById(messageId);
+
+        if (!isPrivateMessageParticipant(participants.currentUser(), message)
+                || message.getChatRoom() != null) {
+            throw new AppException(ErrorCode.MESSAGE_ACCESS_DENIED);
+        }
+
+        upsertConversationPinnedMessage(participants.currentUser().getId(), participants.otherUser().getId(),
+                messageId);
+        upsertConversationPinnedMessage(participants.otherUser().getId(), participants.currentUser().getId(),
+                messageId);
+    }
+
+    @Transactional
+    public void unpinDmMessage(String currentUsername, Long otherUserId) {
+        PrivateConversationParticipants participants = findPrivateConversationParticipants(currentUsername,
+                otherUserId);
+        upsertConversationPinnedMessage(participants.currentUser().getId(), participants.otherUser().getId(), null);
+        upsertConversationPinnedMessage(participants.otherUser().getId(), participants.currentUser().getId(), null);
+    }
+
+    private void upsertConversationPinnedMessage(Long userId, Long targetUserId, Long pinnedMessageId) {
+        ConversationSetting setting = conversationSettingRepository
+                .findByUserIdAndTargetUserId(userId, targetUserId)
+                .orElseGet(() -> {
+                    User user = userService.findById(userId);
+                    User target = userService.findById(targetUserId);
+                    ConversationSetting s = new ConversationSetting();
+                    s.setUser(user);
+                    s.setTargetUser(target);
+                    return s;
+                });
+        setting.setPinnedMessageId(pinnedMessageId);
+        conversationSettingRepository.save(setting);
+    }
+
     @Transactional(readOnly = true)
     public List<String> getMessageParticipantUsernames(String currentUsername, Long messageId) {
         User currentUser = userService.findByUsername(currentUsername);
         Message message = findAccessibleMessage(currentUser, messageId);
         return getParticipantUsernames(currentUsername, message);
+    }
+
+    @Transactional(readOnly = true)
+    public String getUsernameById(Long userId) {
+        try {
+            return userService.findById(userId).getUsername();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Transactional(readOnly = true)
@@ -447,8 +481,7 @@ public class MessageService {
         List<UserResponse> seenBy = chatRoomReadStateRepository
                 .findByChatRoomIdAndLastReadAtGreaterThanEqualOrderByLastReadAtDesc(
                         room.getId(),
-                        message.getTimestamp()
-                )
+                        message.getTimestamp())
                 .stream()
                 .filter(readState -> !readState.getUser().getId().equals(message.getSender().getId()))
                 .map(readState -> membersByUserId.get(readState.getUser().getId()))
@@ -467,8 +500,7 @@ public class MessageService {
             MessageType type,
             MediaAttachmentRequest media,
             LinkPreviewMetadata linkPreview,
-            Message replyToMessage
-    ) {
+            Message replyToMessage) {
         Message message = new Message();
         message.setSender(sender);
         message.setReceiver(receiver);
@@ -489,8 +521,7 @@ public class MessageService {
             MessageType type,
             MediaAttachmentRequest media,
             LinkPreviewMetadata linkPreview,
-            Message replyToMessage
-    ) {
+            Message replyToMessage) {
         Message message = new Message();
         message.setSender(sender);
         message.setChatRoom(room);
@@ -513,8 +544,8 @@ public class MessageService {
             throw new AppException(ErrorCode.INVALID_REPLY_TARGET);
         }
 
-        boolean sameConversation =
-                isSameUserPair(replyToMessage.getSender(), replyToMessage.getReceiver(), sender, receiver);
+        boolean sameConversation = isSameUserPair(replyToMessage.getSender(), replyToMessage.getReceiver(), sender,
+                receiver);
         if (!sameConversation) {
             throw new AppException(ErrorCode.INVALID_REPLY_TARGET);
         }
@@ -540,7 +571,7 @@ public class MessageService {
         return (firstSender.getId().equals(secondSender.getId())
                 && firstReceiver.getId().equals(secondReceiver.getId()))
                 || (firstSender.getId().equals(secondReceiver.getId())
-                && firstReceiver.getId().equals(secondSender.getId()));
+                        && firstReceiver.getId().equals(secondSender.getId()));
     }
 
     private String normalizeClientId(String clientId) {
@@ -576,12 +607,10 @@ public class MessageService {
     }
 
     private void validateMediaPayload(MessageType type, MediaAttachmentRequest media) {
-        if (
-                media == null
-                        || !StringUtils.hasText(media.url())
-                        || !StringUtils.hasText(media.publicId())
-                        || !StringUtils.hasText(media.resourceType())
-        ) {
+        if (media == null
+                || !StringUtils.hasText(media.url())
+                || !StringUtils.hasText(media.publicId())
+                || !StringUtils.hasText(media.resourceType())) {
             throw new AppException(ErrorCode.INVALID_MEDIA_MESSAGE);
         }
 
@@ -605,8 +634,7 @@ public class MessageService {
             String content,
             MessageType type,
             MediaAttachmentRequest media,
-            LinkPreviewMetadata linkPreview
-    ) {
+            LinkPreviewMetadata linkPreview) {
         message.setType(type);
         message.setContent(content);
 
@@ -757,8 +785,7 @@ public class MessageService {
 
     private PrivateConversationParticipants findPrivateConversationParticipants(
             String currentUsername,
-            Long otherUserId
-    ) {
+            Long otherUserId) {
         User currentUser = userService.findByUsername(currentUsername);
         User otherUser = userService.findById(otherUserId);
 
@@ -823,8 +850,7 @@ public class MessageService {
             Message anchorMessage,
             int pageSize,
             MessageAroundLoader beforeLoader,
-            MessageAroundLoader afterLoader
-    ) {
+            MessageAroundLoader afterLoader) {
         int beforeSize = Math.max((pageSize - 1) / 2, 0);
         int afterSize = Math.max(pageSize - beforeSize - 1, 0);
         List<Message> beforeMessages = beforeSize == 0
@@ -845,16 +871,13 @@ public class MessageService {
             List<Message> newestFirstBeforeMessages,
             Message anchorMessage,
             List<Message> oldestFirstAfterMessages,
-            boolean hasMoreBeforeMessages
-    ) {
+            boolean hasMoreBeforeMessages) {
         List<MessageResponse> items = java.util.stream.Stream
                 .concat(
                         java.util.stream.Stream.concat(
                                 newestFirstBeforeMessages.stream(),
-                                java.util.stream.Stream.of(anchorMessage)
-                        ),
-                        oldestFirstAfterMessages.stream()
-                )
+                                java.util.stream.Stream.of(anchorMessage)),
+                        oldestFirstAfterMessages.stream())
                 .sorted(Comparator.comparing(Message::getId))
                 .map(MessageResponse::from)
                 .toList();

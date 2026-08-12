@@ -27,8 +27,9 @@ public record ChatRoomResponse(
         long unreadCount,
         Boolean pinned,
         Boolean muted,
-        Boolean archived
-) {
+        Boolean archived,
+        Long pinnedMessageId,
+        MessageResponse pinnedMessage) {
     public static ChatRoomResponse from(ChatRoom room) {
         return from(room, null, 0);
     }
@@ -41,8 +42,7 @@ public record ChatRoomResponse(
             ChatRoom room,
             Message lastMessage,
             long unreadCount,
-            ConversationSetting setting
-    ) {
+            ConversationSetting setting) {
         User owner = findEffectiveOwner(room);
         return new ChatRoomResponse(
                 room.getId(),
@@ -64,8 +64,9 @@ public record ChatRoomResponse(
                 unreadCount,
                 isEnabled(setting == null ? null : setting.getPinned()),
                 isEnabled(setting == null ? null : setting.getMuted()),
-                isEnabled(setting == null ? null : setting.getArchived())
-        );
+                isEnabled(setting == null ? null : setting.getArchived()),
+                room.getPinnedMessage() == null ? null : room.getPinnedMessage().getId(),
+                room.getPinnedMessage() == null ? null : MessageResponse.from(room.getPinnedMessage()));
     }
 
     private static User findEffectiveOwner(ChatRoom room) {

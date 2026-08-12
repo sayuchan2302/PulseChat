@@ -64,6 +64,8 @@ export interface User {
   pinned?: boolean;
   muted?: boolean;
   archived?: boolean;
+  pinnedMessageId?: number | null;
+  pinnedMessage?: Message | null;
   createdAt: string;
 }
 
@@ -95,6 +97,7 @@ export interface Message {
   timestamp: string;
   read: boolean;
   clientId?: string | null;
+  pinnedBy?: number | null;
 }
 
 export interface MessagePage {
@@ -236,6 +239,8 @@ export interface ChatRoom {
   pinned?: boolean;
   muted?: boolean;
   archived?: boolean;
+  pinnedMessageId?: number | null;
+  pinnedMessage?: Message | null;
   createdAt: string;
 }
 

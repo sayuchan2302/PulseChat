@@ -17,13 +17,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Entity
-@Table(
-        name = "chat_rooms",
-        indexes = {
-                @Index(name = "idx_chat_rooms_type_created", columnList = "type, created_at"),
-                @Index(name = "idx_chat_rooms_owner", columnList = "owner_id")
-        }
-)
+@Table(name = "chat_rooms", indexes = {
+        @Index(name = "idx_chat_rooms_type_created", columnList = "type, created_at"),
+        @Index(name = "idx_chat_rooms_owner", columnList = "owner_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -43,6 +40,10 @@ public class ChatRoom {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "owner_id")
     private User owner;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "pinned_message_id")
+    private Message pinnedMessage;
 
     @OneToMany(mappedBy = "chatRoom", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ChatRoomMember> members = new ArrayList<>();

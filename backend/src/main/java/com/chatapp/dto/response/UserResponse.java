@@ -26,8 +26,9 @@ public record UserResponse(
         Long lastMessageSenderId,
         Boolean pinned,
         Boolean muted,
-        Boolean archived
-) {
+        Boolean archived,
+        Long pinnedMessageId,
+        MessageResponse pinnedMessage) {
     public static UserResponse from(User user) {
         return from(user, null, null, null, null, null, null, null);
     }
@@ -50,9 +51,9 @@ public record UserResponse(
             Long friendshipId,
             String lastMessageContent,
             LocalDateTime lastMessageAt,
-            Long lastMessageSenderId
-    ) {
-        return from(user, friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId, null, null);
+            Long lastMessageSenderId) {
+        return from(user, friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId, null,
+                null);
     }
 
     public static UserResponse from(
@@ -62,9 +63,9 @@ public record UserResponse(
             String lastMessageContent,
             LocalDateTime lastMessageAt,
             Long lastMessageSenderId,
-            ConversationSetting setting
-    ) {
-        return from(user, friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId, null, setting);
+            ConversationSetting setting) {
+        return from(user, friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId, null,
+                setting);
     }
 
     public static UserResponse from(
@@ -75,8 +76,7 @@ public record UserResponse(
             LocalDateTime lastMessageAt,
             Long lastMessageSenderId,
             String nickname,
-            ConversationSetting setting
-    ) {
+            ConversationSetting setting) {
         return new UserResponse(
                 user.getId(),
                 user.getUsername(),
@@ -95,8 +95,9 @@ public record UserResponse(
                 lastMessageSenderId,
                 isEnabled(setting == null ? null : setting.getPinned()),
                 isEnabled(setting == null ? null : setting.getMuted()),
-                isEnabled(setting == null ? null : setting.getArchived())
-        );
+                isEnabled(setting == null ? null : setting.getArchived()),
+                setting == null ? null : setting.getPinnedMessageId(),
+                null);
     }
 
     private static String normalizeNickname(String nickname) {

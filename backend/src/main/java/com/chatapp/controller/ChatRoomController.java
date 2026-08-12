@@ -37,263 +37,259 @@ import java.util.List;
 @RequestMapping("/rooms")
 @RequiredArgsConstructor
 public class ChatRoomController {
-    private static final String ROOM_QUEUE = "/queue/rooms";
-    private static final String MESSAGE_QUEUE = "/queue/messages";
-    private static final String ROOM_READ_RECEIPT_QUEUE = "/queue/room-read-receipts";
+        private static final String ROOM_QUEUE = "/queue/rooms";
+        private static final String MESSAGE_QUEUE = "/queue/messages";
+        private static final String ROOM_READ_RECEIPT_QUEUE = "/queue/room-read-receipts";
 
-    private final ChatRoomService chatRoomService;
-    private final MessageService messageService;
-    private final SimpMessagingTemplate messagingTemplate;
+        private final ChatRoomService chatRoomService;
+        private final MessageService messageService;
+        private final SimpMessagingTemplate messagingTemplate;
 
-    @GetMapping
-    public List<ChatRoomResponse> listRooms(Authentication authentication) {
-        return chatRoomService.listGroups(authentication.getName());
-    }
-
-    @PostMapping
-    public ResponseEntity<ChatRoomResponse> createRoom(
-            Authentication authentication,
-            @Valid @RequestBody CreateChatRoomRequest request
-    ) {
-        ChatRoomResponse room = chatRoomService.createGroup(authentication.getName(), request);
-        notifyRoomParticipants(room);
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(room);
-    }
-
-    @GetMapping("/{roomId}/messages")
-    public MessagePageResponse getRoomMessages(
-            Authentication authentication,
-            @PathVariable Long roomId,
-            @RequestParam(required = false) Long before,
-            @RequestParam(required = false) Integer size
-    ) {
-        return messageService.getRoomMessages(authentication.getName(), roomId, before, size);
-    }
-
-    @GetMapping("/{roomId}/media")
-    public MessagePageResponse getRoomMedia(
-            Authentication authentication,
-            @PathVariable Long roomId,
-            @RequestParam(required = false) Long before,
-            @RequestParam(required = false) Integer size
-    ) {
-        return messageService.getRoomMedia(authentication.getName(), roomId, before, size);
-    }
-
-    @GetMapping("/{roomId}/links")
-    public MessagePageResponse getRoomLinks(
-            Authentication authentication,
-            @PathVariable Long roomId,
-            @RequestParam(required = false) Long before,
-            @RequestParam(required = false) Integer size
-    ) {
-        return messageService.getRoomLinks(authentication.getName(), roomId, before, size);
-    }
-
-    @GetMapping("/{roomId}/search")
-    public MessagePageResponse searchRoom(
-            Authentication authentication,
-            @PathVariable Long roomId,
-            @RequestParam String query,
-            @RequestParam(required = false) Long before,
-            @RequestParam(required = false) Integer size
-    ) {
-        return messageService.searchRoom(authentication.getName(), roomId, query, before, size);
-    }
-
-    @GetMapping("/{roomId}/around/{messageId}")
-    public MessagePageResponse getRoomAroundMessage(
-            Authentication authentication,
-            @PathVariable Long roomId,
-            @PathVariable Long messageId,
-            @RequestParam(required = false) Integer size
-    ) {
-        return messageService.getRoomAroundMessage(authentication.getName(), roomId, messageId, size);
-    }
-
-    @GetMapping("/{roomId}/messages/{messageId}/seen-by")
-    public MessageSeenByResponse getRoomMessageSeenBy(
-            Authentication authentication,
-            @PathVariable Long roomId,
-            @PathVariable Long messageId
-    ) {
-        return messageService.getRoomMessageSeenBy(authentication.getName(), roomId, messageId);
-    }
-
-    @PatchMapping("/{roomId}/read")
-    public ChatRoomResponse markRoomAsRead(
-            Authentication authentication,
-            @PathVariable Long roomId
-    ) {
-        ChatRoomResponse room = chatRoomService.markGroupAsRead(authentication.getName(), roomId);
-        notifyRoomReadReceipt(authentication.getName(), room);
-        return room;
-    }
-
-    @PatchMapping("/{roomId}")
-    public ChatRoomResponse updateRoom(
-            Authentication authentication,
-            @PathVariable Long roomId,
-            @Valid @RequestBody UpdateChatRoomRequest request
-    ) {
-        ChatRoomResponse room = chatRoomService.updateGroup(authentication.getName(), roomId, request);
-        notifyRoomParticipants(room);
-
-        return room;
-    }
-
-    @PostMapping("/{roomId}/members")
-    public ChatRoomResponse addRoomMembers(
-            Authentication authentication,
-            @PathVariable Long roomId,
-            @Valid @RequestBody AddRoomMembersRequest request
-    ) {
-        ChatRoomResponse room = chatRoomService.addMembers(authentication.getName(), roomId, request);
-        notifyRoomParticipants(room);
-
-        return room;
-    }
-
-    @DeleteMapping("/{roomId}/members/{memberId}")
-    public ChatRoomResponse removeRoomMember(
-            Authentication authentication,
-            @PathVariable Long roomId,
-            @PathVariable Long memberId
-    ) {
-        List<String> previousParticipantUsernames =
-                chatRoomService.getGroupParticipantUsernames(authentication.getName(), roomId);
-        ChatRoomResponse room = chatRoomService.removeMember(authentication.getName(), roomId, memberId);
-        notifyRoomParticipants(roomId, previousParticipantUsernames, room);
-
-        return room;
-    }
-
-    @PatchMapping("/{roomId}/members/{memberId}/nickname")
-    public ChatRoomResponse updateRoomMemberNickname(
-            Authentication authentication,
-            @PathVariable Long roomId,
-            @PathVariable Long memberId,
-            @Valid @RequestBody UpdateRoomMemberNicknameRequest request
-    ) {
-        ChatRoomResponse room = chatRoomService.updateMemberNickname(
-                authentication.getName(),
-                roomId,
-                memberId,
-                request
-        );
-        notifyRoomParticipants(room);
-
-        return room;
-    }
-
-    @PatchMapping("/{roomId}/owner")
-    public ChatRoomResponse transferRoomOwner(
-            Authentication authentication,
-            @PathVariable Long roomId,
-            @Valid @RequestBody TransferRoomOwnerRequest request
-    ) {
-        ChatRoomResponse room = chatRoomService.transferOwner(authentication.getName(), roomId, request);
-        notifyRoomParticipants(room);
-
-        return room;
-    }
-
-    @DeleteMapping("/{roomId}/members/me")
-    public ChatRoomResponse leaveRoom(
-            Authentication authentication,
-            @PathVariable Long roomId
-    ) {
-        List<String> previousParticipantUsernames =
-                chatRoomService.getGroupParticipantUsernames(authentication.getName(), roomId);
-        ChatRoomResponse room = chatRoomService.leaveGroup(authentication.getName(), roomId);
-        notifyRoomParticipants(roomId, previousParticipantUsernames, room);
-
-        return room;
-    }
-
-    @PostMapping("/{roomId}/messages")
-    public ResponseEntity<MessageResponse> sendRoomMessage(
-            Authentication authentication,
-            @PathVariable Long roomId,
-            @Valid @RequestBody SendRoomMessageRequest request
-    ) {
-        MessageResponse message = messageService.sendRoomMessage(
-                authentication.getName(),
-                roomId,
-                request
-        );
-        notifyMessageParticipants(authentication.getName(), roomId, message);
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(message);
-    }
-
-    private void notifyRoomParticipants(ChatRoomResponse room) {
-        notifyRoomParticipants(
-                room.id(),
-                room.participants().stream().map(participant -> participant.username()).toList(),
-                room
-        );
-    }
-
-    private void notifyRoomParticipants(
-            Long roomId,
-            List<String> usernames,
-            ChatRoomResponse fallbackRoom
-    ) {
-        usernames.forEach(username -> {
-            ChatRoomResponse room = findRoomForNotification(username, roomId, fallbackRoom);
-            messagingTemplate.convertAndSendToUser(username, ROOM_QUEUE, room);
-        });
-    }
-
-    private ChatRoomResponse findRoomForNotification(
-            String username,
-            Long roomId,
-            ChatRoomResponse fallbackRoom
-    ) {
-        try {
-            return chatRoomService.getGroup(username, roomId);
-        } catch (AppException exception) {
-            return fallbackRoom;
-        }
-    }
-
-    private void notifyMessageParticipants(String currentUsername, Long roomId, MessageResponse message) {
-        chatRoomService.getGroupParticipantUsernames(currentUsername, roomId)
-                .forEach(username ->
-                        messagingTemplate.convertAndSendToUser(
-                                username,
-                                MESSAGE_QUEUE,
-                                message
-                        )
-                );
-    }
-
-    private void notifyRoomReadReceipt(String readerUsername, ChatRoomResponse room) {
-        Long readerId = room.participants()
-                .stream()
-                .filter(participant -> participant.username().equals(readerUsername))
-                .map(participant -> participant.id())
-                .findFirst()
-                .orElse(null);
-
-        if (readerId == null) {
-            return;
+        @GetMapping
+        public List<ChatRoomResponse> listRooms(Authentication authentication) {
+                return chatRoomService.listGroups(authentication.getName());
         }
 
-        RoomReadReceiptResponse receipt = new RoomReadReceiptResponse(
-                room.id(),
-                readerId,
-                LocalDateTime.now()
-        );
+        @PostMapping
+        public ResponseEntity<ChatRoomResponse> createRoom(
+                        Authentication authentication,
+                        @Valid @RequestBody CreateChatRoomRequest request) {
+                ChatRoomResponse room = chatRoomService.createGroup(authentication.getName(), request);
+                notifyRoomParticipants(room);
 
-        room.participants().forEach(participant ->
-                messagingTemplate.convertAndSendToUser(
-                        participant.username(),
-                        ROOM_READ_RECEIPT_QUEUE,
-                        receipt
-                )
-        );
-    }
+                return ResponseEntity.status(HttpStatus.CREATED).body(room);
+        }
+
+        @GetMapping("/{roomId}/messages")
+        public MessagePageResponse getRoomMessages(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @RequestParam(required = false) Long before,
+                        @RequestParam(required = false) Integer size) {
+                return messageService.getRoomMessages(authentication.getName(), roomId, before, size);
+        }
+
+        @GetMapping("/{roomId}/media")
+        public MessagePageResponse getRoomMedia(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @RequestParam(required = false) Long before,
+                        @RequestParam(required = false) Integer size) {
+                return messageService.getRoomMedia(authentication.getName(), roomId, before, size);
+        }
+
+        @GetMapping("/{roomId}/links")
+        public MessagePageResponse getRoomLinks(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @RequestParam(required = false) Long before,
+                        @RequestParam(required = false) Integer size) {
+                return messageService.getRoomLinks(authentication.getName(), roomId, before, size);
+        }
+
+        @GetMapping("/{roomId}/search")
+        public MessagePageResponse searchRoom(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @RequestParam String query,
+                        @RequestParam(required = false) Long before,
+                        @RequestParam(required = false) Integer size) {
+                return messageService.searchRoom(authentication.getName(), roomId, query, before, size);
+        }
+
+        @GetMapping("/{roomId}/around/{messageId}")
+        public MessagePageResponse getRoomAroundMessage(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @PathVariable Long messageId,
+                        @RequestParam(required = false) Integer size) {
+                return messageService.getRoomAroundMessage(authentication.getName(), roomId, messageId, size);
+        }
+
+        @GetMapping("/{roomId}/messages/{messageId}/seen-by")
+        public MessageSeenByResponse getRoomMessageSeenBy(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @PathVariable Long messageId) {
+                return messageService.getRoomMessageSeenBy(authentication.getName(), roomId, messageId);
+        }
+
+        @PatchMapping("/{roomId}/read")
+        public ChatRoomResponse markRoomAsRead(
+                        Authentication authentication,
+                        @PathVariable Long roomId) {
+                ChatRoomResponse room = chatRoomService.markGroupAsRead(authentication.getName(), roomId);
+                notifyRoomReadReceipt(authentication.getName(), room);
+                return room;
+        }
+
+        @PatchMapping("/{roomId}")
+        public ChatRoomResponse updateRoom(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @Valid @RequestBody UpdateChatRoomRequest request) {
+                ChatRoomResponse room = chatRoomService.updateGroup(authentication.getName(), roomId, request);
+                notifyRoomParticipants(room);
+
+                return room;
+        }
+
+        @PostMapping("/{roomId}/members")
+        public ChatRoomResponse addRoomMembers(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @Valid @RequestBody AddRoomMembersRequest request) {
+                ChatRoomResponse room = chatRoomService.addMembers(authentication.getName(), roomId, request);
+                notifyRoomParticipants(room);
+
+                return room;
+        }
+
+        @DeleteMapping("/{roomId}/members/{memberId}")
+        public ChatRoomResponse removeRoomMember(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @PathVariable Long memberId) {
+                List<String> previousParticipantUsernames = chatRoomService
+                                .getGroupParticipantUsernames(authentication.getName(), roomId);
+                ChatRoomResponse room = chatRoomService.removeMember(authentication.getName(), roomId, memberId);
+                notifyRoomParticipants(roomId, previousParticipantUsernames, room);
+
+                return room;
+        }
+
+        @PatchMapping("/{roomId}/members/{memberId}/nickname")
+        public ChatRoomResponse updateRoomMemberNickname(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @PathVariable Long memberId,
+                        @Valid @RequestBody UpdateRoomMemberNicknameRequest request) {
+                ChatRoomResponse room = chatRoomService.updateMemberNickname(
+                                authentication.getName(),
+                                roomId,
+                                memberId,
+                                request);
+                notifyRoomParticipants(room);
+
+                return room;
+        }
+
+        @PatchMapping("/{roomId}/owner")
+        public ChatRoomResponse transferRoomOwner(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @Valid @RequestBody TransferRoomOwnerRequest request) {
+                ChatRoomResponse room = chatRoomService.transferOwner(authentication.getName(), roomId, request);
+                notifyRoomParticipants(room);
+
+                return room;
+        }
+
+        @DeleteMapping("/{roomId}/members/me")
+        public ChatRoomResponse leaveRoom(
+                        Authentication authentication,
+                        @PathVariable Long roomId) {
+                List<String> previousParticipantUsernames = chatRoomService
+                                .getGroupParticipantUsernames(authentication.getName(), roomId);
+                ChatRoomResponse room = chatRoomService.leaveGroup(authentication.getName(), roomId);
+                notifyRoomParticipants(roomId, previousParticipantUsernames, room);
+
+                return room;
+        }
+
+        @PostMapping("/{roomId}/messages")
+        public ResponseEntity<MessageResponse> sendRoomMessage(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @Valid @RequestBody SendRoomMessageRequest request) {
+                MessageResponse message = messageService.sendRoomMessage(
+                                authentication.getName(),
+                                roomId,
+                                request);
+                notifyMessageParticipants(authentication.getName(), roomId, message);
+
+                return ResponseEntity.status(HttpStatus.CREATED).body(message);
+        }
+
+        @PatchMapping("/{roomId}/pin-message")
+        public ChatRoomResponse pinRoomMessage(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @RequestParam Long messageId) {
+                List<String> participantUsernames = chatRoomService
+                                .getGroupParticipantUsernames(authentication.getName(), roomId);
+                ChatRoomResponse room = chatRoomService.pinRoomMessage(authentication.getName(), roomId, messageId);
+                notifyRoomParticipants(roomId, participantUsernames, room);
+                return room;
+        }
+
+        @DeleteMapping("/{roomId}/pin-message")
+        public ChatRoomResponse unpinRoomMessage(
+                        Authentication authentication,
+                        @PathVariable Long roomId) {
+                List<String> participantUsernames = chatRoomService
+                                .getGroupParticipantUsernames(authentication.getName(), roomId);
+                ChatRoomResponse room = chatRoomService.unpinRoomMessage(authentication.getName(), roomId);
+                notifyRoomParticipants(roomId, participantUsernames, room);
+                return room;
+        }
+
+        private void notifyRoomParticipants(ChatRoomResponse room) {
+                notifyRoomParticipants(
+                                room.id(),
+                                room.participants().stream().map(participant -> participant.username()).toList(),
+                                room);
+        }
+
+        private void notifyRoomParticipants(
+                        Long roomId,
+                        List<String> usernames,
+                        ChatRoomResponse fallbackRoom) {
+                usernames.forEach(username -> {
+                        ChatRoomResponse room = findRoomForNotification(username, roomId, fallbackRoom);
+                        messagingTemplate.convertAndSendToUser(username, ROOM_QUEUE, room);
+                });
+        }
+
+        private ChatRoomResponse findRoomForNotification(
+                        String username,
+                        Long roomId,
+                        ChatRoomResponse fallbackRoom) {
+                try {
+                        return chatRoomService.getGroup(username, roomId);
+                } catch (AppException exception) {
+                        return fallbackRoom;
+                }
+        }
+
+        private void notifyMessageParticipants(String currentUsername, Long roomId, MessageResponse message) {
+                chatRoomService.getGroupParticipantUsernames(currentUsername, roomId)
+                                .forEach(username -> messagingTemplate.convertAndSendToUser(
+                                                username,
+                                                MESSAGE_QUEUE,
+                                                message));
+        }
+
+        private void notifyRoomReadReceipt(String readerUsername, ChatRoomResponse room) {
+                Long readerId = room.participants()
+                                .stream()
+                                .filter(participant -> participant.username().equals(readerUsername))
+                                .map(participant -> participant.id())
+                                .findFirst()
+                                .orElse(null);
+
+                if (readerId == null) {
+                        return;
+                }
+
+                RoomReadReceiptResponse receipt = new RoomReadReceiptResponse(
+                                room.id(),
+                                readerId,
+                                LocalDateTime.now());
+
+                room.participants().forEach(participant -> messagingTemplate.convertAndSendToUser(
+                                participant.username(),
+                                ROOM_READ_RECEIPT_QUEUE,
+                                receipt));
+        }
 }
