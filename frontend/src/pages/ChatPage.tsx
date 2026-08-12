@@ -633,9 +633,24 @@ function VoiceRecorderButton({ disabled, onRecorded }: VoiceRecorderButtonProps)
     autoStopRef.current = null;
 
     const mr = mediaRecorderRef.current;
-    if (!mr || mr.state === 'inactive') return;
+
+    // If already inactive, stream tracks may still be alive – release them
+    if (!mr || mr.state === 'inactive') {
+      mr?.stream?.getTracks().forEach((t) => t.stop());
+      mediaRecorderRef.current = null;
+      setRecording(false);
+      setElapsed(0);
+      return;
+    }
+
+    // Capture the stream reference BEFORE stop() clears internal state
+    const stream = mr.stream;
 
     mr.onstop = () => {
+      // Release mic INSIDE onstop – this is when MediaRecorder has fully stopped
+      // and it's safe to stop the underlying stream tracks
+      stream.getTracks().forEach((t) => t.stop());
+
       if (!cancelled && chunksRef.current.length > 0) {
         const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
         const dur = Math.round((Date.now() - startTimeRef.current) / 1000);
@@ -644,8 +659,8 @@ function VoiceRecorderButton({ disabled, onRecorded }: VoiceRecorderButtonProps)
       chunksRef.current = [];
       mediaRecorderRef.current = null;
     };
+
     mr.stop();
-    mr.stream.getTracks().forEach((t) => t.stop());
     setRecording(false);
     setElapsed(0);
   }, [onRecorded]);
@@ -680,7 +695,15 @@ function VoiceRecorderButton({ disabled, onRecorded }: VoiceRecorderButtonProps)
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (autoStopRef.current) clearTimeout(autoStopRef.current);
-      mediaRecorderRef.current?.stream?.getTracks().forEach((t) => t.stop());
+      const mr = mediaRecorderRef.current;
+      if (mr) {
+        try {
+          if (mr.state !== 'inactive') mr.stop();
+        } catch {
+          // ignore
+        }
+        mr.stream?.getTracks().forEach((t) => t.stop());
+      }
     };
   }, []);
 
