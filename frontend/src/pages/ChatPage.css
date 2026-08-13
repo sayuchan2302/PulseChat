@@ -6821,3 +6821,229 @@ button.main-list-item {
   font-size: 11px;
   color: var(--gray-400);
 }
+
+/* ==========================================================================
+   Dark Mode Overrides for Chat Page
+   ========================================================================== */
+
+/* Theme Toggle Button */
+.header-icon-btn.theme-toggle-btn {
+  color: var(--purple-700);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.header-icon-btn.theme-toggle-btn:hover {
+  transform: rotate(18deg) scale(1.06);
+}
+
+[data-theme='dark'] .header-icon-btn.theme-toggle-btn {
+  color: #facc15;
+  background: rgba(250, 204, 21, 0.12);
+  border-color: rgba(250, 204, 21, 0.25);
+}
+
+[data-theme='dark'] .header-icon-btn.theme-toggle-btn:hover {
+  background: rgba(250, 204, 21, 0.22);
+  border-color: rgba(250, 204, 21, 0.45);
+  color: #fde047;
+  transform: rotate(-24deg) scale(1.08);
+}
+
+/* Dark Mode Backgrounds & Surfaces */
+[data-theme='dark'] .chat-page {
+  background: var(--gray-50);
+}
+
+[data-theme='dark'] .chat-header {
+  background: var(--white);
+  border-bottom-color: var(--gray-200);
+}
+
+[data-theme='dark'] .conversations-sidebar,
+[data-theme='dark'] .conversation-details-sidebar {
+  background: var(--white);
+  border-color: var(--gray-200);
+}
+
+[data-theme='dark'] .chat-main,
+[data-theme='dark'] .chat-messages {
+  background: var(--gray-50);
+}
+
+[data-theme='dark'] .message-input-form {
+  background: var(--white);
+  border-top-color: var(--gray-200);
+}
+
+[data-theme='dark'] .message-input {
+  background: var(--gray-100);
+  color: var(--gray-800);
+  border-color: var(--gray-200);
+}
+
+[data-theme='dark'] .message-input:focus {
+  background: var(--white);
+  border-color: var(--purple-500);
+}
+
+[data-theme='dark'] .sidebar-search input {
+  background: var(--gray-100);
+  color: var(--gray-800);
+  border-color: var(--gray-200);
+}
+
+[data-theme='dark'] .sidebar-search input:focus {
+  background: var(--white);
+  border-color: var(--purple-500);
+}
+
+/* Dark Mode Message Bubbles */
+[data-theme='dark'] .message.received .message-content {
+  background: #212230;
+  color: #f4f4fa;
+  border-color: #2e2f42;
+}
+
+[data-theme='dark'] .message.received.message-mentioned .message-content {
+  background: #262138;
+  border-color: rgba(147, 51, 234, 0.5);
+  box-shadow: 0 0 0 1px rgba(147, 51, 234, 0.25), 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme='dark'] .message-media-content {
+  background: #212230;
+  border-color: #2e2f42;
+}
+
+[data-theme='dark'] .message-reply-quote {
+  background: rgba(147, 51, 234, 0.16);
+  color: #d1d1e0;
+}
+
+[data-theme='dark'] .message-file-card {
+  background: #181924;
+  border-color: #2c2d3e;
+}
+
+[data-theme='dark'] .file-card-info .file-card-name {
+  color: #f4f4fa;
+}
+
+[data-theme='dark'] .file-card-info .file-card-size {
+  color: #8888a4;
+}
+
+[data-theme='dark'] .file-card-download-btn {
+  background: #242536;
+  border-color: #35364c;
+  color: #c084fc;
+}
+
+[data-theme='dark'] .file-card-download-btn:hover {
+  background: var(--purple-600);
+  color: #ffffff;
+}
+
+/* Dark Mode Popovers, Dropdowns & Menus */
+[data-theme='dark'] .profile-dropdown,
+[data-theme='dark'] .requests-dropdown,
+[data-theme='dark'] .conversation-menu-dropdown,
+[data-theme='dark'] .message-context-menu,
+[data-theme='dark'] .reaction-picker-popover,
+[data-theme='dark'] .mention-autocomplete-dropdown,
+[data-theme='dark'] .message-seen-by-popover,
+[data-theme='dark'] .emoji-picker-container {
+  background: #1c1d29;
+  border-color: #2d2e40;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65), 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme='dark'] .mention-dropdown-header {
+  background: #161722;
+  border-bottom-color: #272838;
+  color: #8888a4;
+}
+
+[data-theme='dark'] .mention-dropdown-item:hover,
+[data-theme='dark'] .mention-dropdown-item.active {
+  background: rgba(147, 51, 234, 0.2);
+}
+
+[data-theme='dark'] .mention-dropdown-name {
+  color: #f4f4fa;
+}
+
+[data-theme='dark'] .mention-dropdown-username {
+  color: #8888a4;
+}
+
+[data-theme='dark'] .conversation-item:hover {
+  background: var(--gray-100);
+}
+
+[data-theme='dark'] .conversation-item.active {
+  background: rgba(147, 51, 234, 0.2);
+}
+
+[data-theme='dark'] .friend-item:hover,
+[data-theme='dark'] .room-item:hover {
+  background: var(--gray-100);
+}
+
+[data-theme='dark'] .friend-item.active,
+[data-theme='dark'] .room-item.active {
+  background: rgba(147, 51, 234, 0.2);
+}
+
+[data-theme='dark'] .message-reactions-row {
+  background: #191a24;
+  border-color: #2a2b3c;
+}
+
+[data-theme='dark'] .message-reaction-pill {
+  background: #212230;
+  border-color: #2e2f42;
+  color: #d1d1e0;
+}
+
+[data-theme='dark'] .message-reaction-pill.reacted {
+  background: rgba(147, 51, 234, 0.25);
+  border-color: rgba(147, 51, 234, 0.5);
+  color: #c084fc;
+}
+
+/* Dark Mode Modals */
+[data-theme='dark'] .create-room-modal,
+[data-theme='dark'] .edit-profile-modal,
+[data-theme='dark'] .confirm-modal,
+[data-theme='dark'] .add-member-modal,
+[data-theme='dark'] .modal-box {
+  background: #1c1d29;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
+}
+
+[data-theme='dark'] .modal-header h3,
+[data-theme='dark'] .modal-box h3 {
+  color: #f4f4fa;
+}
+
+[data-theme='dark'] .modal-footer {
+  border-top-color: #272838;
+}
+
+[data-theme='dark'] .cancel-btn {
+  background: #242536;
+  border-color: #35364c;
+  color: #d1d1e0;
+}
+
+[data-theme='dark'] .cancel-btn:hover {
+  background: #2c2d40;
+  color: #ffffff;
+}
+
+/* Dark Mode Dropzone Overlay */
+[data-theme='dark'] .chat-dropzone-overlay {
+  background: rgba(18, 19, 26, 0.88);
+}

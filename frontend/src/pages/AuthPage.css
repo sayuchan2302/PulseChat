@@ -301,3 +301,70 @@
 .animate-fade-in {
   animation: fadeIn 0.2s ease-in-out;
 }
+
+/* Dark Mode Styles for AuthPage */
+[data-theme='dark'] .auth-page {
+  background: #0f1015;
+  background-image:
+    radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.18) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(99, 102, 241, 0.18) 0px, transparent 50%),
+    radial-gradient(at 50% 50%, rgba(236, 72, 153, 0.08) 0px, transparent 50%);
+}
+
+[data-theme='dark'] .auth-card {
+  background: rgba(25, 26, 36, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 24px 60px -12px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+[data-theme='dark'] .auth-header h1 {
+  background: linear-gradient(135deg, #e0e7ff 0%, #a5b4fc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+[data-theme='dark'] .auth-header p {
+  color: #94a3b8;
+}
+
+[data-theme='dark'] .auth-tabs {
+  background: #181924;
+  border-color: #2a2b3c;
+}
+
+[data-theme='dark'] .auth-tabs .tab {
+  color: #94a3b8;
+}
+
+[data-theme='dark'] .auth-tabs .tab.active {
+  background: #27283a;
+  color: #c7d2fe;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme='dark'] .form-group label {
+  color: #cbd5e1;
+}
+
+[data-theme='dark'] .input-wrapper input {
+  background: #181924;
+  border-color: #2a2b3c;
+  color: #f1f5f9;
+}
+
+[data-theme='dark'] .input-wrapper input:hover {
+  border-color: #3f4058;
+}
+
+[data-theme='dark'] .input-wrapper input:focus {
+  background: #202130;
+  border-color: #8b5cf6;
+}
+
+[data-theme='dark'] .error-message {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+}
