@@ -6396,27 +6396,84 @@ button.main-list-item {
 /* Mention Tag inside message bubble */
 .mention-tag {
   display: inline-block;
-  background: var(--purple-100);
-  color: var(--purple-700);
-  font-weight: 600;
-  font-size: 0.94em;
-  padding: 1px 6px;
+  background: #ede9fe !important;
+  color: #6d28d9 !important;
+  font-weight: 700 !important;
+  font-size: 0.93em;
+  padding: 1px 7px;
   border-radius: 6px;
-  margin: 0 1px;
+  margin: 0 2px;
   vertical-align: baseline;
-  transition: background 0.15s ease;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  border: 1px solid #c4b5fd !important;
+  transition: all 0.15s ease;
+  user-select: text;
+  line-height: 1.35;
 }
 
-.message.sent .mention-tag {
-  background: rgba(255, 255, 255, 0.25);
-  color: #ffffff;
+.mention-tag:hover {
+  background: #ddd6fe !important;
+  border-color: #a78bfa !important;
+  color: #5b21b6 !important;
+}
+
+/* @all Special Mention Tag */
+.mention-tag.mention-tag-all {
+  background: #fef3c7 !important;
+  color: #9a3412 !important;
+  border-color: #fcd34d !important;
+  font-weight: 800 !important;
+}
+
+.mention-tag.mention-tag-all:hover {
+  background: #fde68a !important;
+  border-color: #f59e0b !important;
+  color: #7c2d12 !important;
+}
+
+/* Sent message bubble (purple bubble) mention tag */
+.message.sent .message-content .mention-tag {
+  background: #ffffff !important;
+  color: #6d28d9 !important;
+  border-color: #e9d5ff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.message.sent .message-content .mention-tag:hover {
+  background: #f5f3ff !important;
+  color: #5b21b6 !important;
+}
+
+.message.sent .message-content .mention-tag.mention-tag-all {
+  background: #fef08a !important;
+  color: #854d0e !important;
+  border-color: #fde047 !important;
+}
+
+.message.sent .message-content .mention-tag.mention-tag-all:hover {
+  background: #fef9c3 !important;
+  color: #713f12 !important;
 }
 
 /* Mentioned Message Highlight (for recipient) */
 .message.received.message-mentioned .message-content {
-  background: #fbf7ff;
-  border-left: 3.5px solid var(--purple-600);
-  box-shadow: 0 2px 10px rgba(124, 58, 237, 0.08);
+  position: relative;
+  background: #faf5ff;
+  border-color: var(--purple-300);
+  box-shadow: 0 0 0 1px rgba(147, 51, 234, 0.15), 0 3px 12px rgba(124, 58, 237, 0.08);
+  padding-left: 18px;
+}
+
+.message.received.message-mentioned .message-content::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 8px;
+  bottom: 8px;
+  width: 3.5px;
+  background: var(--purple-600);
+  border-radius: 4px;
 }
 
 /* Mention Autocomplete Dropdown */

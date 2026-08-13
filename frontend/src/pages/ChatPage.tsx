@@ -2249,12 +2249,17 @@ function renderTextWithMentions(text: string): React.ReactNode {
 
   for (const match of text.matchAll(MENTION_TOKEN_REGEX)) {
     const rawMention = match[0];
+    const mentionName = match[1] || '';
     const matchIndex = match.index ?? 0;
     if (matchIndex > lastIndex) {
       parts.push(text.slice(lastIndex, matchIndex));
     }
+    const isAll = mentionName.toLowerCase() === 'all';
     parts.push(
-      <span key={`mention-${matchIndex}-${rawMention}`} className="mention-tag">
+      <span
+        key={`mention-${matchIndex}-${rawMention}`}
+        className={`mention-tag ${isAll ? 'mention-tag-all' : ''}`}
+      >
         {rawMention}
       </span>
     );
@@ -8795,6 +8800,41 @@ export default function ChatPage() {
     ),
     [currentUser?.id, messages, selectedUser?.id]
   );
+  const latestRoomSeenByByMessageId = useMemo(() => {
+    if (!selectedRoom || Object.keys(roomSeenByByMessageId).length === 0) {
+      return {};
+    }
+
+    const result: Record<number, User[]> = {};
+    const placedUserIds = new Set<number>();
+
+    // Iterate backwards through messages so only the latest read message claims each reader's avatar
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const msg = messages[index];
+      if (!msg || msg.id <= 0 || msg.recalled) {
+        continue;
+      }
+
+      const readers = roomSeenByByMessageId[msg.id];
+      if (!readers || readers.length === 0) {
+        continue;
+      }
+
+      const uniqueLatestReaders: User[] = [];
+      for (const reader of readers) {
+        if (!placedUserIds.has(reader.id)) {
+          placedUserIds.add(reader.id);
+          uniqueLatestReaders.push(reader);
+        }
+      }
+
+      if (uniqueLatestReaders.length > 0) {
+        result[msg.id] = uniqueLatestReaders;
+      }
+    }
+
+    return result;
+  }, [messages, roomSeenByByMessageId, selectedRoom]);
   const mediaViewerUrl = getMediaUrl(mediaViewerMessage?.mediaUrl);
   const mediaViewerType = mediaViewerMessage ? getMessageType(mediaViewerMessage) : 'IMAGE';
   const activeReplyPreview = createReplyFromMessage(replyingToMessage);
@@ -11711,13 +11751,14 @@ export default function ChatPage() {
                         message.id === latestSeenOutgoingMessageId;
                       const groupSeenByUsers =
                         selectedRoom && isSentByCurrentUser && message.id > 0 && !message.recalled
-                          ? roomSeenByByMessageId[message.id] ?? []
+                          ? latestRoomSeenByByMessageId[message.id] ?? []
                           : [];
                       const groupSeenByLoading =
                         selectedRoom &&
                         isSentByCurrentUser &&
                         message.id > 0 &&
                         !message.recalled &&
+                        groupSeenByUsers.length === 0 &&
                         seenByLoadingMessageIds.includes(message.id);
                       const isMessageSearchMatch = Boolean(
                         messageSearchExpanded &&
