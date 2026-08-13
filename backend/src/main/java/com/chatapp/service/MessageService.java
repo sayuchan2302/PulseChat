@@ -1,6 +1,7 @@
 package com.chatapp.service;
 
 import com.chatapp.dto.request.MediaAttachmentRequest;
+import com.chatapp.dto.request.ForwardMessageRequest;
 import com.chatapp.dto.request.MessageReactionRequest;
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.request.SendRoomMessageRequest;
@@ -408,7 +409,72 @@ public class MessageService {
     }
 
     @Transactional
+    public MessageResponse forwardMessage(String currentUsername, ForwardMessageRequest request) {
+        User sender = userService.findByUsername(currentUsername);
+        Message source = findAccessibleMessage(sender, request.messageId());
+
+        // Can't forward recalled or call-type messages
+        if (Boolean.TRUE.equals(source.getRecalled()) || source.getType() == Message.MessageType.CALL) {
+            throw new AppException(ErrorCode.INVALID_MESSAGE_CONTENT);
+        }
+
+        // Resolve target – either DM or room (mutually exclusive)
+        if (request.targetRoomId() != null) {
+            ChatRoom room = chatRoomService.findGroupRoomForMember(sender, request.targetRoomId());
+            return saveForwardedRoomMessage(sender, source, room);
+        }
+
+        if (request.targetUserId() != null) {
+            User target = userService.findById(request.targetUserId());
+            if (sender.getId().equals(target.getId())) {
+                throw new AppException(ErrorCode.SELF_MESSAGE_NOT_ALLOWED);
+            }
+            validateFriends(sender, target);
+            return saveForwardedDmMessage(sender, source, target);
+        }
+
+        throw new AppException(ErrorCode.VALIDATION_FAILED, "Either targetUserId or targetRoomId must be set");
+    }
+
+    private MessageResponse saveForwardedDmMessage(User sender, Message source, User target) {
+        Message msg = buildForwardedMessage(sender, source);
+        msg.setReceiver(target);
+        msg.setRead(false);
+        return MessageResponse.from(messageRepository.saveAndFlush(msg));
+    }
+
+    private MessageResponse saveForwardedRoomMessage(User sender, Message source, ChatRoom room) {
+        Message msg = buildForwardedMessage(sender, source);
+        msg.setChatRoom(room);
+        msg.setRead(false);
+        return MessageResponse.from(messageRepository.saveAndFlush(msg));
+    }
+
+    private Message buildForwardedMessage(User sender, Message source) {
+        Message msg = new Message();
+        msg.setSender(sender);
+        msg.setForwardedFrom(source);
+        msg.setType(source.getType());
+        msg.setContent(source.getContent() == null ? "" : source.getContent());
+        msg.setMediaUrl(source.getMediaUrl());
+        msg.setMediaPublicId(source.getMediaPublicId());
+        msg.setMediaResourceType(source.getMediaResourceType());
+        msg.setMediaFormat(source.getMediaFormat());
+        msg.setMediaBytes(source.getMediaBytes());
+        msg.setMediaWidth(source.getMediaWidth());
+        msg.setMediaHeight(source.getMediaHeight());
+        msg.setMediaDuration(source.getMediaDuration());
+        msg.setLinkPreviewUrl(source.getLinkPreviewUrl());
+        msg.setLinkPreviewTitle(source.getLinkPreviewTitle());
+        msg.setLinkPreviewDescription(source.getLinkPreviewDescription());
+        msg.setLinkPreviewImageUrl(source.getLinkPreviewImageUrl());
+        msg.setLinkPreviewDomain(source.getLinkPreviewDomain());
+        return msg;
+    }
+
+    @Transactional
     public void pinDmMessage(String currentUsername, Long otherUserId, Long messageId) {
+
         PrivateConversationParticipants participants = findPrivateConversationParticipants(currentUsername,
                 otherUserId);
         Message message = findMessageById(messageId);

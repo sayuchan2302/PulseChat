@@ -98,6 +98,10 @@ public class Message {
     private Message replyToMessage;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "forwarded_from_id")
+    private Message forwardedFrom;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "call_session_id")
     private CallSession callSession;
 

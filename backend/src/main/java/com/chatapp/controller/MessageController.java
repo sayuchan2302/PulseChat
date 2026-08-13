@@ -1,5 +1,6 @@
 package com.chatapp.controller;
 
+import com.chatapp.dto.request.ForwardMessageRequest;
 import com.chatapp.dto.request.MessageReactionRequest;
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.response.MessagePageResponse;
@@ -98,6 +99,16 @@ public class MessageController {
         MessageResponse message = messageService.sendMessage(authentication.getName(), request);
         notifyMessageParticipants(authentication.getName(), message.id(), message);
 
+        return ResponseEntity.status(HttpStatus.CREATED).body(message);
+    }
+
+    @PostMapping("/forward")
+    public ResponseEntity<MessageResponse> forwardMessage(
+            Authentication authentication,
+            @Valid @RequestBody ForwardMessageRequest request) {
+        MessageResponse message = messageService.forwardMessage(authentication.getName(), request);
+        // Broadcast to the TARGET conversation (not the source)
+        notifyMessageParticipants(authentication.getName(), message.id(), message);
         return ResponseEntity.status(HttpStatus.CREATED).body(message);
     }
 

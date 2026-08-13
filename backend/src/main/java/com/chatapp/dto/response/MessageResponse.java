@@ -38,8 +38,9 @@ public record MessageResponse(
         Long chatRoomId,
         Boolean read,
         LocalDateTime timestamp,
-        String clientId
-) {
+        String clientId,
+        Long forwardedFromId,
+        String forwardedFromSenderName) {
     public static MessageResponse from(Message message) {
         boolean recalled = Boolean.TRUE.equals(message.getRecalled());
         CallSession callSession = message.getCallSession();
@@ -74,8 +75,9 @@ public record MessageResponse(
                 message.getChatRoom() == null ? null : message.getChatRoom().getId(),
                 message.getRead(),
                 message.getTimestamp(),
-                message.getClientId()
-        );
+                message.getClientId(),
+                message.getForwardedFrom() == null ? null : message.getForwardedFrom().getId(),
+                message.getForwardedFrom() == null ? null : forwardedSenderName(message.getForwardedFrom()));
     }
 
     private static Long reactionSortKey(com.chatapp.model.MessageReaction reaction) {
@@ -108,5 +110,10 @@ public record MessageResponse(
 
         String fullName = message.getSender().getFullName();
         return fullName == null || fullName.isBlank() ? message.getSender().getUsername() : fullName;
+    }
+
+    private static String forwardedSenderName(Message original) {
+        String fullName = original.getSender().getFullName();
+        return fullName == null || fullName.isBlank() ? original.getSender().getUsername() : fullName;
     }
 }

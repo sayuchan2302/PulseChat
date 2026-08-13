@@ -977,6 +977,25 @@ function CopyIcon({ className }: HeaderIconProps) {
   );
 }
 
+function ForwardIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <polyline points="15 10 20 5 15 0" transform="translate(0,2)" />
+      <path d="M4 20v-7a7 7 0 0 1 7-7h9" />
+    </svg>
+  );
+}
+
 function RecallIcon({ className }: HeaderIconProps) {
   return (
     <svg
@@ -2959,7 +2978,87 @@ function buildMessageListItems(
   return items;
 }
 
+function ForwardPickerBody({
+  friends,
+  rooms,
+  onSelect,
+}: {
+  friends: User[];
+  rooms: ChatRoom[];
+  onSelect: (targetUserId: number | null, targetRoomId: number | null) => void;
+}) {
+  const [query, setQuery] = React.useState('');
+
+  const lowerQuery = query.toLowerCase();
+
+  const filteredFriends = friends.filter(
+    (u) =>
+      (u.fullName ?? u.username).toLowerCase().includes(lowerQuery) ||
+      u.username.toLowerCase().includes(lowerQuery),
+  );
+  const filteredRooms = rooms.filter((r) =>
+    r.name.toLowerCase().includes(lowerQuery),
+  );
+
+  return (
+    <>
+      <div className="forward-picker-search-wrap">
+        <input
+          className="forward-picker-search"
+          type="text"
+          placeholder="Search people or groups…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          autoFocus
+        />
+      </div>
+      <div className="forward-picker-list">
+        {filteredFriends.length === 0 && filteredRooms.length === 0 ? (
+          <div className="forward-picker-empty">No results</div>
+        ) : null}
+        {filteredFriends.map((u) => (
+          <button
+            key={`dm-${u.id}`}
+            type="button"
+            className="forward-picker-item"
+            onClick={() => onSelect(u.id, null)}
+          >
+            <div className="forward-picker-avatar">
+              {u.avatarUrl ? (
+                <img src={u.avatarUrl} alt={u.username} />
+              ) : (
+                <span>{(u.fullName ?? u.username).charAt(0).toUpperCase()}</span>
+              )}
+            </div>
+            <div className="forward-picker-name">
+              <span>{u.fullName ?? u.username}</span>
+              <small>@{u.username}</small>
+            </div>
+          </button>
+        ))}
+        {filteredRooms.map((r) => (
+          <button
+            key={`room-${r.id}`}
+            type="button"
+            className="forward-picker-item"
+            onClick={() => onSelect(null, r.id)}
+          >
+            <div className="forward-picker-avatar group">
+              <span>{r.name.charAt(0).toUpperCase()}</span>
+            </div>
+            <div className="forward-picker-name">
+              <span>{r.name}</span>
+              <small>{r.participants.length} members</small>
+            </div>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
 export default function ChatPage() {
+
   const [users, setUsers] = useState<User[]>([]);
   const [friends, setFriends] = useState<User[]>([]);
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
@@ -2970,6 +3069,7 @@ export default function ChatPage() {
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [replyingToMessage, setReplyingToMessage] = useState<ChatMessage | null>(null);
   const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
+  const [forwardingMessage, setForwardingMessage] = useState<ChatMessage | null>(null);
 
   const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null);
   const [mediaUploading, setMediaUploading] = useState(false);
@@ -7704,7 +7804,38 @@ export default function ChatPage() {
     }
   }, [selectedRoom, selectedUser]);
 
+  const handleForwardMessage = useCallback((message: ChatMessage) => {
+    if (message.recalled || message.type === 'CALL') return;
+    setForwardingMessage(message);
+  }, []);
+
+  const sendForwardMessage = useCallback(async (
+    targetUserId: number | null,
+    targetRoomId: number | null,
+  ) => {
+    if (!forwardingMessage) return;
+    try {
+      const response = await apiClient.post<Message>('/messages/forward', {
+        messageId: forwardingMessage.id,
+        targetUserId,
+        targetRoomId,
+      });
+      // If target is the current conversation, add to local messages
+      const msg = response.data;
+      if (
+        (targetUserId && selectedUser?.id === targetUserId) ||
+        (targetRoomId && selectedRoom?.id === targetRoomId)
+      ) {
+        applyMessageUpdate(msg);
+      }
+      setForwardingMessage(null);
+    } catch (error) {
+      console.error('Failed to forward message:', error);
+    }
+  }, [forwardingMessage, selectedUser, selectedRoom, applyMessageUpdate]);
+
   const handleMessageInputChange = (value: string) => {
+
     setMessageInput(value);
     if (!selectedUser && !selectedRoom) {
       return;
@@ -8556,6 +8687,17 @@ export default function ChatPage() {
             {pinnedMessage?.id === message.id ? '📌' : '📌'}
           </span>
         </button>
+        {!message.recalled && message.type !== 'CALL' ? (
+          <button
+            type="button"
+            className="message-action-btn"
+            onClick={() => handleForwardMessage(message)}
+            aria-label="Forward message"
+            title="Forward"
+          >
+            <ForwardIcon className="message-action-icon" />
+          </button>
+        ) : null}
       </div>
     );
   };
@@ -8653,6 +8795,12 @@ export default function ChatPage() {
     if (getMessageType(message) === 'AUDIO' && mediaUrl) {
       return (
         <div className="message-media-content">
+          {message.forwardedFromId ? (
+            <div className="forwarded-header">
+              <ForwardIcon className="forwarded-icon" />
+              <span>Forwarded from <strong>{message.forwardedFromSenderName ?? 'Unknown'}</strong></span>
+            </div>
+          ) : null}
           {renderReplyQuote(message.replyTo)}
           <div className="message-voice">
             <VoiceMessagePlayer
@@ -8666,6 +8814,12 @@ export default function ChatPage() {
 
     return (
       <div className={`message-content ${hasLinkPreview(message.linkPreview) ? 'has-link-preview' : ''}`}>
+        {message.forwardedFromId ? (
+          <div className="forwarded-header">
+            <ForwardIcon className="forwarded-icon" />
+            <span>Forwarded from <strong>{message.forwardedFromSenderName ?? 'Unknown'}</strong></span>
+          </div>
+        ) : null}
         {renderReplyQuote(message.replyTo)}
         {message.content ? (
           <div className="message-text">{renderLinkedText(message.content)}</div>
@@ -11622,6 +11776,35 @@ export default function ChatPage() {
           </div>
         </div>
       ) : null}
+
+      {/* Forward Picker Modal */}
+      {forwardingMessage ? (
+        <div
+          className="forward-picker-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Forward message"
+          onClick={(e) => { if (e.target === e.currentTarget) setForwardingMessage(null); }}
+        >
+          <div className="forward-picker-modal">
+            <div className="forward-picker-header">
+              <span className="forward-picker-title">Forward to…</span>
+              <button
+                type="button"
+                className="forward-picker-close"
+                onClick={() => setForwardingMessage(null)}
+                aria-label="Close"
+              >×</button>
+            </div>
+            <ForwardPickerBody
+              friends={friends}
+              rooms={rooms}
+              onSelect={sendForwardMessage}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
+
   );
 }

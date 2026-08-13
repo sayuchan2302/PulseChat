@@ -98,7 +98,10 @@ export interface Message {
   read: boolean;
   clientId?: string | null;
   pinnedBy?: number | null;
+  forwardedFromId?: number | null;
+  forwardedFromSenderName?: string | null;
 }
+
 
 export interface MessagePage {
   items: Message[];
