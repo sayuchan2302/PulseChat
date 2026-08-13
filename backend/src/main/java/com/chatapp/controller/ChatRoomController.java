@@ -246,8 +246,10 @@ public class ChatRoomController {
                         List<String> usernames,
                         ChatRoomResponse fallbackRoom) {
                 usernames.forEach(username -> {
-                        ChatRoomResponse room = findRoomForNotification(username, roomId, fallbackRoom);
-                        messagingTemplate.convertAndSendToUser(username, ROOM_QUEUE, room);
+                        if (username != null && !username.isBlank()) {
+                                ChatRoomResponse room = findRoomForNotification(username, roomId, fallbackRoom);
+                                messagingTemplate.convertAndSendToUser(username, ROOM_QUEUE, room);
+                        }
                 });
         }
 

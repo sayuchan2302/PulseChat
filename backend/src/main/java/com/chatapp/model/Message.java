@@ -111,6 +111,13 @@ public class Message {
     @OneToMany(mappedBy = "message", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<MessageReaction> reactions = new HashSet<>();
 
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(name = "message_mentions", joinColumns = @JoinColumn(name = "message_id"), inverseJoinColumns = @JoinColumn(name = "user_id"), indexes = {
+            @Index(name = "idx_message_mentions_user_id", columnList = "user_id"),
+            @Index(name = "idx_message_mentions_message_id", columnList = "message_id")
+    })
+    private Set<User> mentions = new HashSet<>();
+
     @Column(nullable = false)
     private Boolean read = false;
 
@@ -122,6 +129,6 @@ public class Message {
     private LocalDateTime updatedAt;
 
     public enum MessageType {
-        TEXT, IMAGE, VIDEO, AUDIO, CALL
+        TEXT, IMAGE, VIDEO, AUDIO, FILE, CALL
     }
 }

@@ -36,10 +36,15 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -49,9 +54,15 @@ public class MessageService {
     private static final int MAX_PAGE_SIZE = 100;
     private static final long MAX_IMAGE_BYTES = 10L * 1024 * 1024;
     private static final long MAX_VIDEO_BYTES = 50L * 1024 * 1024;
+    private static final long MAX_FILE_BYTES = 50L * 1024 * 1024;
     private static final String IMAGE_RESOURCE_TYPE = "image";
     private static final String VIDEO_RESOURCE_TYPE = "video";
-    private static final List<MessageType> MEDIA_MESSAGE_TYPES = List.of(MessageType.IMAGE, MessageType.VIDEO);
+    private static final List<MessageType> MEDIA_MESSAGE_TYPES = List.of(
+            MessageType.IMAGE,
+            MessageType.VIDEO,
+            MessageType.AUDIO,
+            MessageType.FILE);
+    private static final Pattern MENTION_PATTERN = Pattern.compile("@([a-zA-Z0-9_.\\-]+)");
 
     private final MessageRepository messageRepository;
     private final MessageReactionRepository messageReactionRepository;
@@ -446,6 +457,7 @@ public class MessageService {
     private MessageResponse saveForwardedRoomMessage(User sender, Message source, ChatRoom room) {
         Message msg = buildForwardedMessage(sender, source);
         msg.setChatRoom(room);
+        msg.setMentions(resolveMentions(room, sender, msg.getContent()));
         msg.setRead(false);
         return MessageResponse.from(messageRepository.saveAndFlush(msg));
     }
@@ -595,9 +607,39 @@ public class MessageService {
         applyMessagePayload(message, content, type, media, linkPreview);
         message.setClientId(clientId);
         message.setRead(false);
+        message.setMentions(resolveMentions(room, sender, content));
 
         Message savedMessage = messageRepository.saveAndFlush(message);
         return MessageResponse.from(savedMessage);
+    }
+
+    private Set<User> resolveMentions(ChatRoom room, User sender, String content) {
+        if (room == null || content == null || !content.contains("@") || room.getMembers() == null) {
+            return Collections.emptySet();
+        }
+
+        Set<User> eligibleMembers = room.getMembers().stream()
+                .map(ChatRoomMember::getUser)
+                .filter(u -> u != null && !u.getId().equals(sender.getId()))
+                .collect(Collectors.toSet());
+
+        if (eligibleMembers.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        Matcher matcher = MENTION_PATTERN.matcher(content);
+        Set<String> matchedTokens = new HashSet<>();
+        while (matcher.find()) {
+            matchedTokens.add(matcher.group(1).toLowerCase());
+        }
+
+        if (matchedTokens.contains("all")) {
+            return eligibleMembers;
+        }
+
+        return eligibleMembers.stream()
+                .filter(u -> u.getUsername() != null && matchedTokens.contains(u.getUsername().toLowerCase()))
+                .collect(Collectors.toSet());
     }
 
     private Message resolvePrivateReplyTarget(User sender, User receiver, Long replyToMessageId) {
@@ -680,8 +722,11 @@ public class MessageService {
             throw new AppException(ErrorCode.INVALID_MEDIA_MESSAGE);
         }
 
-        String expectedResourceType = type == MessageType.IMAGE ? IMAGE_RESOURCE_TYPE : VIDEO_RESOURCE_TYPE;
-        if (!expectedResourceType.equalsIgnoreCase(media.resourceType())) {
+        if (type == MessageType.IMAGE && !IMAGE_RESOURCE_TYPE.equalsIgnoreCase(media.resourceType())) {
+            throw new AppException(ErrorCode.INVALID_MEDIA_MESSAGE);
+        }
+
+        if (type == MessageType.VIDEO && !VIDEO_RESOURCE_TYPE.equalsIgnoreCase(media.resourceType())) {
             throw new AppException(ErrorCode.INVALID_MEDIA_MESSAGE);
         }
 
@@ -689,7 +734,9 @@ public class MessageService {
             return;
         }
 
-        long maxBytes = type == MessageType.IMAGE ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES;
+        long maxBytes = type == MessageType.IMAGE ? MAX_IMAGE_BYTES
+                : type == MessageType.VIDEO ? MAX_VIDEO_BYTES
+                        : MAX_FILE_BYTES;
         if (media.bytes() > maxBytes) {
             throw new AppException(ErrorCode.INVALID_MEDIA_MESSAGE);
         }

@@ -322,7 +322,7 @@ export function useCallManager(currentUser: User | null): CallManager {
 
   const handleIncomingSignal = useCallback(
     (event: CallSignalEvent) => {
-      const { eventType, callId, callType, caller, receiver, fromUser, sdp, candidate, sdpMid, sdpMLineIndex, recipientRole } = event;
+      const { eventType, callId, callType, caller, receiver, sdp, candidate, sdpMid, sdpMLineIndex, recipientRole } = event;
 
       const isCallerRole = recipientRole === 'CALLER';
       const remoteUser = isCallerRole ? receiver : caller;

@@ -6,12 +6,12 @@ export type UserFriendshipStatus =
   | 'declined';
 
 export type FriendshipStatus = 'pending' | 'accepted' | 'declined';
-export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'CALL';
+export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'FILE' | 'CALL';
 
 export interface MediaAttachment {
   url: string;
   publicId: string;
-  resourceType: 'image' | 'video';
+  resourceType: 'image' | 'video' | 'raw';
   format?: string | null;
   bytes?: number | null;
   width?: number | null;
@@ -75,7 +75,7 @@ export interface Message {
   type?: MessageType;
   mediaUrl?: string | null;
   mediaPublicId?: string | null;
-  mediaResourceType?: 'image' | 'video' | null;
+  mediaResourceType?: 'image' | 'video' | 'raw' | null;
   mediaFormat?: string | null;
   mediaBytes?: number | null;
   mediaWidth?: number | null;
@@ -100,6 +100,8 @@ export interface Message {
   pinnedBy?: number | null;
   forwardedFromId?: number | null;
   forwardedFromSenderName?: string | null;
+  mentionedUserIds?: number[];
+  mentionedUsernames?: string[];
 }
 
 

@@ -40,7 +40,9 @@ public record MessageResponse(
         LocalDateTime timestamp,
         String clientId,
         Long forwardedFromId,
-        String forwardedFromSenderName) {
+        String forwardedFromSenderName,
+        List<Long> mentionedUserIds,
+        List<String> mentionedUsernames) {
     public static MessageResponse from(Message message) {
         boolean recalled = Boolean.TRUE.equals(message.getRecalled());
         CallSession callSession = message.getCallSession();
@@ -77,7 +79,11 @@ public record MessageResponse(
                 message.getTimestamp(),
                 message.getClientId(),
                 message.getForwardedFrom() == null ? null : message.getForwardedFrom().getId(),
-                message.getForwardedFrom() == null ? null : forwardedSenderName(message.getForwardedFrom()));
+                message.getForwardedFrom() == null ? null : forwardedSenderName(message.getForwardedFrom()),
+                message.getMentions() == null ? List.of()
+                        : message.getMentions().stream().map(com.chatapp.model.User::getId).sorted().toList(),
+                message.getMentions() == null ? List.of()
+                        : message.getMentions().stream().map(com.chatapp.model.User::getUsername).sorted().toList());
     }
 
     private static Long reactionSortKey(com.chatapp.model.MessageReaction reaction) {

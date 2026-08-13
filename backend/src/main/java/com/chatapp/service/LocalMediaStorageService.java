@@ -23,6 +23,7 @@ public class LocalMediaStorageService {
     private static final long MAX_IMAGE_SIZE_BYTES = 10L * 1024 * 1024;
     private static final long MAX_VIDEO_SIZE_BYTES = 50L * 1024 * 1024;
     private static final long MAX_AUDIO_SIZE_BYTES = 20L * 1024 * 1024;
+    private static final long MAX_FILE_SIZE_BYTES = 50L * 1024 * 1024;
     private static final String PUBLIC_MEDIA_PATH = "/uploads/media";
 
     private static final Map<String, String> EXTENSIONS_BY_CONTENT_TYPE = Map.ofEntries(
@@ -42,7 +43,19 @@ public class LocalMediaStorageService {
             Map.entry("audio/mp4", "mp4"),
             Map.entry("audio/ogg", "ogg"),
             Map.entry("audio/wav", "wav"),
-            Map.entry("audio/x-wav", "wav"));
+            Map.entry("audio/x-wav", "wav"),
+            Map.entry("application/pdf", "pdf"),
+            Map.entry("application/zip", "zip"),
+            Map.entry("application/x-zip-compressed", "zip"),
+            Map.entry("application/msword", "doc"),
+            Map.entry("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"),
+            Map.entry("application/vnd.ms-excel", "xls"),
+            Map.entry("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"),
+            Map.entry("application/vnd.ms-powerpoint", "ppt"),
+            Map.entry("application/vnd.openxmlformats-officedocument.presentationml.presentation", "pptx"),
+            Map.entry("text/plain", "txt"),
+            Map.entry("text/csv", "csv"),
+            Map.entry("application/json", "json"));
 
     @Value("${app.uploads.media-dir:uploads/media}")
     private String mediaDirectory;
@@ -56,18 +69,11 @@ public class LocalMediaStorageService {
         }
 
         String contentType = mediaFile.getContentType();
-        if (!StringUtils.hasText(contentType)) {
-            throw new AppException(ErrorCode.INVALID_MEDIA_FILE);
-        }
+        boolean isImage = contentType != null && contentType.startsWith("image/");
+        boolean isVideo = contentType != null && contentType.startsWith("video/");
+        boolean isAudio = contentType != null && contentType.startsWith("audio/");
 
-        boolean isImage = contentType.startsWith("image/");
-        boolean isVideo = contentType.startsWith("video/");
-        boolean isAudio = contentType.startsWith("audio/");
-        if (!isImage && !isVideo && !isAudio) {
-            throw new AppException(ErrorCode.INVALID_MEDIA_FILE);
-        }
-
-        validateFileSize(mediaFile, isVideo, isAudio);
+        validateFileSize(mediaFile, isImage, isVideo, isAudio);
 
         String format = determineFormat(mediaFile, contentType);
         String publicId = UUID.randomUUID().toString();
@@ -86,9 +92,9 @@ public class LocalMediaStorageService {
         }
 
         String url = normalizedContextPath() + PUBLIC_MEDIA_PATH + "/" + filename;
-        // Audio uses resourceType "video" (Cloudinary convention) so the same pipeline
-        // applies
-        String resourceType = isImage ? "image" : "video";
+        // Image uses "image", Video and Audio use "video", generic files/documents use
+        // "raw"
+        String resourceType = isImage ? "image" : (isVideo || isAudio ? "video" : "raw");
 
         return new LocalMediaUploadResponse(
                 url,
@@ -98,14 +104,16 @@ public class LocalMediaStorageService {
                 mediaFile.getSize());
     }
 
-    private void validateFileSize(MultipartFile file, boolean isVideo, boolean isAudio) {
+    private void validateFileSize(MultipartFile file, boolean isImage, boolean isVideo, boolean isAudio) {
         long maxSize;
         if (isVideo) {
             maxSize = MAX_VIDEO_SIZE_BYTES;
         } else if (isAudio) {
             maxSize = MAX_AUDIO_SIZE_BYTES;
-        } else {
+        } else if (isImage) {
             maxSize = MAX_IMAGE_SIZE_BYTES;
+        } else {
+            maxSize = MAX_FILE_SIZE_BYTES;
         }
         if (file.getSize() > maxSize) {
             throw new AppException(ErrorCode.INVALID_MEDIA_FILE);
@@ -113,21 +121,25 @@ public class LocalMediaStorageService {
     }
 
     private String determineFormat(MultipartFile file, String contentType) {
-        String ext = EXTENSIONS_BY_CONTENT_TYPE.get(contentType.toLowerCase(Locale.ROOT));
-        if (ext != null) {
-            return ext;
-        }
-
         String originalName = file.getOriginalFilename();
         if (StringUtils.hasText(originalName) && originalName.contains(".")) {
             return originalName.substring(originalName.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
         }
 
-        if (contentType.startsWith("video/"))
-            return "mp4";
-        if (contentType.startsWith("audio/"))
-            return "webm";
-        return "png";
+        if (StringUtils.hasText(contentType)) {
+            String ext = EXTENSIONS_BY_CONTENT_TYPE.get(contentType.toLowerCase(Locale.ROOT));
+            if (ext != null) {
+                return ext;
+            }
+            if (contentType.startsWith("video/"))
+                return "mp4";
+            if (contentType.startsWith("audio/"))
+                return "webm";
+            if (contentType.startsWith("image/"))
+                return "png";
+        }
+
+        return "bin";
     }
 
     private String normalizedContextPath() {

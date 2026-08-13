@@ -35,6 +35,7 @@ import type {
 } from '../types';
 import { apiClient, clearAuthSession } from '../services/api';
 import { wsService } from '../services/websocket';
+import { soundService } from '../services/soundService';
 import './ChatPage.css';
 
 const PRIVATE_MESSAGE_DESTINATION = '/app/chat.send';
@@ -213,14 +214,15 @@ type SendRoomMessagePayload = {
 type PendingMedia = {
   file: File;
   previewUrl: string;
-  type: Extract<MessageType, 'IMAGE' | 'VIDEO'>;
-  resourceType: 'image' | 'video';
+  type: Extract<MessageType, 'IMAGE' | 'VIDEO' | 'AUDIO' | 'FILE'>;
+  resourceType: 'image' | 'video' | 'raw';
+  mediaDuration?: number;
 };
 
 type CloudinaryUploadResult = {
   secure_url: string;
   public_id: string;
-  resource_type: 'image' | 'video';
+  resource_type: 'image' | 'video' | 'raw';
   format?: string;
   bytes?: number;
   width?: number;
@@ -231,7 +233,7 @@ type CloudinaryUploadResult = {
 type LocalMediaUploadResult = {
   url: string;
   publicId: string;
-  resourceType: 'image' | 'video';
+  resourceType: 'image' | 'video' | 'raw';
   format?: string;
   bytes?: number;
 };
@@ -302,7 +304,47 @@ type ChatBrowserNotification = {
   path?: string;
   user?: User | null;
   browserTag: string;
+  isMention?: boolean;
 };
+
+function SoundIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
+    </svg>
+  );
+}
+
+function MuteIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <line x1="23" y1="9" x2="17" y2="15" />
+      <line x1="17" y1="9" x2="23" y2="15" />
+    </svg>
+  );
+}
 
 function FriendsIcon({ className }: HeaderIconProps) {
   return (
@@ -939,6 +981,66 @@ function MediaIcon({ className }: HeaderIconProps) {
   );
 }
 
+function DocumentIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+      <polyline points="10 9 9 9 8 9" />
+    </svg>
+  );
+}
+
+function DownloadIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  );
+}
+
+function PaperclipIcon({ className }: HeaderIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  );
+}
+
 function ReplyIcon({ className }: HeaderIconProps) {
   return (
     <svg
@@ -1540,7 +1642,7 @@ function getMessageType(message: Message): MessageType {
 
 function isMediaMessage(message: Message) {
   const type = getMessageType(message);
-  return type === 'IMAGE' || type === 'VIDEO' || type === 'AUDIO';
+  return type === 'IMAGE' || type === 'VIDEO' || type === 'AUDIO' || type === 'FILE';
 }
 
 function isCallMessage(message: Message) {
@@ -1567,6 +1669,10 @@ function getMessagePreviewContent(message: Message) {
 
   if (getMessageType(message) === 'AUDIO') {
     return '🎙 Voice message';
+  }
+
+  if (getMessageType(message) === 'FILE') {
+    return '📁 File attachment';
   }
 
   if (isCallMessage(message)) {
@@ -1726,7 +1832,7 @@ function createReplyFromMessage(message: ChatMessage | null): MessageReply | nul
   };
 }
 
-function getPendingMediaType(file: File): Pick<PendingMedia, 'type' | 'resourceType'> | null {
+function getPendingMediaType(file: File): Pick<PendingMedia, 'type' | 'resourceType'> {
   if (file.type.startsWith('image/')) {
     return { type: 'IMAGE', resourceType: 'image' };
   }
@@ -1740,7 +1846,7 @@ function getPendingMediaType(file: File): Pick<PendingMedia, 'type' | 'resourceT
     return { type: 'AUDIO', resourceType: 'video' };
   }
 
-  return null;
+  return { type: 'FILE', resourceType: 'raw' };
 }
 
 function getMediaSizeError(file: File, pendingMediaType: Pick<PendingMedia, 'type'>) {
@@ -1756,7 +1862,49 @@ function getMediaSizeError(file: File, pendingMediaType: Pick<PendingMedia, 'typ
     return 'Voice message must be 20MB or smaller.';
   }
 
+  if (pendingMediaType.type === 'FILE' && file.size > 50 * 1024 * 1024) {
+    return 'File must be 50MB or smaller.';
+  }
+
   return '';
+}
+
+function formatFileSize(bytes?: number | null) {
+  if (!bytes || bytes <= 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getFileExtension(filenameOrFormat?: string | null) {
+  if (!filenameOrFormat) return 'FILE';
+  const clean = filenameOrFormat.split('?')[0].split('#')[0];
+  const parts = clean.split('.');
+  if (parts.length > 1) {
+    const ext = parts[parts.length - 1];
+    return ext.toUpperCase().slice(0, 5);
+  }
+  return clean.toUpperCase().slice(0, 5);
+}
+
+function getFileBadgeColor(formatOrExt?: string | null) {
+  const ext = (formatOrExt || '').toLowerCase();
+  if (['pdf'].includes(ext)) return 'file-badge-pdf';
+  if (['doc', 'docx', 'odt', 'rtf'].includes(ext)) return 'file-badge-word';
+  if (['xls', 'xlsx', 'csv'].includes(ext)) return 'file-badge-excel';
+  if (['ppt', 'pptx'].includes(ext)) return 'file-badge-ppt';
+  if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2'].includes(ext)) return 'file-badge-archive';
+  if (['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'html', 'css', 'json', 'xml', 'sql', 'cpp', 'c', 'cs', 'php', 'rb', 'go', 'rs'].includes(ext)) return 'file-badge-code';
+  if (['txt', 'md', 'log'].includes(ext)) return 'file-badge-text';
+  return 'file-badge-generic';
+}
+
+function getDownloadFilename(message: ChatMessage): string {
+  if (message.content && message.content.trim()) {
+    return message.content.trim();
+  }
+  const ext = getFileExtension(message.mediaFormat || message.mediaUrl);
+  return `attachment.${ext.toLowerCase()}`;
 }
 
 function getFileFormat(file: File) {
@@ -2088,12 +2236,44 @@ function trimUrlToken(rawUrl: string) {
   return url;
 }
 
+const MENTION_TOKEN_REGEX = /@([a-zA-Z0-9_.-]+)/g;
+
+function renderTextWithMentions(text: string): React.ReactNode {
+  if (!text) {
+    return null;
+  }
+
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  MENTION_TOKEN_REGEX.lastIndex = 0;
+
+  for (const match of text.matchAll(MENTION_TOKEN_REGEX)) {
+    const rawMention = match[0];
+    const matchIndex = match.index ?? 0;
+    if (matchIndex > lastIndex) {
+      parts.push(text.slice(lastIndex, matchIndex));
+    }
+    parts.push(
+      <span key={`mention-${matchIndex}-${rawMention}`} className="mention-tag">
+        {rawMention}
+      </span>
+    );
+    lastIndex = matchIndex + rawMention.length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
 function renderLinkedText(text: string) {
   if (!text) {
     return null;
   }
 
-  const nodes = [];
+  const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
   TEXT_URL_REGEX.lastIndex = 0;
 
@@ -2106,7 +2286,7 @@ function renderLinkedText(text: string) {
     }
 
     if (matchIndex > lastIndex) {
-      nodes.push(text.slice(lastIndex, matchIndex));
+      nodes.push(renderTextWithMentions(text.slice(lastIndex, matchIndex)));
     }
 
     nodes.push(
@@ -2123,14 +2303,14 @@ function renderLinkedText(text: string) {
 
     const trailingText = rawUrl.slice(url.length);
     if (trailingText) {
-      nodes.push(trailingText);
+      nodes.push(renderTextWithMentions(trailingText));
     }
 
     lastIndex = matchIndex + rawUrl.length;
   }
 
   if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex));
+    nodes.push(renderTextWithMentions(text.slice(lastIndex)));
   }
 
   return nodes.length > 0 ? nodes : text;
@@ -2987,7 +3167,7 @@ function ForwardPickerBody({
   rooms: ChatRoom[];
   onSelect: (targetUserId: number | null, targetRoomId: number | null) => void;
 }) {
-  const [query, setQuery] = React.useState('');
+  const [query, setQuery] = useState('');
 
   const lowerQuery = query.toLowerCase();
 
@@ -3024,8 +3204,8 @@ function ForwardPickerBody({
             onClick={() => onSelect(u.id, null)}
           >
             <div className="forward-picker-avatar">
-              {u.avatarUrl ? (
-                <img src={u.avatarUrl} alt={u.username} />
+              {u.avatar ? (
+                <img src={u.avatar} alt={u.username} />
               ) : (
                 <span>{(u.fullName ?? u.username).charAt(0).toUpperCase()}</span>
               )}
@@ -3070,6 +3250,14 @@ export default function ChatPage() {
   const [replyingToMessage, setReplyingToMessage] = useState<ChatMessage | null>(null);
   const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<ChatMessage | null>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionStartIndex, setMentionStartIndex] = useState<number>(-1);
+  const [mentionActiveIndex, setMentionActiveIndex] = useState<number>(0);
+  const [soundMuted, setSoundMuted] = useState(() => soundService.isMuted());
+
+  useEffect(() => {
+    return soundService.onMuteChange((muted) => setSoundMuted(muted));
+  }, []);
 
   const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null);
   const [mediaUploading, setMediaUploading] = useState(false);
@@ -3126,6 +3314,7 @@ export default function ChatPage() {
   const [messageSearchNextBefore, setMessageSearchNextBefore] = useState<number | null>(null);
   const [activeMessageSearchId, setActiveMessageSearchId] = useState<number | null>(null);
   const [sharedMediaExpanded, setSharedMediaExpanded] = useState(false);
+  const [sharedFilesExpanded, setSharedFilesExpanded] = useState(false);
   const [sharedLinksExpanded, setSharedLinksExpanded] = useState(false);
   const [sharedMediaLoaded, setSharedMediaLoaded] = useState(false);
   const [sharedLinksLoaded, setSharedLinksLoaded] = useState(false);
@@ -3216,7 +3405,6 @@ export default function ChatPage() {
   const screenShareStoppingRef = useRef(false);
   const selectedAudioInputIdRef = useRef('');
   const selectedVideoInputIdRef = useRef('');
-  const incomingCallRingtoneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteTypingTimeoutsRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const sendTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -3243,6 +3431,8 @@ export default function ChatPage() {
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const messageInputSelectionRef = useRef({ start: 0, end: 0 });
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
+  const docFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   const emojiPickerRef = useRef<HTMLDivElement | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const navigate = useNavigate();
@@ -3565,81 +3755,12 @@ export default function ChatPage() {
     return audioContext;
   }, []);
 
-  const playNotificationSound = useCallback(async () => {
-    const audioContext = await resumeNotificationAudio();
-    if (!audioContext) {
-      return;
-    }
-
-    const startAt = audioContext.currentTime;
-    const masterGain = audioContext.createGain();
-    masterGain.gain.setValueAtTime(0.0001, startAt);
-    masterGain.gain.exponentialRampToValueAtTime(0.045, startAt + 0.018);
-    masterGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.46);
-    masterGain.connect(audioContext.destination);
-
-    [
-      { frequency: 660, delay: 0, duration: 0.22 },
-      { frequency: 880, delay: 0.09, duration: 0.26 },
-    ].forEach((note) => {
-      const oscillator = audioContext.createOscillator();
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(note.frequency, startAt + note.delay);
-      oscillator.frequency.exponentialRampToValueAtTime(
-        note.frequency * 1.08,
-        startAt + note.delay + note.duration
-      );
-      oscillator.connect(masterGain);
-      oscillator.start(startAt + note.delay);
-      oscillator.stop(startAt + note.delay + note.duration);
-    });
-  }, [resumeNotificationAudio]);
-
-  const playCallRingtonePulse = useCallback(async () => {
-    const audioContext = await resumeNotificationAudio();
-    if (!audioContext) {
-      return;
-    }
-
-    const startAt = audioContext.currentTime;
-    const masterGain = audioContext.createGain();
-    masterGain.gain.setValueAtTime(0.0001, startAt);
-    masterGain.gain.exponentialRampToValueAtTime(0.055, startAt + 0.02);
-    masterGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.9);
-    masterGain.connect(audioContext.destination);
-
-    [
-      { frequency: 523.25, delay: 0, duration: 0.28 },
-      { frequency: 659.25, delay: 0.2, duration: 0.34 },
-      { frequency: 783.99, delay: 0.46, duration: 0.3 },
-    ].forEach((note) => {
-      const oscillator = audioContext.createOscillator();
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(note.frequency, startAt + note.delay);
-      oscillator.connect(masterGain);
-      oscillator.start(startAt + note.delay);
-      oscillator.stop(startAt + note.delay + note.duration);
-    });
-  }, [resumeNotificationAudio]);
-
   const startIncomingCallRingtone = useCallback(() => {
-    if (incomingCallRingtoneIntervalRef.current) {
-      return;
-    }
-
-    void playCallRingtonePulse();
-    incomingCallRingtoneIntervalRef.current = window.setInterval(() => {
-      void playCallRingtonePulse();
-    }, 1450);
-  }, [playCallRingtonePulse]);
+    soundService.startIncomingCallRingtone();
+  }, []);
 
   const stopIncomingCallRingtone = useCallback(() => {
-    if (!incomingCallRingtoneIntervalRef.current) {
-      return;
-    }
-
-    window.clearInterval(incomingCallRingtoneIntervalRef.current);
-    incomingCallRingtoneIntervalRef.current = null;
+    soundService.stopIncomingCallRingtone();
   }, []);
 
   const requestBrowserNotificationPermission = useCallback(async () => {
@@ -3711,19 +3832,30 @@ export default function ChatPage() {
     }
   }, [navigate]);
 
-  const notifyWithBrowserNotification = useCallback((notification: ChatBrowserNotification) => {
+  const notifyWithBrowserNotification = useCallback((notification: ChatBrowserNotification, isMention = false) => {
     if (browserNotificationPermissionRef.current === 'default') {
       void requestBrowserNotificationPermission();
       return;
     }
 
     if (showBrowserNotification(notification)) {
-      void playNotificationSound();
+      if (isMention) {
+        soundService.playMentionSound();
+      } else {
+        soundService.playNotificationSound();
+      }
     }
-  }, [playNotificationSound, requestBrowserNotificationPermission, showBrowserNotification]);
+  }, [requestBrowserNotificationPermission, showBrowserNotification]);
 
   const buildMessageNotification = useCallback((message: Message) => {
     const preview = getMessagePreviewContent(message) || 'New message';
+    const isMention = Boolean(
+      message.chatRoomId && (
+        (currentUserRef.current && message.mentionedUserIds?.includes(currentUserRef.current.id)) ||
+        (currentUserRef.current && message.mentionedUsernames?.includes(currentUserRef.current.username)) ||
+        (message.content && /@all\b/i.test(message.content))
+      )
+    );
 
     if (message.chatRoomId) {
       const room = findKnownRoomById(message.chatRoomId);
@@ -3735,11 +3867,14 @@ export default function ChatPage() {
         'Someone';
 
       return {
-        title: room?.name ?? 'Group message',
-        body: `${senderName}: ${preview}`,
+        title: isMention
+          ? `🔔 ${senderName} mentioned you in ${room?.name ?? 'Group'}`
+          : (room?.name ?? 'Group message'),
+        body: isMention ? preview : `${senderName}: ${preview}`,
         path: getRoomChatRoute(message.chatRoomId),
         user: sender,
         browserTag: `room-message-${message.chatRoomId}`,
+        isMention,
       };
     }
 
@@ -3755,6 +3890,7 @@ export default function ChatPage() {
       path: senderUsername ? getUserChatRoute(senderUsername) : undefined,
       user: sender,
       browserTag: `private-message-${message.senderId}`,
+      isMention: false,
     };
   }, [findKnownRoomById, findKnownUserById]);
 
@@ -4012,6 +4148,9 @@ export default function ChatPage() {
     setMediaError('');
     if (mediaFileInputRef.current) {
       mediaFileInputRef.current.value = '';
+    }
+    if (docFileInputRef.current) {
+      docFileInputRef.current.value = '';
     }
   };
 
@@ -5989,7 +6128,8 @@ export default function ChatPage() {
           }
 
           if (shouldNotifyIncomingMessage) {
-            notifyWithBrowserNotification(buildMessageNotification(incomingMessage));
+            const notif = buildMessageNotification(incomingMessage);
+            notifyWithBrowserNotification(notif, notif.isMention);
           }
 
           if (incomingMessage.chatRoomId) {
@@ -7834,9 +7974,80 @@ export default function ChatPage() {
     }
   }, [forwardingMessage, selectedUser, selectedRoom, applyMessageUpdate]);
 
-  const handleMessageInputChange = (value: string) => {
+  const mentionCandidates = useMemo(() => {
+    if (!selectedRoom || mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    const list: { id: number | 'all'; username: string; fullName: string; isAll?: boolean }[] = [];
 
+    if ('all'.startsWith(q) || q === '') {
+      list.push({ id: 'all', username: 'all', fullName: 'All Members', isAll: true });
+    }
+
+    const currentUserId = currentUser?.id;
+    const filtered = (selectedRoom.participants || [])
+      .filter((p) => p.id !== currentUserId)
+      .filter(
+        (p) =>
+          p.username.toLowerCase().startsWith(q) ||
+          (p.fullName && p.fullName.toLowerCase().includes(q))
+      );
+
+    filtered.forEach((p) => {
+      list.push({
+        id: p.id,
+        username: p.username,
+        fullName: p.fullName || p.username,
+      });
+    });
+
+    return list;
+  }, [selectedRoom, mentionQuery, currentUser?.id]);
+
+  const checkMentionTrigger = useCallback((text: string, cursorPos: number) => {
+    if (!selectedRoom) {
+      setMentionQuery(null);
+      setMentionStartIndex(-1);
+      return;
+    }
+    const textBeforeCursor = text.slice(0, cursorPos);
+    const match = textBeforeCursor.match(/(?:^|\s)@([a-zA-Z0-9_.-]*)$/);
+    if (match) {
+      const query = match[1];
+      const atIndex = textBeforeCursor.length - match[0].length + (match[0].startsWith(' ') ? 1 : 0);
+      setMentionQuery(query);
+      setMentionStartIndex(atIndex);
+      setMentionActiveIndex(0);
+    } else {
+      setMentionQuery(null);
+      setMentionStartIndex(-1);
+    }
+  }, [selectedRoom]);
+
+  const insertMention = useCallback((candidate: { username: string }) => {
+    if (mentionStartIndex < 0) return;
+    const before = messageInput.slice(0, mentionStartIndex);
+    const cursorPos = messageInputRef.current?.selectionStart ?? messageInput.length;
+    const after = messageInput.slice(cursorPos);
+    const nextValue = `${before}@${candidate.username} ${after}`;
+    const nextCursor = before.length + candidate.username.length + 2;
+
+    setMessageInput(nextValue);
+    setMentionQuery(null);
+    setMentionStartIndex(-1);
+
+    window.requestAnimationFrame(() => {
+      const input = messageInputRef.current;
+      if (input) {
+        input.focus();
+        input.setSelectionRange(nextCursor, nextCursor);
+      }
+    });
+  }, [mentionStartIndex, messageInput]);
+
+  const handleMessageInputChange = (value: string) => {
     setMessageInput(value);
+    const cursorPos = messageInputRef.current?.selectionStart ?? value.length;
+    checkMentionTrigger(value, cursorPos);
     if (!selectedUser && !selectedRoom) {
       return;
     }
@@ -7907,23 +8118,22 @@ export default function ChatPage() {
     mediaFileInputRef.current?.click();
   };
 
-  const handleMediaFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.currentTarget.files?.[0];
-    if (!file) {
-      return;
-    }
+  const handleOpenDocPicker = () => {
+    setEmojiPickerOpen(false);
+    setMediaError('');
+    docFileInputRef.current?.click();
+  };
 
+  const handleFileSelected = (file: File) => {
     const pendingMediaType = getPendingMediaType(file);
     if (!pendingMediaType) {
-      setMediaError('Choose an image or video file.');
-      event.currentTarget.value = '';
+      setMediaError('Unsupported file type.');
       return;
     }
 
     const sizeError = getMediaSizeError(file, pendingMediaType);
     if (sizeError) {
       setMediaError(sizeError);
-      event.currentTarget.value = '';
       return;
     }
 
@@ -7934,6 +8144,14 @@ export default function ChatPage() {
     });
     setMediaError('');
     setEmojiPickerOpen(false);
+  };
+
+  const handleMediaFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    if (!file) {
+      return;
+    }
+    handleFileSelected(file);
   };
 
   const uploadToLocalMedia = async (file: File): Promise<MediaAttachment> => {
@@ -8021,6 +8239,33 @@ export default function ChatPage() {
   }, []);
 
   const handleMessageInputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionQuery !== null && mentionCandidates.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setMentionActiveIndex((prev) => (prev + 1) % mentionCandidates.length);
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setMentionActiveIndex((prev) => (prev - 1 + mentionCandidates.length) % mentionCandidates.length);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        const selected = mentionCandidates[mentionActiveIndex] || mentionCandidates[0];
+        if (selected) {
+          insertMention(selected);
+        }
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setMentionQuery(null);
+        setMentionStartIndex(-1);
+        return;
+      }
+    }
+
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
       return;
     }
@@ -8088,6 +8333,7 @@ export default function ChatPage() {
       };
 
       stopTyping(selectedUser.id);
+      soundService.playMessageSentSound();
       setMessages((currentMessages) => appendOptimisticMessage(currentMessages, optimisticMessage));
       setUsers((currentUsers) =>
         applyConversationPreviewToUsers(
@@ -8129,6 +8375,7 @@ export default function ChatPage() {
       };
 
       stopRoomTyping(selectedRoom.id);
+      soundService.playMessageSentSound();
       setMessages((currentMessages) => appendOptimisticMessage(currentMessages, optimisticMessage));
       setRooms((currentRooms) =>
         applyRoomPreviewToRooms(
@@ -8807,6 +9054,46 @@ export default function ChatPage() {
               src={mediaUrl}
               durationSeconds={message.mediaDuration}
             />
+          </div>
+        </div>
+      );
+    }
+
+    if (getMessageType(message) === 'FILE' && mediaUrl) {
+      const ext = getFileExtension(message.mediaFormat || message.content || mediaUrl);
+      const fileName = getDownloadFilename(message);
+      const badgeClass = getFileBadgeColor(ext);
+      const sizeLabel = formatFileSize(message.mediaBytes);
+
+      return (
+        <div className="message-media-content message-file-card-content">
+          {message.forwardedFromId ? (
+            <div className="forwarded-header">
+              <ForwardIcon className="forwarded-icon" />
+              <span>Forwarded from <strong>{message.forwardedFromSenderName ?? 'Unknown'}</strong></span>
+            </div>
+          ) : null}
+          {renderReplyQuote(message.replyTo)}
+          <div className="message-file-card">
+            <div className={`file-card-icon-wrap ${badgeClass}`}>
+              <DocumentIcon className="file-card-icon" />
+              <span className="file-card-ext">{ext}</span>
+            </div>
+            <div className="file-card-info">
+              <span className="file-card-name" title={fileName}>{fileName}</span>
+              {sizeLabel ? <span className="file-card-size">{sizeLabel}</span> : null}
+            </div>
+            <a
+              href={mediaUrl}
+              download={fileName}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="file-card-download-btn"
+              title={`Download ${fileName}`}
+              aria-label={`Download ${fileName}`}
+            >
+              <DownloadIcon className="file-card-download-icon" />
+            </a>
           </div>
         </div>
       );
@@ -9779,7 +10066,12 @@ export default function ChatPage() {
           {renderConversationStatusIcons({ type: 'room', room })}
         </button>
         {unreadCount > 0 ? (
-          <div className="unread-badge">{unreadCount}</div>
+          <div className="unread-badge-wrap">
+            {room.lastMessageContent && (/@all\b/i.test(room.lastMessageContent) || (currentUser && room.lastMessageContent.toLowerCase().includes('@' + currentUser.username.toLowerCase()))) ? (
+              <span className="mention-unread-indicator" title="You were mentioned">@</span>
+            ) : null}
+            <div className="unread-badge">{unreadCount}</div>
+          </div>
         ) : null}
         {renderConversationMenu({ type: 'room', room })}
       </div>
@@ -10403,7 +10695,11 @@ export default function ChatPage() {
   );
 
   const renderSharedMediaContent = () => {
-    if (sharedMediaLoading && sharedMediaItems.length === 0) {
+    const sharedPhotoVideoItems = sharedMediaItems.filter(
+      (message) => getMessageType(message) === 'IMAGE' || getMessageType(message) === 'VIDEO'
+    );
+
+    if (sharedMediaLoading && sharedPhotoVideoItems.length === 0) {
       return (
         <div className="shared-media-grid" aria-hidden="true">
           {Array.from({ length: 6 }, (_, index) => (
@@ -10413,7 +10709,7 @@ export default function ChatPage() {
       );
     }
 
-    if (sharedMediaError && sharedMediaItems.length === 0) {
+    if (sharedMediaError && sharedPhotoVideoItems.length === 0) {
       return (
         <div className="shared-content-state">
           <span>{sharedMediaError}</span>
@@ -10428,14 +10724,14 @@ export default function ChatPage() {
       );
     }
 
-    if (sharedMediaItems.length === 0) {
+    if (sharedPhotoVideoItems.length === 0) {
       return <div className="details-empty-text">No shared media yet.</div>;
     }
 
     return (
       <>
         <div className="shared-media-grid">
-          {sharedMediaItems.map((message) => {
+          {sharedPhotoVideoItems.map((message) => {
             const mediaUrl = getMediaUrl(message.mediaUrl);
             if (!mediaUrl) {
               return null;
@@ -10468,6 +10764,106 @@ export default function ChatPage() {
                   title="Go to message"
                 >
                   <JumpIcon className="shared-media-jump-icon" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {sharedMediaError ? <div className="shared-content-inline-error">{sharedMediaError}</div> : null}
+
+        {sharedMediaHasMore ? (
+          <button
+            type="button"
+            className="shared-content-load-btn"
+            disabled={sharedMediaLoading}
+            onClick={() => void loadSharedContent('media')}
+          >
+            {sharedMediaLoading ? 'Loading' : 'Load more'}
+          </button>
+        ) : null}
+      </>
+    );
+  };
+
+  const renderSharedFilesContent = () => {
+    const sharedFileItems = sharedMediaItems.filter(
+      (message) => getMessageType(message) === 'FILE'
+    );
+
+    if (sharedMediaLoading && sharedFileItems.length === 0) {
+      return (
+        <div className="shared-file-list" aria-hidden="true">
+          {Array.from({ length: 3 }, (_, index) => (
+            <span key={`shared-file-skeleton-${index}`} className="shared-link-skeleton" />
+          ))}
+        </div>
+      );
+    }
+
+    if (sharedMediaError && sharedFileItems.length === 0) {
+      return (
+        <div className="shared-content-state">
+          <span>{sharedMediaError}</span>
+          <button
+            type="button"
+            className="shared-content-retry-btn"
+            onClick={() => void loadSharedContent('media', { reset: true })}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+
+    if (sharedFileItems.length === 0) {
+      return <div className="details-empty-text">No shared files yet.</div>;
+    }
+
+    return (
+      <>
+        <div className="shared-file-list">
+          {sharedFileItems.map((message) => {
+            const mediaUrl = getMediaUrl(message.mediaUrl);
+            if (!mediaUrl) {
+              return null;
+            }
+
+            const ext = getFileExtension(message.mediaFormat || message.content || mediaUrl);
+            const fileName = message.content?.trim() || `attachment.${ext.toLowerCase()}`;
+            const badgeClass = getFileBadgeColor(ext);
+            const sizeLabel = formatFileSize(message.mediaBytes);
+
+            return (
+              <div key={message.id} className="shared-file-row">
+                <a
+                  className="shared-file-item"
+                  href={mediaUrl}
+                  download={fileName}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`Download ${fileName}`}
+                >
+                  <div className={`shared-file-icon-wrap ${badgeClass}`}>
+                    <DocumentIcon className="shared-file-icon" />
+                    <span className="shared-file-ext">{ext}</span>
+                  </div>
+                  <div className="shared-file-info">
+                    <strong className="shared-file-name" title={fileName}>{fileName}</strong>
+                    <span className="shared-file-meta">
+                      {sizeLabel ? `${sizeLabel} • ` : ''}
+                      {formatMessageTime(message.timestamp)}
+                    </span>
+                  </div>
+                </a>
+                <button
+                  type="button"
+                  className="shared-link-jump-btn"
+                  onClick={() => void handleJumpToMessage(message.id)}
+                  aria-label="Go to message"
+                  title="Go to message"
+                >
+                  <JumpIcon className="shared-link-jump-icon" />
                 </button>
               </div>
             );
@@ -10576,51 +10972,81 @@ export default function ChatPage() {
     );
   };
 
-  const renderSharedContentSections = () => (
-    <>
-      <section className="details-section" aria-labelledby="shared-media-title">
-        <button
-          type="button"
-          className="details-section-toggle-btn"
-          onClick={() => setSharedMediaExpanded((current) => !current)}
-          aria-expanded={sharedMediaExpanded}
-          aria-controls="shared-media-panel"
-        >
-          <div className="details-section-heading">
-            <h4 id="shared-media-title">Media</h4>
-            {sharedMediaItems.length > 0 ? <span>{sharedMediaItems.length}</span> : null}
-          </div>
-          <ChevronDownIcon className={`details-toggle-icon ${sharedMediaExpanded ? 'expanded' : ''}`} />
-        </button>
-        {sharedMediaExpanded ? (
-          <div id="shared-media-panel" className="shared-content-panel">
-            {renderSharedMediaContent()}
-          </div>
-        ) : null}
-      </section>
+  const renderSharedContentSections = () => {
+    const sharedPhotoVideoCount = sharedMediaItems.filter(
+      (message) => getMessageType(message) === 'IMAGE' || getMessageType(message) === 'VIDEO'
+    ).length;
+    const sharedFileCount = sharedMediaItems.filter(
+      (message) => getMessageType(message) === 'FILE'
+    ).length;
 
-      <section className="details-section" aria-labelledby="shared-links-title">
-        <button
-          type="button"
-          className="details-section-toggle-btn"
-          onClick={() => setSharedLinksExpanded((current) => !current)}
-          aria-expanded={sharedLinksExpanded}
-          aria-controls="shared-links-panel"
-        >
-          <div className="details-section-heading">
-            <h4 id="shared-links-title">Links</h4>
-            {sharedLinkItems.length > 0 ? <span>{sharedLinkItems.length}</span> : null}
-          </div>
-          <ChevronDownIcon className={`details-toggle-icon ${sharedLinksExpanded ? 'expanded' : ''}`} />
-        </button>
-        {sharedLinksExpanded ? (
-          <div id="shared-links-panel" className="shared-content-panel">
-            {renderSharedLinksContent()}
-          </div>
-        ) : null}
-      </section>
-    </>
-  );
+    return (
+      <>
+        <section className="details-section" aria-labelledby="shared-media-title">
+          <button
+            type="button"
+            className="details-section-toggle-btn"
+            onClick={() => setSharedMediaExpanded((current) => !current)}
+            aria-expanded={sharedMediaExpanded}
+            aria-controls="shared-media-panel"
+          >
+            <div className="details-section-heading">
+              <h4 id="shared-media-title">Media</h4>
+              {sharedPhotoVideoCount > 0 ? <span>{sharedPhotoVideoCount}</span> : null}
+            </div>
+            <ChevronDownIcon className={`details-toggle-icon ${sharedMediaExpanded ? 'expanded' : ''}`} />
+          </button>
+          {sharedMediaExpanded ? (
+            <div id="shared-media-panel" className="shared-content-panel">
+              {renderSharedMediaContent()}
+            </div>
+          ) : null}
+        </section>
+
+        <section className="details-section" aria-labelledby="shared-files-title">
+          <button
+            type="button"
+            className="details-section-toggle-btn"
+            onClick={() => setSharedFilesExpanded((current) => !current)}
+            aria-expanded={sharedFilesExpanded}
+            aria-controls="shared-files-panel"
+          >
+            <div className="details-section-heading">
+              <h4 id="shared-files-title">Files</h4>
+              {sharedFileCount > 0 ? <span>{sharedFileCount}</span> : null}
+            </div>
+            <ChevronDownIcon className={`details-toggle-icon ${sharedFilesExpanded ? 'expanded' : ''}`} />
+          </button>
+          {sharedFilesExpanded ? (
+            <div id="shared-files-panel" className="shared-content-panel">
+              {renderSharedFilesContent()}
+            </div>
+          ) : null}
+        </section>
+
+        <section className="details-section" aria-labelledby="shared-links-title">
+          <button
+            type="button"
+            className="details-section-toggle-btn"
+            onClick={() => setSharedLinksExpanded((current) => !current)}
+            aria-expanded={sharedLinksExpanded}
+            aria-controls="shared-links-panel"
+          >
+            <div className="details-section-heading">
+              <h4 id="shared-links-title">Links</h4>
+              {sharedLinkItems.length > 0 ? <span>{sharedLinkItems.length}</span> : null}
+            </div>
+            <ChevronDownIcon className={`details-toggle-icon ${sharedLinksExpanded ? 'expanded' : ''}`} />
+          </button>
+          {sharedLinksExpanded ? (
+            <div id="shared-links-panel" className="shared-content-panel">
+              {renderSharedLinksContent()}
+            </div>
+          ) : null}
+        </section>
+      </>
+    );
+  };
 
   const renderConversationSettingsSection = (target: ConversationTarget) => {
     const pinned = target.type === 'user' ? Boolean(target.user.pinned) : Boolean(target.room.pinned);
@@ -10901,6 +11327,16 @@ export default function ChatPage() {
           <div className="friend-request-menu">
             <button
               type="button"
+              className={`header-icon-btn ${soundMuted ? 'muted' : ''}`}
+              onClick={() => soundService.toggleMuted()}
+              aria-label={soundMuted ? 'Unmute sounds' : 'Mute sounds'}
+              title={soundMuted ? 'Sounds muted (click to unmute)' : 'Sounds active (click to mute)'}
+            >
+              {soundMuted ? <MuteIcon className="header-icon" /> : <SoundIcon className="header-icon" />}
+            </button>
+
+            <button
+              type="button"
               className={`header-icon-btn ${mainView === 'requests' ? 'active' : ''}`}
               onClick={handleOpenRequestsPanel}
               aria-pressed={mainView === 'requests'}
@@ -10950,9 +11386,19 @@ export default function ChatPage() {
                 </span>
                 <button
                   type="button"
+                  onClick={() => soundService.toggleMuted()}
+                  className="profile-sound-btn"
+                  role="menuitem"
+                >
+                  {soundMuted ? <MuteIcon className="profile-notification-icon" /> : <SoundIcon className="profile-notification-icon" />}
+                  <span>{soundMuted ? 'Sounds: Muted' : 'Sounds: Enabled'}</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => {
                     if (browserNotificationPermission === 'granted') {
-                      void playNotificationSound();
+                      soundService.playNotificationSound();
                     } else {
                       void requestBrowserNotificationPermission();
                     }
@@ -11135,7 +11581,7 @@ export default function ChatPage() {
                     className="pinned-message-banner-body"
                     onClick={() => {
                       const msg = messages.find((m) => m.id === pinnedMessage.id);
-                      if (msg) scrollToMessage(msg.id);
+                      if (msg) scrollToMessageById(msg.id);
                     }}
                     aria-label="Go to pinned message"
                   >
@@ -11163,13 +11609,36 @@ export default function ChatPage() {
 
               <div
                 ref={messagesContainerRef}
-                className="messages-container"
+                className={`messages-container ${isDraggingFile ? 'dragging-over' : ''}`}
                 aria-busy={messagesLoading || olderMessagesLoading}
                 onPointerDown={markMessagesScrollIntent}
                 onScroll={handleMessagesScroll}
                 onTouchMove={markMessagesScrollIntent}
                 onWheel={markMessagesScrollIntent}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (!isDraggingFile) setIsDraggingFile(true);
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setIsDraggingFile(false);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDraggingFile(false);
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) {
+                    handleFileSelected(file);
+                  }
+                }}
               >
+                {isDraggingFile ? (
+                  <div className="chat-drag-drop-overlay">
+                    <PaperclipIcon className="chat-drag-drop-icon" />
+                    <span>Drop file here to send</span>
+                  </div>
+                ) : null}
                 {messagesLoading ? (
                   MESSAGE_SKELETON_KEYS.map((key, index) => (
                     <div
@@ -11269,11 +11738,19 @@ export default function ChatPage() {
                         );
                       }
 
+                      const isMentioned = Boolean(
+                        !isSentByCurrentUser && (
+                          (currentUser && message.mentionedUserIds?.includes(currentUser.id)) ||
+                          (currentUser && message.mentionedUsernames?.includes(currentUser.username)) ||
+                          (selectedRoom && message.content && /@all\b/i.test(message.content))
+                        )
+                      );
+
                       return (
                         <div
                           key={item.key}
                           data-message-id={message.id > 0 ? message.id : undefined}
-                          className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${message.deliveryStatus ?? ''} ${groupedWithPrevious ? 'grouped-with-previous' : ''} ${groupedWithNext ? 'grouped-with-next' : ''} ${hasVisibleMessageTime ? 'has-visible-time' : ''} ${isMessageSearchMatch ? 'message-search-match' : ''} ${highlightedMessageId === message.id ? 'highlighted' : ''}`}
+                          className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${message.deliveryStatus ?? ''} ${groupedWithPrevious ? 'grouped-with-previous' : ''} ${groupedWithNext ? 'grouped-with-next' : ''} ${hasVisibleMessageTime ? 'has-visible-time' : ''} ${isMessageSearchMatch ? 'message-search-match' : ''} ${highlightedMessageId === message.id ? 'highlighted' : ''} ${isMentioned ? 'message-mentioned' : ''}`}
                         >
                           {showSender ? (
                             <div className="message-sender">
@@ -11340,6 +11817,13 @@ export default function ChatPage() {
                   accept={MEDIA_ACCEPT}
                   onChange={handleMediaFileChange}
                 />
+                <input
+                  ref={docFileInputRef}
+                  type="file"
+                  className="media-file-input"
+                  accept="*/*"
+                  onChange={handleMediaFileChange}
+                />
 
                 {activeReplyPreview ? (
                   <div className="replying-composer-preview">
@@ -11363,14 +11847,19 @@ export default function ChatPage() {
                   <div className="pending-media-wrap">
                     {pendingMedia ? (
                       <div className="pending-media-preview">
-                        {pendingMedia.resourceType === 'image' ? (
+                        {pendingMedia.type === 'FILE' ? (
+                          <div className={`pending-media-file-badge ${getFileBadgeColor(getFileExtension(pendingMedia.file.name))}`}>
+                            <DocumentIcon className="pending-file-icon" />
+                            <span className="pending-file-ext">{getFileExtension(pendingMedia.file.name)}</span>
+                          </div>
+                        ) : pendingMedia.resourceType === 'image' ? (
                           <img src={pendingMedia.previewUrl} alt="Selected media preview" />
                         ) : (
                           <video src={pendingMedia.previewUrl} muted preload="metadata" />
                         )}
                         <div className="pending-media-copy">
                           <strong>{pendingMedia.file.name}</strong>
-                          <span>{mediaUploading ? 'Uploading...' : 'Ready to send'}</span>
+                          <span>{mediaUploading ? 'Uploading...' : `${formatFileSize(pendingMedia.file.size)} • Ready to send`}</span>
                         </div>
                         <button
                           type="button"
@@ -11395,9 +11884,19 @@ export default function ChatPage() {
                       onClick={handleOpenMediaPicker}
                       disabled={mediaUploading}
                       aria-label="Attach image or video"
-                      title="Attach media"
+                      title="Attach photo/video"
                     >
                       <MediaIcon className="composer-icon" />
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-icon-btn"
+                      onClick={handleOpenDocPicker}
+                      disabled={mediaUploading}
+                      aria-label="Attach file or document"
+                      title="Attach file"
+                    >
+                      <PaperclipIcon className="composer-icon" />
                     </button>
                     <VoiceRecorderButton
                       disabled={mediaUploading}
@@ -11431,6 +11930,33 @@ export default function ChatPage() {
                       rows={1}
                       disabled={mediaUploading}
                     />
+
+                    {mentionQuery !== null && mentionCandidates.length > 0 ? (
+                      <div className="mention-autocomplete-dropdown" role="listbox" aria-label="Mention members">
+                        <div className="mention-dropdown-header">Mention member</div>
+                        <div className="mention-dropdown-list">
+                          {mentionCandidates.map((c, idx) => (
+                            <button
+                              key={`${c.id}-${c.username}`}
+                              type="button"
+                              className={`mention-dropdown-item ${idx === mentionActiveIndex ? 'active' : ''}`}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                insertMention(c);
+                              }}
+                            >
+                              <div className={`mention-dropdown-avatar ${c.isAll ? 'all' : ''}`}>
+                                {c.isAll ? '@' : c.username.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="mention-dropdown-info">
+                                <span className="mention-dropdown-name">{c.fullName}</span>
+                                <span className="mention-dropdown-username">@{c.username}</span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
 
                     {emojiPickerOpen ? (
                       <div

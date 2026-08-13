@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import type { CallManager, CallState, ActiveCall } from '../hooks/useCallManager';
+import { useEffect, useRef, useState } from 'react';
+import type { CallState, ActiveCall } from '../hooks/useCallManager';
 import './CallModal.css';
 
 // ─── Icons ────────────────────────────────────────────────────────────────────

@@ -26,6 +26,7 @@ public final class MessagePreviewFormatter {
             case IMAGE -> "Photo";
             case VIDEO -> "Video";
             case AUDIO -> "Voice message";
+            case FILE -> "File attachment";
             case CALL -> "Call";
             case TEXT -> message.getContent();
         };
