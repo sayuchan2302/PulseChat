@@ -37,6 +37,15 @@ public class ChatRoom {
     @Column(nullable = false)
     private RoomType type;
 
+    @Column(length = 500)
+    private String avatar;
+
+    @Column(length = 64, unique = true)
+    private String inviteCode;
+
+    @Column(nullable = false, columnDefinition = "boolean default true")
+    private Boolean inviteCodeEnabled = true;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "owner_id")
     private User owner;
@@ -62,11 +71,15 @@ public class ChatRoom {
     }
 
     public void addMember(User user) {
+        addMember(user, ChatRoomMember.Role.MEMBER);
+    }
+
+    public void addMember(User user, ChatRoomMember.Role role) {
         if (hasMember(user.getId())) {
             return;
         }
 
-        members.add(new ChatRoomMember(this, user));
+        members.add(new ChatRoomMember(this, user, role == null ? ChatRoomMember.Role.MEMBER : role));
     }
 
     public void removeMemberByUserId(Long userId) {
@@ -81,6 +94,12 @@ public class ChatRoom {
         return members.stream()
                 .filter(member -> member.getUser().getId().equals(userId))
                 .findFirst();
+    }
+
+    public ChatRoomMember.Role getMemberRole(Long userId) {
+        return findMemberByUserId(userId)
+                .map(ChatRoomMember::getRole)
+                .orElse(ChatRoomMember.Role.MEMBER);
     }
 
     public enum RoomType {

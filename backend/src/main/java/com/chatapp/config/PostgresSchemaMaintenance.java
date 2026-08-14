@@ -47,6 +47,7 @@ public class PostgresSchemaMaintenance implements ApplicationListener<ContextRef
         }
 
         reconcileMessageTypeCheckConstraint();
+        reconcileChatRoomSchema();
     }
 
     private boolean isPostgres() {
@@ -56,6 +57,38 @@ public class PostgresSchemaMaintenance implements ApplicationListener<ContextRef
         } catch (SQLException exception) {
             log.warn("Unable to inspect database type for schema maintenance", exception);
             return false;
+        }
+    }
+
+    private void reconcileChatRoomSchema() {
+        try {
+            // chat_rooms columns
+            jdbcTemplate.execute("ALTER TABLE chat_rooms ADD COLUMN IF NOT EXISTS avatar VARCHAR(500)");
+            jdbcTemplate.execute("ALTER TABLE chat_rooms ADD COLUMN IF NOT EXISTS invite_code VARCHAR(64)");
+            jdbcTemplate.execute(
+                    "ALTER TABLE chat_rooms ADD COLUMN IF NOT EXISTS invite_code_enabled BOOLEAN NOT NULL DEFAULT TRUE");
+
+            // chat_room_participants columns
+            jdbcTemplate.execute("ALTER TABLE chat_room_participants ADD COLUMN IF NOT EXISTS nickname VARCHAR(80)");
+            jdbcTemplate.execute(
+                    "ALTER TABLE chat_room_participants ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'MEMBER'");
+            jdbcTemplate.execute(
+                    "ALTER TABLE chat_room_participants ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+            jdbcTemplate.execute(
+                    "ALTER TABLE chat_room_participants ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+
+            // Sync owners in chat_room_participants based on chat_rooms.owner_id
+            jdbcTemplate.execute(
+                    "UPDATE chat_room_participants crp " +
+                            "SET role = 'OWNER' " +
+                            "FROM chat_rooms cr " +
+                            "WHERE crp.chat_room_id = cr.id " +
+                            "AND crp.user_id = cr.owner_id " +
+                            "AND crp.role = 'MEMBER'");
+
+            log.info("Successfully reconciled chat_rooms and chat_room_participants schema");
+        } catch (RuntimeException exception) {
+            log.warn("Unable to reconcile chat room schema", exception);
         }
     }
 

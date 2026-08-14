@@ -7047,3 +7047,292 @@ button.main-list-item {
 [data-theme='dark'] .chat-dropzone-overlay {
   background: rgba(18, 19, 26, 0.88);
 }
+
+/* ==========================================================================
+   Group Admin & Role Badges Styles
+   ========================================================================== */
+.details-role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.details-role-badge.owner-badge {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.details-role-badge.mod-badge {
+  background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+  color: #3730a3;
+  border: 1px solid #a5b4fc;
+}
+
+.details-role-badge.member-badge {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+[data-theme='dark'] .details-role-badge.owner-badge {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+[data-theme='dark'] .details-role-badge.mod-badge {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+[data-theme='dark'] .details-role-badge.member-badge {
+  background: #242536;
+  color: #94a3b8;
+  border-color: #33354a;
+}
+
+/* Details Room Avatar & Uploader */
+.details-room-avatar-container {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 12px;
+}
+
+.details-room-avatar-container .details-avatar {
+  width: 72px;
+  height: 72px;
+  font-size: 28px;
+}
+
+.details-avatar-upload-overlay {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--purple-600);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  border: 2px solid var(--white);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s;
+}
+
+.details-avatar-upload-overlay:hover {
+  transform: scale(1.1);
+  background: var(--purple-700);
+}
+
+[data-theme='dark'] .details-avatar-upload-overlay {
+  border-color: #1c1d29;
+}
+
+.details-member-count-label {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+[data-theme='dark'] .details-member-count-label {
+  color: #94a3b8;
+}
+
+.details-group-management-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.details-action-btn.secondary {
+  background: var(--purple-50);
+  color: var(--purple-700);
+  border: 1px solid var(--purple-200);
+}
+
+.details-action-btn.secondary:hover {
+  background: var(--purple-100);
+  color: var(--purple-900);
+}
+
+[data-theme='dark'] .details-action-btn.secondary {
+  background: rgba(147, 51, 234, 0.15);
+  color: #c084fc;
+  border-color: rgba(147, 51, 234, 0.35);
+}
+
+[data-theme='dark'] .details-action-btn.secondary:hover {
+  background: rgba(147, 51, 234, 0.25);
+  color: #e9d5ff;
+}
+
+.details-action-btn.ghost-danger {
+  background: transparent;
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  margin-top: 6px;
+}
+
+.details-action-btn.ghost-danger:hover {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: #ef4444;
+}
+
+[data-theme='dark'] .details-action-btn.ghost-danger {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+[data-theme='dark'] .details-action-btn.ghost-danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* ==========================================================================
+   Invite Modal Styles
+   ========================================================================== */
+.invite-modal-backdrop {
+  z-index: 1000;
+}
+
+.invite-modal {
+  max-width: 480px;
+  width: 90%;
+}
+
+.invite-modal-body {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.invite-modal-loading {
+  text-align: center;
+  padding: 24px 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.invite-link-box {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 6px 6px 6px 14px;
+}
+
+[data-theme='dark'] .invite-link-box {
+  background: #14151f;
+  border-color: #2e3042;
+}
+
+.invite-link-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: #1e293b;
+  font-family: monospace;
+  outline: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .invite-link-input {
+  color: #e2e8f0;
+}
+
+.invite-copy-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--purple-600);
+  color: #ffffff;
+  border: none;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.invite-copy-btn:hover {
+  background: var(--purple-700);
+  transform: translateY(-1px);
+}
+
+.invite-copy-btn.copied {
+  background: #10b981;
+}
+
+.invite-admin-actions {
+  border-top: 1px solid #f1f5f9;
+  padding-top: 14px;
+  margin-top: 4px;
+}
+
+[data-theme='dark'] .invite-admin-actions {
+  border-top-color: #272838;
+}
+
+.invite-admin-actions p {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 10px;
+}
+
+[data-theme='dark'] .invite-admin-actions p {
+  color: #94a3b8;
+}
+
+.invite-revoke-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.invite-revoke-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+[data-theme='dark'] .invite-revoke-btn {
+  background: #242536;
+  border-color: #383a50;
+  color: #cbd5e1;
+}
+
+[data-theme='dark'] .invite-revoke-btn:hover:not(:disabled) {
+  background: #2c2d40;
+  color: #f1f5f9;
+}
+
+.invite-error-msg {
+  color: #ef4444;
+  font-size: 13px;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 8px 12px;
+  border-radius: 8px;
+}

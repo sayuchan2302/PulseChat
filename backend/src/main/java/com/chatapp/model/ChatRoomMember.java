@@ -20,53 +20,60 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(
-        name = "chat_room_participants",
-        uniqueConstraints = {
-                @UniqueConstraint(
-                        name = "uk_chat_room_participant",
-                        columnNames = {"chat_room_id", "user_id"}
-                )
-        },
-        indexes = {
+@Table(name = "chat_room_participants", uniqueConstraints = {
+                @UniqueConstraint(name = "uk_chat_room_participant", columnNames = { "chat_room_id", "user_id" })
+}, indexes = {
                 @Index(name = "idx_chat_room_participants_room", columnList = "chat_room_id"),
                 @Index(name = "idx_chat_room_participants_user", columnList = "user_id")
-        }
-)
+})
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 public class ChatRoomMember {
-    @EmbeddedId
-    private ChatRoomMemberId id = new ChatRoomMemberId();
+        @EmbeddedId
+        private ChatRoomMemberId id = new ChatRoomMemberId();
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @MapsId("chatRoomId")
-    @JoinColumn(name = "chat_room_id", nullable = false)
-    private ChatRoom chatRoom;
+        @ManyToOne(fetch = FetchType.LAZY)
+        @MapsId("chatRoomId")
+        @JoinColumn(name = "chat_room_id", nullable = false)
+        private ChatRoom chatRoom;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @MapsId("userId")
-    @JoinColumn(name = "user_id", nullable = false)
-    private User user;
+        @ManyToOne(fetch = FetchType.LAZY)
+        @MapsId("userId")
+        @JoinColumn(name = "user_id", nullable = false)
+        private User user;
 
-    @Column(length = 80)
-    private String nickname;
+        @Column(length = 80)
+        private String nickname;
 
-    @CreationTimestamp
-    @Column(updatable = false)
-    private LocalDateTime createdAt;
+        @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+        @Column(length = 20, nullable = false, columnDefinition = "varchar(20) default 'MEMBER'")
+        private Role role = Role.MEMBER;
 
-    @UpdateTimestamp
-    private LocalDateTime updatedAt;
+        @CreationTimestamp
+        @Column(updatable = false)
+        private LocalDateTime createdAt;
 
-    public ChatRoomMember(ChatRoom chatRoom, User user) {
-        this.chatRoom = chatRoom;
-        this.user = user;
-        this.id = new ChatRoomMemberId(
-                chatRoom == null ? null : chatRoom.getId(),
-                user == null ? null : user.getId()
-        );
-    }
+        @UpdateTimestamp
+        private LocalDateTime updatedAt;
+
+        public ChatRoomMember(ChatRoom chatRoom, User user) {
+                this(chatRoom, user, Role.MEMBER);
+        }
+
+        public ChatRoomMember(ChatRoom chatRoom, User user, Role role) {
+                this.chatRoom = chatRoom;
+                this.user = user;
+                this.role = role == null ? Role.MEMBER : role;
+                this.id = new ChatRoomMemberId(
+                                chatRoom == null ? null : chatRoom.getId(),
+                                user == null ? null : user.getId());
+        }
+
+        public enum Role {
+                OWNER,
+                MODERATOR,
+                MEMBER
+        }
 }

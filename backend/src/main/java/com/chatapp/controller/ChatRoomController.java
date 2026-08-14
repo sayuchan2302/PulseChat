@@ -174,6 +174,22 @@ public class ChatRoomController {
                 return room;
         }
 
+        @PatchMapping("/{roomId}/members/{memberId}/role")
+        public ChatRoomResponse updateRoomMemberRole(
+                        Authentication authentication,
+                        @PathVariable Long roomId,
+                        @PathVariable Long memberId,
+                        @Valid @RequestBody com.chatapp.dto.request.UpdateMemberRoleRequest request) {
+                ChatRoomResponse room = chatRoomService.updateMemberRole(
+                                authentication.getName(),
+                                roomId,
+                                memberId,
+                                request);
+                notifyRoomParticipants(room);
+
+                return room;
+        }
+
         @PatchMapping("/{roomId}/owner")
         public ChatRoomResponse transferRoomOwner(
                         Authentication authentication,
@@ -183,6 +199,47 @@ public class ChatRoomController {
                 notifyRoomParticipants(room);
 
                 return room;
+        }
+
+        @GetMapping("/{roomId}/invite-link")
+        public com.chatapp.dto.response.GroupInviteResponse getInviteLink(
+                        Authentication authentication,
+                        @PathVariable Long roomId) {
+                return chatRoomService.getInviteLink(authentication.getName(), roomId);
+        }
+
+        @PostMapping("/{roomId}/invite-link/revoke")
+        public com.chatapp.dto.response.GroupInviteResponse revokeInviteLink(
+                        Authentication authentication,
+                        @PathVariable Long roomId) {
+                return chatRoomService.revokeInviteLink(authentication.getName(), roomId);
+        }
+
+        @GetMapping("/join/preview/{inviteCode}")
+        public com.chatapp.dto.response.GroupPreviewResponse previewGroupByInvite(
+                        @PathVariable String inviteCode) {
+                return chatRoomService.previewGroupByInvite(inviteCode);
+        }
+
+        @PostMapping("/join/{inviteCode}")
+        public ChatRoomResponse joinGroupByInvite(
+                        Authentication authentication,
+                        @PathVariable String inviteCode) {
+                ChatRoomResponse room = chatRoomService.joinGroupByInvite(authentication.getName(), inviteCode);
+                notifyRoomParticipants(room);
+
+                return room;
+        }
+
+        @DeleteMapping("/{roomId}")
+        public ResponseEntity<Void> deleteRoom(
+                        Authentication authentication,
+                        @PathVariable Long roomId) {
+                List<String> participantUsernames = chatRoomService
+                                .getGroupParticipantUsernames(authentication.getName(), roomId);
+                chatRoomService.deleteGroup(authentication.getName(), roomId);
+                notifyRoomParticipants(roomId, participantUsernames, null);
+                return ResponseEntity.noContent().build();
         }
 
         @DeleteMapping("/{roomId}/members/me")

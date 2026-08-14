@@ -57,10 +57,12 @@ public class ChatRoomService {
         room.setName(request.name().trim());
         room.setType(ChatRoom.RoomType.GROUP);
         room.setOwner(creator);
-        room.addMember(creator);
+        room.setInviteCode(generateUniqueInviteCode());
+        room.setInviteCodeEnabled(true);
+        room.addMember(creator, ChatRoomMember.Role.OWNER);
         participantIds.stream()
                 .map(userService::findById)
-                .forEach(room::addMember);
+                .forEach(user -> room.addMember(user, ChatRoomMember.Role.MEMBER));
 
         return ChatRoomResponse.from(chatRoomRepository.saveAndFlush(room));
     }
@@ -123,14 +125,16 @@ public class ChatRoomService {
             UpdateChatRoomRequest request) {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
-        validateGroupOwner(room, currentUser);
+        validateGroupAdmin(room, currentUser);
 
-        String normalizedName = request.name() == null ? "" : request.name().trim();
-        if (normalizedName.isBlank()) {
-            throw new AppException(ErrorCode.VALIDATION_FAILED, "Group name is required");
+        if (request.name() != null && !request.name().trim().isBlank()) {
+            room.setName(request.name().trim());
         }
 
-        room.setName(normalizedName);
+        if (request.avatar() != null) {
+            room.setAvatar(request.avatar().trim().isBlank() ? null : request.avatar().trim());
+        }
+
         return toGroupResponseForUser(currentUser, chatRoomRepository.saveAndFlush(room));
     }
 
@@ -141,7 +145,7 @@ public class ChatRoomService {
             AddRoomMembersRequest request) {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
-        validateGroupOwner(room, currentUser);
+        validateGroupAdmin(room, currentUser);
 
         Set<Long> existingParticipantIds = room.getMembers()
                 .stream()
@@ -156,7 +160,7 @@ public class ChatRoomService {
 
         newParticipantIds.stream()
                 .map(userService::findById)
-                .forEach(room::addMember);
+                .forEach(user -> room.addMember(user, ChatRoomMember.Role.MEMBER));
 
         return toGroupResponseForUser(currentUser, chatRoomRepository.saveAndFlush(room));
     }
@@ -165,14 +169,29 @@ public class ChatRoomService {
     public ChatRoomResponse removeMember(String currentUsername, Long roomId, Long memberId) {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
-        validateGroupOwner(room, currentUser);
+        ChatRoomMember currentMember = room.findMemberByUserId(currentUser.getId())
+                .orElseThrow(() -> new AppException(ErrorCode.ROOM_ACCESS_DENIED));
 
-        if (findEffectiveOwner(room).getId().equals(memberId)) {
+        ChatRoomMember targetMember = room.findMemberByUserId(memberId)
+                .orElseThrow(() -> new AppException(ErrorCode.ROOM_MEMBER_NOT_FOUND));
+
+        User effectiveOwner = findEffectiveOwner(room);
+        if (effectiveOwner.getId().equals(memberId)) {
             throw new AppException(ErrorCode.ROOM_OWNER_CANNOT_BE_REMOVED);
         }
 
-        if (room.findMemberByUserId(memberId).isEmpty()) {
-            throw new AppException(ErrorCode.ROOM_MEMBER_NOT_FOUND);
+        boolean isOwner = effectiveOwner.getId().equals(currentUser.getId());
+        boolean isModerator = currentMember.getRole() == ChatRoomMember.Role.MODERATOR;
+
+        if (!isOwner && !isModerator) {
+            throw new AppException(ErrorCode.ROOM_ADMIN_REQUIRED);
+        }
+
+        if (isModerator && !isOwner) {
+            if (targetMember.getRole() == ChatRoomMember.Role.OWNER
+                    || targetMember.getRole() == ChatRoomMember.Role.MODERATOR) {
+                throw new AppException(ErrorCode.CANNOT_REMOVE_ADMIN);
+            }
         }
 
         if (room.getMembers().size() <= MIN_GROUP_MEMBERS) {
@@ -184,6 +203,31 @@ public class ChatRoomService {
     }
 
     @Transactional
+    public ChatRoomResponse updateMemberRole(
+            String currentUsername,
+            Long roomId,
+            Long memberId,
+            com.chatapp.dto.request.UpdateMemberRoleRequest request) {
+        User currentUser = userService.findByUsername(currentUsername);
+        ChatRoom room = findGroupRoomForMember(currentUser, roomId);
+        validateGroupOwner(room, currentUser);
+
+        if (currentUser.getId().equals(memberId)) {
+            throw new AppException(ErrorCode.VALIDATION_FAILED, "Cannot change your own role");
+        }
+
+        ChatRoomMember targetMember = room.findMemberByUserId(memberId)
+                .orElseThrow(() -> new AppException(ErrorCode.ROOM_MEMBER_NOT_FOUND));
+
+        if (request.role() == ChatRoomMember.Role.OWNER) {
+            throw new AppException(ErrorCode.VALIDATION_FAILED, "Use transfer ownership to assign owner");
+        }
+
+        targetMember.setRole(request.role());
+        return toGroupResponseForUser(currentUser, chatRoomRepository.saveAndFlush(room));
+    }
+
+    @Transactional
     public ChatRoomResponse updateMemberNickname(
             String currentUsername,
             Long roomId,
@@ -191,7 +235,12 @@ public class ChatRoomService {
             UpdateRoomMemberNicknameRequest request) {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
-        validateGroupOwner(room, currentUser);
+
+        // Allow user to change their own nickname or Admin/Owner to change others'
+        // nicknames
+        if (!currentUser.getId().equals(memberId)) {
+            validateGroupAdmin(room, currentUser);
+        }
 
         ChatRoomMember member = room.findMemberByUserId(memberId)
                 .orElseThrow(() -> new AppException(ErrorCode.ROOM_MEMBER_NOT_FOUND));
@@ -215,7 +264,11 @@ public class ChatRoomService {
             return toGroupResponseForUser(currentUser, room);
         }
 
+        // Demote current owner to MODERATOR, promote new owner to OWNER
+        room.findMemberByUserId(currentUser.getId()).ifPresent(m -> m.setRole(ChatRoomMember.Role.MODERATOR));
+        nextOwnerMember.setRole(ChatRoomMember.Role.OWNER);
         room.setOwner(nextOwnerMember.getUser());
+
         return toGroupResponseForUser(currentUser, chatRoomRepository.saveAndFlush(room));
     }
 
@@ -231,14 +284,100 @@ public class ChatRoomService {
         User currentOwner = findEffectiveOwner(room);
         room.removeMemberByUserId(currentUser.getId());
         if (currentOwner != null && currentOwner.getId().equals(currentUser.getId())) {
-            room.setOwner(findFirstParticipantById(room));
-        } else if (room.getOwner() == null) {
-            room.setOwner(currentOwner);
+            // Find a moderator or oldest member to promote to OWNER
+            ChatRoomMember nextOwner = room.getMembers()
+                    .stream()
+                    .filter(m -> m.getRole() == ChatRoomMember.Role.MODERATOR)
+                    .findFirst()
+                    .orElseGet(() -> room.getMembers().get(0));
+            nextOwner.setRole(ChatRoomMember.Role.OWNER);
+            room.setOwner(nextOwner.getUser());
         }
 
         ChatRoom savedRoom = chatRoomRepository.saveAndFlush(room);
         Message latestMessage = findLatestMessagesByRoomId(List.of(savedRoom.getId())).get(savedRoom.getId());
         return ChatRoomResponse.from(savedRoom, latestMessage, 0, findSetting(currentUser.getId(), savedRoom.getId()));
+    }
+
+    @Transactional
+    public com.chatapp.dto.response.GroupInviteResponse getInviteLink(String currentUsername, Long roomId) {
+        User currentUser = userService.findByUsername(currentUsername);
+        ChatRoom room = findGroupRoomForMember(currentUser, roomId);
+
+        if (room.getInviteCode() == null || room.getInviteCode().isBlank()) {
+            room.setInviteCode(generateUniqueInviteCode());
+            room.setInviteCodeEnabled(true);
+            chatRoomRepository.saveAndFlush(room);
+        }
+
+        return new com.chatapp.dto.response.GroupInviteResponse(
+                room.getId(),
+                room.getInviteCode(),
+                "/invite/" + room.getInviteCode(),
+                Boolean.TRUE.equals(room.getInviteCodeEnabled()));
+    }
+
+    @Transactional
+    public com.chatapp.dto.response.GroupInviteResponse revokeInviteLink(String currentUsername, Long roomId) {
+        User currentUser = userService.findByUsername(currentUsername);
+        ChatRoom room = findGroupRoomForMember(currentUser, roomId);
+        validateGroupAdmin(room, currentUser);
+
+        room.setInviteCode(generateUniqueInviteCode());
+        room.setInviteCodeEnabled(true);
+        chatRoomRepository.saveAndFlush(room);
+
+        return new com.chatapp.dto.response.GroupInviteResponse(
+                room.getId(),
+                room.getInviteCode(),
+                "/invite/" + room.getInviteCode(),
+                true);
+    }
+
+    @Transactional(readOnly = true)
+    public com.chatapp.dto.response.GroupPreviewResponse previewGroupByInvite(String inviteCode) {
+        ChatRoom room = chatRoomRepository.findByInviteCode(inviteCode)
+                .orElseThrow(() -> new AppException(ErrorCode.ROOM_INVITE_INVALID));
+
+        if (!Boolean.TRUE.equals(room.getInviteCodeEnabled())) {
+            throw new AppException(ErrorCode.ROOM_INVITE_INVALID);
+        }
+
+        User owner = findEffectiveOwner(room);
+        return new com.chatapp.dto.response.GroupPreviewResponse(
+                room.getId(),
+                room.getName(),
+                room.getAvatar(),
+                room.getMembers().size(),
+                owner == null ? null : owner.getUsername(),
+                owner == null ? null : owner.getFullName());
+    }
+
+    @Transactional
+    public ChatRoomResponse joinGroupByInvite(String currentUsername, String inviteCode) {
+        User currentUser = userService.findByUsername(currentUsername);
+        ChatRoom room = chatRoomRepository.findByInviteCode(inviteCode)
+                .orElseThrow(() -> new AppException(ErrorCode.ROOM_INVITE_INVALID));
+
+        if (!Boolean.TRUE.equals(room.getInviteCodeEnabled())) {
+            throw new AppException(ErrorCode.ROOM_INVITE_INVALID);
+        }
+
+        if (!room.hasMember(currentUser.getId())) {
+            room.addMember(currentUser, ChatRoomMember.Role.MEMBER);
+            chatRoomRepository.saveAndFlush(room);
+        }
+
+        return toGroupResponseForUser(currentUser, room);
+    }
+
+    @Transactional
+    public void deleteGroup(String currentUsername, Long roomId) {
+        User currentUser = userService.findByUsername(currentUsername);
+        ChatRoom room = findGroupRoomForMember(currentUser, roomId);
+        validateGroupOwner(room, currentUser);
+
+        chatRoomRepository.delete(room);
     }
 
     @Transactional
@@ -314,6 +453,20 @@ public class ChatRoomService {
         }
     }
 
+    private void validateGroupAdmin(ChatRoom room, User currentUser) {
+        User owner = findEffectiveOwner(room);
+        if (owner != null && owner.getId().equals(currentUser.getId())) {
+            return;
+        }
+
+        ChatRoomMember member = room.findMemberByUserId(currentUser.getId())
+                .orElseThrow(() -> new AppException(ErrorCode.ROOM_ACCESS_DENIED));
+
+        if (member.getRole() != ChatRoomMember.Role.MODERATOR && member.getRole() != ChatRoomMember.Role.OWNER) {
+            throw new AppException(ErrorCode.ROOM_ADMIN_REQUIRED);
+        }
+    }
+
     private User findEffectiveOwner(ChatRoom room) {
         return room.getOwner() == null ? findFirstParticipantById(room) : room.getOwner();
     }
@@ -324,6 +477,10 @@ public class ChatRoomService {
                 .map(ChatRoomMember::getUser)
                 .min(Comparator.comparing(User::getId))
                 .orElse(null);
+    }
+
+    private String generateUniqueInviteCode() {
+        return java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12);
     }
 
     private String normalizeNickname(String nickname) {

@@ -13,6 +13,7 @@ public record UserResponse(
         String username,
         String fullName,
         String nickname,
+        String role,
         String email,
         String avatar,
         String bio,
@@ -30,19 +31,20 @@ public record UserResponse(
         Long pinnedMessageId,
         MessageResponse pinnedMessage) {
     public static UserResponse from(User user) {
-        return from(user, null, null, null, null, null, null, null);
+        return from(user, null, null, null, null, null, null, null, null);
     }
 
     public static UserResponse from(User user, String friendshipStatus) {
-        return from(user, friendshipStatus, null, null, null, null, null, null);
+        return from(user, friendshipStatus, null, null, null, null, null, null, null);
     }
 
     public static UserResponse from(User user, String friendshipStatus, Long friendshipId) {
-        return from(user, friendshipStatus, friendshipId, null, null, null, null, null);
+        return from(user, friendshipStatus, friendshipId, null, null, null, null, null, null);
     }
 
     public static UserResponse from(ChatRoomMember member) {
-        return from(member.getUser(), null, null, null, null, null, normalizeNickname(member.getNickname()), null);
+        return from(member.getUser(), null, null, null, null, null, normalizeNickname(member.getNickname()),
+                member.getRole() == null ? null : member.getRole().name(), null);
     }
 
     public static UserResponse from(
@@ -53,7 +55,7 @@ public record UserResponse(
             LocalDateTime lastMessageAt,
             Long lastMessageSenderId) {
         return from(user, friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId, null,
-                null);
+                null, null);
     }
 
     public static UserResponse from(
@@ -65,7 +67,7 @@ public record UserResponse(
             Long lastMessageSenderId,
             ConversationSetting setting) {
         return from(user, friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId, null,
-                setting);
+                null, setting);
     }
 
     public static UserResponse from(
@@ -76,12 +78,14 @@ public record UserResponse(
             LocalDateTime lastMessageAt,
             Long lastMessageSenderId,
             String nickname,
+            String role,
             ConversationSetting setting) {
         return new UserResponse(
                 user.getId(),
                 user.getUsername(),
                 displayName(user),
                 nickname,
+                role,
                 user.getEmail(),
                 user.getAvatar(),
                 user.getBio(),

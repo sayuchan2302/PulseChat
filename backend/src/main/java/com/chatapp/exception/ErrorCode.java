@@ -70,6 +70,9 @@ public enum ErrorCode {
         ROOM_LAST_MEMBER_CANNOT_LEAVE(HttpStatus.CONFLICT, "ROOM_007", "The last group member cannot leave"),
         ROOM_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "ROOM_008", "Group member not found"),
         ROOM_OWNER_CANNOT_BE_REMOVED(HttpStatus.CONFLICT, "ROOM_009", "The group owner cannot be removed"),
+        ROOM_ADMIN_REQUIRED(HttpStatus.FORBIDDEN, "ROOM_010", "Only group admins or owner can perform this action"),
+        ROOM_INVITE_INVALID(HttpStatus.NOT_FOUND, "ROOM_011", "Invite link is invalid or disabled"),
+        CANNOT_REMOVE_ADMIN(HttpStatus.FORBIDDEN, "ROOM_012", "Cannot remove an admin or higher privileged member"),
 
         SELF_CALL_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "CALL_001", "Cannot call yourself"),
         CALL_NOT_FOUND(HttpStatus.NOT_FOUND, "CALL_002", "Call session not found"),

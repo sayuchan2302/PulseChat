@@ -62,9 +62,7 @@ class ChatRoomServiceTest {
                 AppException.class,
                 () -> chatRoomService.createGroup(
                         "sayu",
-                        new CreateChatRoomRequest("Study group", Set.of(2L))
-                )
-        );
+                        new CreateChatRoomRequest("Study group", Set.of(2L))));
 
         assertEquals(ErrorCode.GROUP_REQUIRES_MINIMUM_MEMBERS, exception.getErrorCode());
         verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
@@ -79,9 +77,7 @@ class ChatRoomServiceTest {
                 AppException.class,
                 () -> chatRoomService.createGroup(
                         "sayu",
-                        new CreateChatRoomRequest("Study group", Set.of(1L, 2L))
-                )
-        );
+                        new CreateChatRoomRequest("Study group", Set.of(1L, 2L))));
 
         assertEquals(ErrorCode.GROUP_REQUIRES_MINIMUM_MEMBERS, exception.getErrorCode());
         verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
@@ -103,8 +99,7 @@ class ChatRoomServiceTest {
 
         ChatRoomResponse response = chatRoomService.createGroup(
                 "sayu",
-                new CreateChatRoomRequest("  Study group  ", Set.of(2L, 3L))
-        );
+                new CreateChatRoomRequest("  Study group  ", Set.of(2L, 3L)));
 
         assertEquals("Study group", response.name());
         assertEquals("group", response.type());
@@ -118,7 +113,8 @@ class ChatRoomServiceTest {
         User alice = user(2L, "alice");
         ChatRoom olderRoom = room(10L, "Older room", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice);
         ChatRoom activeRoom = room(20L, "Active room", LocalDateTime.of(2026, 8, 1, 8, 0), sayu, alice);
-        Message latestMessage = message(100L, activeRoom, alice, "Newest group message", LocalDateTime.of(2026, 8, 1, 11, 0));
+        Message latestMessage = message(100L, activeRoom, alice, "Newest group message",
+                LocalDateTime.of(2026, 8, 1, 11, 0));
 
         when(userService.findByUsername("sayu")).thenReturn(sayu);
         when(chatRoomRepository.findDistinctByMembersUserIdAndTypeOrderByCreatedAtDesc(1L, ChatRoom.RoomType.GROUP))
@@ -173,11 +169,9 @@ class ChatRoomServiceTest {
                 () -> chatRoomService.updateGroup(
                         "sayu",
                         10L,
-                        new UpdateChatRoomRequest("New name")
-                )
-        );
+                        new UpdateChatRoomRequest("New name")));
 
-        assertEquals(ErrorCode.ROOM_OWNER_REQUIRED, exception.getErrorCode());
+        assertEquals(ErrorCode.ROOM_ADMIN_REQUIRED, exception.getErrorCode());
         verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
     }
 
@@ -198,8 +192,7 @@ class ChatRoomServiceTest {
         ChatRoomResponse response = chatRoomService.updateGroup(
                 "sayu",
                 10L,
-                new UpdateChatRoomRequest("  New name  ")
-        );
+                new UpdateChatRoomRequest("  New name  "));
 
         assertEquals("New name", response.name());
         assertEquals(1L, response.ownerId());
@@ -224,8 +217,7 @@ class ChatRoomServiceTest {
         ChatRoomResponse response = chatRoomService.addMembers(
                 "sayu",
                 10L,
-                new AddRoomMembersRequest(Set.of(2L, 4L))
-        );
+                new AddRoomMembersRequest(Set.of(2L, 4L)));
 
         assertEquals(4, response.participants().size());
         assertEquals(
@@ -233,8 +225,7 @@ class ChatRoomServiceTest {
                 response.participants()
                         .stream()
                         .filter(participant -> participant.username().equals("charlie"))
-                        .count()
-        );
+                        .count());
     }
 
     @Test
@@ -259,8 +250,7 @@ class ChatRoomServiceTest {
                 response.participants()
                         .stream()
                         .filter(participant -> participant.id().equals(1L))
-                        .count()
-        );
+                        .count());
     }
 
     @Test
@@ -280,8 +270,7 @@ class ChatRoomServiceTest {
         ChatRoomResponse response = chatRoomService.transferOwner(
                 "sayu",
                 10L,
-                new com.chatapp.dto.request.TransferRoomOwnerRequest(2L)
-        );
+                new com.chatapp.dto.request.TransferRoomOwnerRequest(2L));
 
         assertEquals(2L, response.ownerId());
     }
@@ -300,10 +289,9 @@ class ChatRoomServiceTest {
 
         AppException exception = assertThrows(
                 AppException.class,
-                () -> chatRoomService.removeMember("sayu", 10L, 4L)
-        );
+                () -> chatRoomService.removeMember("sayu", 10L, 4L));
 
-        assertEquals(ErrorCode.ROOM_OWNER_REQUIRED, exception.getErrorCode());
+        assertEquals(ErrorCode.ROOM_ADMIN_REQUIRED, exception.getErrorCode());
         verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
     }
 
@@ -330,8 +318,7 @@ class ChatRoomServiceTest {
                 response.participants()
                         .stream()
                         .filter(participant -> participant.id().equals(4L))
-                        .count()
-        );
+                        .count());
     }
 
     @Test
@@ -351,11 +338,9 @@ class ChatRoomServiceTest {
                         "sayu",
                         10L,
                         3L,
-                        new UpdateRoomMemberNicknameRequest("Bobby")
-                )
-        );
+                        new UpdateRoomMemberNicknameRequest("Bobby")));
 
-        assertEquals(ErrorCode.ROOM_OWNER_REQUIRED, exception.getErrorCode());
+        assertEquals(ErrorCode.ROOM_ADMIN_REQUIRED, exception.getErrorCode());
         verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
     }
 
@@ -377,8 +362,7 @@ class ChatRoomServiceTest {
                 "sayu",
                 10L,
                 3L,
-                new UpdateRoomMemberNicknameRequest("  Bobby  ")
-        );
+                new UpdateRoomMemberNicknameRequest("  Bobby  "));
 
         assertEquals(
                 "Bobby",
@@ -387,8 +371,7 @@ class ChatRoomServiceTest {
                         .filter(participant -> participant.id().equals(3L))
                         .findFirst()
                         .orElseThrow()
-                        .nickname()
-        );
+                        .nickname());
     }
 
     private User user(Long id, String username) {

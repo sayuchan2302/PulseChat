@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import AuthPage from './pages/AuthPage';
 import ChatPage from './pages/ChatPage';
+import InviteJoinPage from './pages/InviteJoinPage';
 import { ROUTES } from './config/constants';
 import './App.css';
 
@@ -22,6 +23,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path={ROUTES.HOME} element={<GuestRoute />} />
+        <Route path="/invite/:inviteCode" element={<InviteJoinPage />} />
         <Route
           path={`${ROUTES.CHAT}/*`}
           element={

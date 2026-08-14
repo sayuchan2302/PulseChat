@@ -14,6 +14,9 @@ import java.util.List;
 public record ChatRoomResponse(
         Long id,
         String name,
+        String avatar,
+        String inviteCode,
+        Boolean inviteCodeEnabled,
         String type,
         List<UserResponse> participants,
         Long ownerId,
@@ -47,6 +50,9 @@ public record ChatRoomResponse(
         return new ChatRoomResponse(
                 room.getId(),
                 room.getName(),
+                room.getAvatar(),
+                room.getInviteCode(),
+                room.getInviteCodeEnabled(),
                 room.getType().name().toLowerCase(),
                 room.getMembers()
                         .stream()

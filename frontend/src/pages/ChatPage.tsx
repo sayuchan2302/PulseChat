@@ -19,6 +19,8 @@ import type {
   ConversationSetting,
   Friendship,
   FriendshipSummary,
+  GroupInviteResponse,
+  GroupMemberRole,
   LinkPreview,
   MediaAttachment,
   Message,
@@ -2507,6 +2509,18 @@ function getRoomInitial(room: ChatRoom) {
   return room.name.trim().charAt(0).toUpperCase();
 }
 
+function renderRoomAvatar(room?: ChatRoom | null, className = 'user-avatar room-avatar') {
+  if (!room) return null;
+  if (room.avatar) {
+    return (
+      <div className={className}>
+        <img src={room.avatar} alt={room.name} className="room-avatar-image" />
+      </div>
+    );
+  }
+  return <div className={className}>{getRoomInitial(room)}</div>;
+}
+
 function getRoomMemberSummary(room: ChatRoom, currentUserId?: number | null) {
   const otherMembers = room.participants.filter((participant) => participant.id !== currentUserId);
   const visibleNames = otherMembers.slice(0, 2).map(getUserDisplayName);
@@ -2521,8 +2535,20 @@ function getRoomMemberSummary(room: ChatRoom, currentUserId?: number | null) {
     : visibleNames.join(', ');
 }
 
-function sortParticipantsForDetails(participants: User[]) {
+function sortParticipantsForDetails(participants: User[], ownerId?: number | null) {
   return [...participants].sort((left, right) => {
+    const leftIsOwner = left.id === ownerId || left.role === 'OWNER';
+    const rightIsOwner = right.id === ownerId || right.role === 'OWNER';
+    if (leftIsOwner !== rightIsOwner) {
+      return leftIsOwner ? -1 : 1;
+    }
+
+    const leftIsMod = left.role === 'MODERATOR';
+    const rightIsMod = right.role === 'MODERATOR';
+    if (leftIsMod !== rightIsMod) {
+      return leftIsMod ? -1 : 1;
+    }
+
     if (left.online !== right.online) {
       return left.online ? -1 : 1;
     }
@@ -3354,6 +3380,13 @@ export default function ChatPage() {
   );
   const [groupSettingsPendingAction, setGroupSettingsPendingAction] = useState<string | null>(null);
   const [groupSettingsError, setGroupSettingsError] = useState('');
+  const [groupAvatarUploading, setGroupAvatarUploading] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [groupInviteData, setGroupInviteData] = useState<GroupInviteResponse | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteRevoking, setInviteRevoking] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [inviteError, setInviteError] = useState('');
   const [groupMembersExpanded, setGroupMembersExpanded] = useState(false);
   const [messageSearchExpanded, setMessageSearchExpanded] = useState(false);
   const [messageSearchQuery, setMessageSearchQuery] = useState('');
@@ -7899,6 +7932,157 @@ export default function ChatPage() {
     }
   };
 
+  const handleUpdateMemberRole = async (user: User, newRole: GroupMemberRole) => {
+    if (!selectedRoom || groupSettingsSaving) {
+      return;
+    }
+
+    setGroupSettingsPendingAction(`role-${user.id}`);
+    setGroupSettingsError('');
+    setOpenGroupMemberMenuId(null);
+
+    try {
+      const response = await apiClient.patch<ChatRoom>(
+        `/rooms/${selectedRoom.id}/members/${user.id}/role`,
+        { role: newRole }
+      );
+      applyRoomMembershipUpdate(response.data);
+    } catch (error: any) {
+      console.error('Failed to update member role:', error);
+      setGroupSettingsError(error.response?.data?.message || 'Unable to update member role.');
+    } finally {
+      setGroupSettingsPendingAction(null);
+    }
+  };
+
+  const handleDeleteSelectedGroup = async () => {
+    if (!selectedRoom || groupSettingsSaving) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Bạn có chắc chắn muốn giải tán nhóm "${selectedRoom.name}" không? Toàn bộ tin nhắn và thành viên sẽ bị xóa.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setGroupSettingsPendingAction('delete-room');
+    setGroupSettingsError('');
+
+    try {
+      await apiClient.delete(`/rooms/${selectedRoom.id}`);
+      setRooms((currentRooms) => currentRooms.filter((r) => r.id !== selectedRoom.id));
+      setSelectedRoom(null);
+      selectedRoomIdRef.current = null;
+      navigateIfNeeded(getChatRoute());
+      setMessages([]);
+    } catch (error: any) {
+      console.error('Failed to delete group:', error);
+      setGroupSettingsError(error.response?.data?.message || 'Unable to delete group.');
+    } finally {
+      setGroupSettingsPendingAction(null);
+    }
+  };
+
+  const handleGroupAvatarChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedRoom || groupSettingsSaving) {
+      return;
+    }
+
+    if (!ACCEPTED_AVATAR_TYPES.includes(file.type)) {
+      setGroupSettingsError('Choose a JPG, PNG, GIF, or WebP image.');
+      event.currentTarget.value = '';
+      return;
+    }
+
+    if (file.size > MAX_AVATAR_SIZE_BYTES) {
+      setGroupSettingsError(`Avatar must be ${MAX_AVATAR_SIZE_MB}MB or smaller.`);
+      event.currentTarget.value = '';
+      return;
+    }
+
+    setGroupAvatarUploading(true);
+    setGroupSettingsError('');
+
+    try {
+      const media = await uploadPendingMedia({
+        file,
+        previewUrl: URL.createObjectURL(file),
+        type: 'IMAGE',
+        resourceType: 'image',
+      });
+      if (!media.url) {
+        throw new Error('Upload failed');
+      }
+      const response = await apiClient.patch<ChatRoom>(`/rooms/${selectedRoom.id}`, {
+        avatar: media.url,
+      });
+      applyRoomMembershipUpdate(response.data);
+    } catch (error: any) {
+      console.error('Failed to upload group avatar:', error);
+      setGroupSettingsError(error.response?.data?.message || 'Unable to upload group avatar.');
+    } finally {
+      setGroupAvatarUploading(false);
+      event.target.value = '';
+    }
+  };
+
+  const handleOpenInviteModal = async () => {
+    if (!selectedRoom) return;
+    setInviteModalOpen(true);
+    setInviteLoading(true);
+    setInviteError('');
+    setInviteCopied(false);
+
+    try {
+      const response = await apiClient.get<GroupInviteResponse>(
+        `/rooms/${selectedRoom.id}/invite-link`
+      );
+      setGroupInviteData(response.data);
+    } catch (error: any) {
+      console.error('Failed to fetch invite link:', error);
+      setInviteError(error.response?.data?.message || 'Unable to load invite link.');
+    } finally {
+      setInviteLoading(false);
+    }
+  };
+
+  const handleRevokeInviteLink = async () => {
+    if (!selectedRoom || inviteRevoking) return;
+    setInviteRevoking(true);
+    setInviteError('');
+    setInviteCopied(false);
+
+    try {
+      const response = await apiClient.post<GroupInviteResponse>(
+        `/rooms/${selectedRoom.id}/invite-link/revoke`
+      );
+      setGroupInviteData(response.data);
+    } catch (error: any) {
+      console.error('Failed to reset invite link:', error);
+      setInviteError(error.response?.data?.message || 'Unable to reset invite link.');
+    } finally {
+      setInviteRevoking(false);
+    }
+  };
+
+  const handleCopyInviteLink = async () => {
+    if (!groupInviteData?.inviteUrl && !groupInviteData?.inviteCode && !selectedRoom?.inviteCode) return;
+    const code = groupInviteData?.inviteCode || selectedRoom?.inviteCode;
+    const url =
+      groupInviteData?.inviteUrl ||
+      `${window.location.origin}/invite/${code}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 2500);
+    } catch {
+      setInviteError('Failed to copy to clipboard.');
+    }
+  };
+
   const handleReplyToMessage = (message: ChatMessage) => {
     if (!canUseMessageActions(message)) {
       return;
@@ -8791,8 +8975,16 @@ export default function ChatPage() {
     selectedRoom?.ownerFullName?.trim() ||
     selectedRoom?.ownerUsername ||
     '';
-  const currentUserCanManageSelectedRoom =
-    Boolean(selectedRoom && currentUser && selectedRoomOwnerId === currentUser.id);
+  const currentUserMemberRole = useMemo<GroupMemberRole | null>(() => {
+    if (!selectedRoom || !currentUser) return null;
+    if (selectedRoom.ownerId === currentUser.id) return 'OWNER';
+    const member = selectedRoom.participants.find((participant) => participant.id === currentUser.id);
+    return member?.role ?? 'MEMBER';
+  }, [selectedRoom, currentUser]);
+
+  const isCurrentUserOwner = currentUserMemberRole === 'OWNER';
+  const isCurrentUserModerator = currentUserMemberRole === 'MODERATOR';
+  const currentUserCanManageSelectedRoom = isCurrentUserOwner || isCurrentUserModerator;
   const groupSettingsSaving = groupSettingsPendingAction !== null;
   const selectedRoomParticipantIds = new Set(
     selectedRoom?.participants.map((participant) => participant.id) ?? []
@@ -8812,11 +9004,18 @@ export default function ChatPage() {
     selectedAddMemberIds.length > 0 &&
     !groupSettingsSaving
   );
-  const canKickSelectedRoomMember = Boolean(
-    currentUserCanManageSelectedRoom &&
-    selectedRoom &&
-    selectedRoom.participants.length > MIN_GROUP_MEMBERS &&
-    !groupSettingsSaving
+  const canKickMember = useCallback(
+    (user: User) => {
+      if (!selectedRoom || !currentUser || groupSettingsSaving) return false;
+      if (user.id === currentUser.id) return false;
+      if (selectedRoom.participants.length <= MIN_GROUP_MEMBERS) return false;
+      if (isCurrentUserOwner) return true;
+      if (isCurrentUserModerator) {
+        return user.role !== 'OWNER' && user.role !== 'MODERATOR' && user.id !== selectedRoom.ownerId;
+      }
+      return false;
+    },
+    [selectedRoom, currentUser, groupSettingsSaving, isCurrentUserOwner, isCurrentUserModerator]
   );
   const sidebarBusy = hasUserSearch ? usersLoading : usersLoading || roomsLoading;
   const messageListItems = buildMessageListItems(
@@ -10487,7 +10686,8 @@ export default function ChatPage() {
 
   const renderDetailsMemberItem = (user: User) => {
     const isCurrentUser = user.id === currentUser?.id;
-    const isOwner = user.id === selectedRoomOwnerId;
+    const isOwner = user.id === selectedRoomOwnerId || user.role === 'OWNER';
+    const isMod = user.role === 'MODERATOR';
     const memberDisplayName = getUserDisplayName(user);
     const accountDisplayName = getUserAccountDisplayName(user);
     const nicknameValue = groupMemberNicknames[user.id] ?? '';
@@ -10496,10 +10696,14 @@ export default function ChatPage() {
     const nicknameChanged = normalizedNicknameValue !== normalizedSavedNickname;
     const nicknamePending = groupSettingsPendingAction === `nickname-${user.id}`;
     const kickPending = groupSettingsPendingAction === `kick-${user.id}`;
+    const rolePending = groupSettingsPendingAction === `role-${user.id}`;
     const ownerTransferPending = groupSettingsPendingAction === `owner-${user.id}`;
-    const canKickMember = canKickSelectedRoomMember && !isOwner && !isCurrentUser;
+    const canKick = canKickMember(user);
     const memberMenuOpen = openGroupMemberMenuId === user.id;
     const editingNickname = editingGroupMemberNicknameId === user.id;
+    const canShowMenu =
+      currentUserCanManageSelectedRoom ||
+      isCurrentUser;
 
     return (
       <div
@@ -10510,12 +10714,16 @@ export default function ChatPage() {
         <div className="details-member-copy">
           <div className="details-member-title">
             <strong>{memberDisplayName}</strong>
-            {isOwner ? <span className="details-owner-badge">Owner</span> : null}
+            {isOwner ? (
+              <span className="details-role-badge owner-badge">👑 Trưởng nhóm</span>
+            ) : isMod ? (
+              <span className="details-role-badge mod-badge">🛡️ Phó nhóm</span>
+            ) : null}
           </div>
           {user.username ? <span>@{user.username}</span> : null}
         </div>
 
-        {currentUserCanManageSelectedRoom ? (
+        {canShowMenu ? (
           <div className="details-member-menu-wrap">
             <button
               type="button"
@@ -10537,27 +10745,50 @@ export default function ChatPage() {
                   role="menuitem"
                   onClick={() => handleStartEditGroupMemberNickname(user)}
                 >
-                  Rename nickname
+                  Đổi biệt danh
                 </button>
-                {!isOwner ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={groupSettingsSaving}
-                    onClick={() => void handleTransferRoomOwner(user)}
-                  >
-                    {ownerTransferPending ? 'Transferring' : 'Make owner'}
-                  </button>
+
+                {isCurrentUserOwner && !isCurrentUser ? (
+                  <>
+                    {isMod ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={groupSettingsSaving}
+                        onClick={() => void handleUpdateMemberRole(user, 'MEMBER')}
+                      >
+                        {rolePending ? 'Đang cập nhật...' : 'Bỏ quyền phó nhóm'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={groupSettingsSaving}
+                        onClick={() => void handleUpdateMemberRole(user, 'MODERATOR')}
+                      >
+                        {rolePending ? 'Đang cập nhật...' : 'Thăng cấp phó nhóm'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={groupSettingsSaving}
+                      onClick={() => void handleTransferRoomOwner(user)}
+                    >
+                      {ownerTransferPending ? 'Đang chuyển...' : 'Chuyển quyền trưởng nhóm'}
+                    </button>
+                  </>
                 ) : null}
-                {!isOwner && !isCurrentUser ? (
+
+                {canKick ? (
                   <button
                     type="button"
                     role="menuitem"
                     className="danger"
-                    disabled={!canKickMember}
+                    disabled={groupSettingsSaving}
                     onClick={() => void handleKickRoomMember(user)}
                   >
-                    {kickPending ? 'Kicking' : 'Kick member'}
+                    {kickPending ? 'Đang xóa...' : 'Xóa khỏi nhóm'}
                   </button>
                 ) : null}
               </div>
@@ -11258,48 +11489,75 @@ export default function ChatPage() {
           </div>
 
           <div className="details-profile">
-            <div className="user-avatar room-avatar details-avatar">
-              {getRoomInitial(selectedRoom)}
+            <div className="details-room-avatar-container">
+              {renderRoomAvatar(selectedRoom, 'user-avatar room-avatar details-avatar')}
+              {currentUserCanManageSelectedRoom ? (
+                <label className="details-avatar-upload-overlay" title="Đổi ảnh nhóm">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    disabled={groupAvatarUploading || groupSettingsSaving}
+                    onChange={(e) => void handleGroupAvatarChange(e)}
+                  />
+                  <span>{groupAvatarUploading ? '...' : '📷'}</span>
+                </label>
+              ) : null}
             </div>
             <h4>{selectedRoom.name}</h4>
-            <span>{selectedRoom.participants.length} members</span>
+            {currentUserMemberRole ? (
+              <span className={`details-role-badge ${isCurrentUserOwner ? 'owner-badge' : isCurrentUserModerator ? 'mod-badge' : 'member-badge'}`}>
+                {isCurrentUserOwner ? '👑 Trưởng nhóm' : isCurrentUserModerator ? '🛡️ Phó nhóm' : 'Thành viên'}
+              </span>
+            ) : null}
+            <span className="details-member-count-label">{selectedRoom.participants.length} thành viên</span>
           </div>
 
           <section className="details-section" aria-labelledby="group-settings-title">
             <div className="details-section-heading">
-              <h4 id="group-settings-title">Group</h4>
-              {currentUserCanManageSelectedRoom ? <span>Owner</span> : null}
+              <h4 id="group-settings-title">Quản lý nhóm</h4>
+              {currentUserCanManageSelectedRoom ? <span>{isCurrentUserOwner ? 'Trưởng nhóm' : 'Phó nhóm'}</span> : null}
             </div>
 
             {currentUserCanManageSelectedRoom ? (
-              <form className="details-management-form" onSubmit={handleUpdateGroupSettingsName}>
-                <label className="details-field">
-                  <span>Group name</span>
-                  <input
-                    type="text"
-                    value={groupSettingsName}
-                    onChange={(event) => {
-                      setGroupSettingsError('');
-                      setGroupSettingsName(event.target.value);
-                    }}
-                    maxLength={100}
-                    disabled={groupSettingsSaving}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                </label>
+              <div className="details-group-management-stack">
+                <form className="details-management-form" onSubmit={handleUpdateGroupSettingsName}>
+                  <label className="details-field">
+                    <span>Tên nhóm</span>
+                    <input
+                      type="text"
+                      value={groupSettingsName}
+                      onChange={(event) => {
+                        setGroupSettingsError('');
+                        setGroupSettingsName(event.target.value);
+                      }}
+                      maxLength={100}
+                      disabled={groupSettingsSaving}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    className="details-action-btn"
+                    disabled={!canSaveGroupSettingsName}
+                  >
+                    {groupSettingsPendingAction === 'rename' ? 'Đang lưu...' : 'Lưu tên nhóm'}
+                  </button>
+                </form>
+
                 <button
-                  type="submit"
-                  className="details-action-btn"
-                  disabled={!canSaveGroupSettingsName}
+                  type="button"
+                  className="details-action-btn secondary details-invite-btn"
+                  onClick={() => void handleOpenInviteModal()}
                 >
-                  {groupSettingsPendingAction === 'rename' ? 'Saving' : 'Save'}
+                  🔗 Link mời tham gia nhóm
                 </button>
-              </form>
+              </div>
             ) : (
               <div className="details-row">
-                <span>Owner</span>
-                <strong>{selectedRoomOwnerName || 'Group owner'}</strong>
+                <span>Trưởng nhóm</span>
+                <strong>{selectedRoomOwnerName || 'Trưởng nhóm'}</strong>
               </div>
             )}
 
@@ -11315,12 +11573,12 @@ export default function ChatPage() {
           {currentUserCanManageSelectedRoom ? (
             <section className="details-section" aria-labelledby="add-members-title">
               <div className="details-section-heading">
-                <h4 id="add-members-title">Add members</h4>
+                <h4 id="add-members-title">Thêm thành viên</h4>
                 {selectedAddMemberIds.length > 0 ? <span>{selectedAddMemberIds.length}</span> : null}
               </div>
 
               {addMemberCandidates.length === 0 ? (
-                <div className="details-empty-text">All friends are already in this group.</div>
+                <div className="details-empty-text">Tất cả bạn bè đã ở trong nhóm.</div>
               ) : (
                 <div className="details-add-member-list">
                   {addMemberCandidates.map((friend) => (
@@ -11347,7 +11605,7 @@ export default function ChatPage() {
                 disabled={!canAddRoomMembers}
                 onClick={() => void handleAddRoomMembers()}
               >
-                {groupSettingsPendingAction === 'add' ? 'Adding' : 'Add'}
+                {groupSettingsPendingAction === 'add' ? 'Đang thêm...' : 'Thêm vào nhóm'}
               </button>
             </section>
           ) : null}
@@ -11361,7 +11619,7 @@ export default function ChatPage() {
               aria-controls="group-members-list"
             >
               <div className="details-section-heading">
-                <h4 id="group-members-title">Members</h4>
+                <h4 id="group-members-title">Thành viên</h4>
                 <span>{selectedRoom.participants.length}</span>
               </div>
               <ChevronDownIcon className={`details-toggle-icon ${groupMembersExpanded ? 'expanded' : ''}`} />
@@ -11374,14 +11632,24 @@ export default function ChatPage() {
           </section>
 
           <section className="details-section details-danger-zone" aria-labelledby="leave-group-title">
-            <h4 id="leave-group-title">Leave group</h4>
+            <h4 id="leave-group-title">{isCurrentUserOwner ? 'Khu vực quản trị' : 'Rời nhóm'}</h4>
+            {isCurrentUserOwner ? (
+              <button
+                type="button"
+                className="details-action-btn danger"
+                disabled={groupSettingsSaving}
+                onClick={() => void handleDeleteSelectedGroup()}
+              >
+                {groupSettingsPendingAction === 'delete-room' ? 'Đang giải tán...' : 'Giải tán nhóm'}
+              </button>
+            ) : null}
             <button
               type="button"
-              className="details-action-btn danger"
+              className={`details-action-btn ${isCurrentUserOwner ? 'ghost-danger' : 'danger'}`}
               disabled={groupSettingsSaving}
               onClick={() => void handleLeaveSelectedGroup()}
             >
-              {groupSettingsPendingAction === 'leave' ? 'Leaving' : 'Leave group'}
+              {groupSettingsPendingAction === 'leave' ? 'Đang rời...' : 'Rời nhóm'}
             </button>
           </section>
         </aside>
@@ -12426,7 +12694,89 @@ export default function ChatPage() {
           </div>
         </div>
       ) : null}
-    </div>
 
+      {/* Invite Link Modal */}
+      {inviteModalOpen && selectedRoom ? (
+        <div
+          className="modal-backdrop invite-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="invite-modal-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setInviteModalOpen(false);
+          }}
+        >
+          <div className="group-modal invite-modal">
+            <div className="group-modal-header">
+              <div>
+                <h3 id="invite-modal-title">Link tham gia nhóm</h3>
+                <span>Bất kỳ ai có link này đều có thể tham gia nhóm {selectedRoom.name}</span>
+              </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setInviteModalOpen(false)}
+                aria-label="Đóng"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="invite-modal-body">
+              {inviteLoading ? (
+                <div className="invite-modal-loading">Đang lấy link mời...</div>
+              ) : (
+                <>
+                  <div className="invite-link-box">
+                    <input
+                      type="text"
+                      readOnly
+                      value={
+                        groupInviteData?.inviteUrl ||
+                        `${window.location.origin}/invite/${groupInviteData?.inviteCode || selectedRoom.inviteCode || ''}`
+                      }
+                      className="invite-link-input"
+                    />
+                    <button
+                      type="button"
+                      className={`invite-copy-btn ${inviteCopied ? 'copied' : ''}`}
+                      onClick={() => void handleCopyInviteLink()}
+                    >
+                      {inviteCopied ? '✓ Đã sao chép' : 'Sao chép link'}
+                    </button>
+                  </div>
+
+                  {inviteError ? <div className="invite-error-msg">{inviteError}</div> : null}
+
+                  {currentUserCanManageSelectedRoom ? (
+                    <div className="invite-admin-actions">
+                      <p>Bạn có thể thu hồi link cũ và tạo mã mời mới nếu cần:</p>
+                      <button
+                        type="button"
+                        className="invite-revoke-btn"
+                        disabled={inviteRevoking}
+                        onClick={() => void handleRevokeInviteLink()}
+                      >
+                        {inviteRevoking ? 'Đang tạo lại...' : '🔄 Thu hồi & Tạo link mới'}
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
+
+            <div className="group-modal-actions">
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => setInviteModalOpen(false)}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

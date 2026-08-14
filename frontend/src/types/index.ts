@@ -45,11 +45,14 @@ export interface MessageReaction {
   createdAt: string;
 }
 
+export type GroupMemberRole = 'OWNER' | 'MODERATOR' | 'MEMBER';
+
 export interface User {
   id: number;
   username: string;
   fullName?: string;
   nickname?: string;
+  role?: GroupMemberRole | null;
   email: string;
   avatar?: string;
   bio?: string;
@@ -231,6 +234,9 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'of
 export interface ChatRoom {
   id: number;
   name: string;
+  avatar?: string | null;
+  inviteCode?: string | null;
+  inviteCodeEnabled?: boolean;
   type: 'private' | 'group';
   participants: User[];
   ownerId?: number | null;
@@ -247,6 +253,22 @@ export interface ChatRoom {
   pinnedMessageId?: number | null;
   pinnedMessage?: Message | null;
   createdAt: string;
+}
+
+export interface GroupInviteResponse {
+  roomId: number;
+  inviteCode: string;
+  inviteUrl: string;
+  enabled: boolean;
+}
+
+export interface GroupPreviewResponse {
+  roomId: number;
+  name: string;
+  avatar?: string | null;
+  memberCount: number;
+  ownerUsername?: string | null;
+  ownerFullName?: string | null;
 }
 
 export interface ConversationSetting {
