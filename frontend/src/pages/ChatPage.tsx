@@ -55,7 +55,6 @@ const MESSAGE_PAGE_SIZE = 30;
 const SHARED_CONTENT_PAGE_SIZE = 12;
 const MESSAGE_SEARCH_PAGE_SIZE = 12;
 const MESSAGE_AROUND_PAGE_SIZE = 30;
-const MESSAGE_SEARCH_DEBOUNCE_MS = 300;
 const MESSAGE_JUMP_HIGHLIGHT_MS = 2200;
 const LOAD_OLDER_SCROLL_THRESHOLD = 80;
 const READ_BOTTOM_THRESHOLD = 96;
@@ -2037,7 +2036,12 @@ function markOptimisticMessageFailed(messages: ChatMessage[], clientId: string) 
   );
 }
 
-function getDeliveryStatusLabel(message: ChatMessage, selectedUser: User | null) {
+function getDeliveryStatusLabel(
+  message: ChatMessage,
+  selectedUser: User | null,
+  isLatestSeen: boolean,
+  isLatestOutgoing: boolean
+) {
   if (message.deliveryStatus === 'sending') {
     return 'Sending';
   }
@@ -2047,14 +2051,17 @@ function getDeliveryStatusLabel(message: ChatMessage, selectedUser: User | null)
   }
 
   if (message.read) {
-    return 'Seen';
+    return isLatestSeen ? 'Seen' : '';
   }
 
-  if (!message.chatRoomId && selectedUser?.online) {
-    return 'Delivered';
+  if (isLatestOutgoing) {
+    if (!message.chatRoomId && selectedUser?.online) {
+      return 'Delivered';
+    }
+    return 'Sent';
   }
 
-  return 'Sent';
+  return '';
 }
 
 function getGroupedMessageReactions(message: ChatMessage, currentUserId: number | null) {
@@ -2565,13 +2572,59 @@ function shouldOpenConversationDetailsByDefault() {
   return !window.matchMedia('(max-width: 768px)').matches;
 }
 
-function getMessageSenderName(message: ChatMessage, selectedRoom: ChatRoom | null) {
+function getMessageSenderName(
+  message: ChatMessage,
+  selectedRoom: ChatRoom | null,
+  findKnownUserById?: (id: number) => User | null
+) {
+  const participant = selectedRoom?.participants.find((user) => user.id === message.senderId);
+  if (participant) {
+    const displayName = getUserDisplayName(participant);
+    if (displayName) {
+      return displayName;
+    }
+  }
+
+  const knownUser = findKnownUserById ? findKnownUserById(message.senderId) : null;
+  if (knownUser) {
+    const displayName = getUserDisplayName(knownUser);
+    if (displayName) {
+      return displayName;
+    }
+  }
+
   if (message.senderFullName?.trim()) {
     return message.senderFullName;
   }
 
-  const participant = selectedRoom?.participants.find((user) => user.id === message.senderId);
-  return participant ? getUserDisplayName(participant) : message.senderUsername ?? 'Unknown';
+  return message.senderUsername ?? 'Unknown';
+}
+
+function getMessageSenderUser(
+  message: ChatMessage,
+  selectedUser: User | null,
+  selectedRoom: ChatRoom | null,
+  findKnownUserById: (id: number) => User | null
+): User {
+  if (selectedUser && selectedUser.id === message.senderId) {
+    return selectedUser;
+  }
+  const known = findKnownUserById(message.senderId);
+  if (known) {
+    return known;
+  }
+  const roomParticipant = selectedRoom?.participants.find((user) => user.id === message.senderId);
+  if (roomParticipant) {
+    return roomParticipant;
+  }
+  return {
+    id: message.senderId,
+    username: message.senderUsername || 'user',
+    fullName: message.senderFullName,
+    email: '',
+    createdAt: '',
+    online: false,
+  };
 }
 
 function canChatWithUser(user: User) {
@@ -2699,6 +2752,28 @@ function getLatestSeenOutgoingMessageId(
       getPrivateConversationUserId(message, currentUserId) === selectedUserId
     ) {
       return message.id;
+    }
+  }
+
+  return null;
+}
+
+function getLatestOutgoingMessageId(
+  messages: ChatMessage[],
+  currentUserId: number | null
+) {
+  if (currentUserId === null) {
+    return null;
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (
+      message &&
+      !message.recalled &&
+      message.senderId === currentUserId
+    ) {
+      return message.id > 0 ? message.id : (message.clientId || null);
     }
   }
 
@@ -3372,6 +3447,7 @@ export default function ChatPage() {
   const [groupCreating, setGroupCreating] = useState(false);
   const [groupError, setGroupError] = useState('');
   const [groupSettingsName, setGroupSettingsName] = useState('');
+  const [isEditingGroupName, setIsEditingGroupName] = useState(false);
   const [selectedAddMemberIds, setSelectedAddMemberIds] = useState<number[]>([]);
   const [groupMemberNicknames, setGroupMemberNicknames] = useState<Record<number, string>>({});
   const [openGroupMemberMenuId, setOpenGroupMemberMenuId] = useState<number | null>(null);
@@ -3388,8 +3464,10 @@ export default function ChatPage() {
   const [inviteCopied, setInviteCopied] = useState(false);
   const [inviteError, setInviteError] = useState('');
   const [groupMembersExpanded, setGroupMembersExpanded] = useState(false);
-  const [messageSearchExpanded, setMessageSearchExpanded] = useState(false);
+  const [rightSidebarTab, setRightSidebarTab] = useState<'details' | 'search'>('details');
   const [messageSearchQuery, setMessageSearchQuery] = useState('');
+  const [messageSearchSubmitted, setMessageSearchSubmitted] = useState(false);
+  const messageSearchInputRef = useRef<HTMLInputElement | null>(null);
   const [messageSearchItems, setMessageSearchItems] = useState<ChatMessage[]>([]);
   const [messageSearchLoading, setMessageSearchLoading] = useState(false);
   const [messageSearchError, setMessageSearchError] = useState('');
@@ -3537,8 +3615,6 @@ export default function ChatPage() {
     },
     [activeMessageSearchId, messageSearchItems]
   );
-  const activeMessageSearchItem =
-    activeMessageSearchIndex >= 0 ? messageSearchItems[activeMessageSearchIndex] : null;
   const messageSearchResultIds = useMemo(
     () => new Set(messageSearchItems.map((message) => message.id)),
     [messageSearchItems]
@@ -3641,6 +3717,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     setGroupSettingsName(selectedRoom?.name ?? '');
+    setIsEditingGroupName(false);
     setSelectedAddMemberIds([]);
     setGroupMemberNicknames(
       Object.fromEntries(
@@ -4091,7 +4168,6 @@ export default function ChatPage() {
   const resetMessageSearchState = useCallback(() => {
     messageSearchQueryRef.current = '';
     messageSearchRequestedQueryRef.current = '';
-    setMessageSearchExpanded(false);
     setMessageSearchQuery('');
     setMessageSearchItems([]);
     setMessageSearchLoading(false);
@@ -4100,6 +4176,7 @@ export default function ChatPage() {
     setMessageSearchNextBefore(null);
     setActiveMessageSearchId(null);
     setHighlightedMessageId(null);
+    setMessageSearchSubmitted(false);
   }, []);
 
   const clearMessageJumpEffects = useCallback(() => {
@@ -4785,43 +4862,6 @@ export default function ChatPage() {
     sharedLinksExpanded,
     sharedLinksLoaded,
     sharedLinksLoading,
-  ]);
-
-  useEffect(() => {
-    if (
-      (selectedUserId === null && selectedRoomId === null) ||
-      !messageSearchExpanded
-    ) {
-      return undefined;
-    }
-
-    const query = messageSearchQuery.trim();
-    messageSearchQueryRef.current = messageSearchQuery;
-    if (!query) {
-      setMessageSearchItems([]);
-      setMessageSearchError('');
-      setMessageSearchHasMore(false);
-      setMessageSearchNextBefore(null);
-      setMessageSearchLoading(false);
-      return undefined;
-    }
-
-    if (messageSearchRequestedQueryRef.current === query) {
-      return undefined;
-    }
-
-    const timeout = setTimeout(() => {
-      messageSearchRequestedQueryRef.current = query;
-      void loadMessageSearch({ reset: true, query });
-    }, MESSAGE_SEARCH_DEBOUNCE_MS);
-
-    return () => clearTimeout(timeout);
-  }, [
-    loadMessageSearch,
-    messageSearchExpanded,
-    messageSearchQuery,
-    selectedRoomId,
-    selectedUserId,
   ]);
 
   useEffect(() => {
@@ -7633,8 +7673,26 @@ export default function ChatPage() {
   };
 
   const handleToggleConversationDetails = () => {
-    setDetailsOpen((currentOpen) => !currentOpen);
     setProfileMenuOpen(false);
+    if (detailsOpen && rightSidebarTab === 'details') {
+      setDetailsOpen(false);
+    } else {
+      setRightSidebarTab('details');
+      setDetailsOpen(true);
+    }
+  };
+
+  const handleToggleMessageSearch = () => {
+    setProfileMenuOpen(false);
+    if (detailsOpen && rightSidebarTab === 'search') {
+      setDetailsOpen(false);
+    } else {
+      setRightSidebarTab('search');
+      setDetailsOpen(true);
+      setTimeout(() => {
+        messageSearchInputRef.current?.focus();
+      }, 100);
+    }
   };
 
   const handleCloseConversationDetails = () => {
@@ -7717,14 +7775,17 @@ export default function ChatPage() {
     }
   };
 
-  const handleUpdateGroupSettingsName = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const handleUpdateGroupSettingsName = async (event?: React.FormEvent) => {
+    if (event) {
+      event.preventDefault();
+    }
     if (!selectedRoom || groupSettingsSaving) {
       return;
     }
 
     const name = groupSettingsName.trim();
     if (!name || name === selectedRoom.name.trim()) {
+      setIsEditingGroupName(false);
       return;
     }
 
@@ -7734,6 +7795,7 @@ export default function ChatPage() {
     try {
       const response = await apiClient.patch<ChatRoom>(`/rooms/${selectedRoom.id}`, { name });
       applyRoomMembershipUpdate(response.data);
+      setIsEditingGroupName(false);
     } catch (error) {
       console.error('Failed to update group:', error);
       setGroupSettingsError('Unable to update group.');
@@ -7961,7 +8023,7 @@ export default function ChatPage() {
     }
 
     const confirmed = window.confirm(
-      `Bạn có chắc chắn muốn giải tán nhóm "${selectedRoom.name}" không? Toàn bộ tin nhắn và thành viên sẽ bị xóa.`
+      `Are you sure you want to dissolve group "${selectedRoom.name}"? All messages and members will be removed.`
     );
     if (!confirmed) {
       return;
@@ -8670,13 +8732,15 @@ export default function ChatPage() {
 
   const handleMessageSearchChange = (value: string) => {
     messageSearchQueryRef.current = value;
-    messageSearchRequestedQueryRef.current = '';
     setMessageSearchQuery(value);
-    setMessageSearchItems([]);
-    setMessageSearchError('');
-    setMessageSearchHasMore(false);
-    setMessageSearchNextBefore(null);
-    setActiveMessageSearchId(null);
+    if (!value.trim()) {
+      setMessageSearchItems([]);
+      setMessageSearchError('');
+      setMessageSearchHasMore(false);
+      setMessageSearchNextBefore(null);
+      setActiveMessageSearchId(null);
+      setMessageSearchSubmitted(false);
+    }
   };
 
   const handleClearMessageSearch = () => {
@@ -8688,6 +8752,21 @@ export default function ChatPage() {
     setMessageSearchHasMore(false);
     setMessageSearchNextBefore(null);
     setActiveMessageSearchId(null);
+    setMessageSearchSubmitted(false);
+    messageSearchInputRef.current?.focus();
+  };
+
+  const handleMessageSearchSubmit = (event?: React.FormEvent) => {
+    if (event) {
+      event.preventDefault();
+    }
+    const query = messageSearchQuery.trim();
+    if (!query) {
+      return;
+    }
+    setMessageSearchSubmitted(true);
+    messageSearchRequestedQueryRef.current = query;
+    void loadMessageSearch({ reset: true, query });
   };
 
   const handleJumpToMessage = async (messageId: number) => {
@@ -8746,9 +8825,9 @@ export default function ChatPage() {
   const handleMessageSearchInputKeyDown = (
     event: React.KeyboardEvent<HTMLInputElement>
   ) => {
-    if (event.key === 'Enter' && activeMessageSearchItem) {
+    if (event.key === 'Enter') {
       event.preventDefault();
-      void handleJumpToSearchResult(activeMessageSearchItem.id);
+      handleMessageSearchSubmit();
       return;
     }
 
@@ -9043,6 +9122,10 @@ export default function ChatPage() {
       selectedUser?.id ?? null
     ),
     [currentUser?.id, messages, selectedUser?.id]
+  );
+  const latestOutgoingMessageId = useMemo(
+    () => getLatestOutgoingMessageId(messages, currentUser?.id ?? null),
+    [currentUser?.id, messages]
   );
   const latestRoomSeenByByMessageId = useMemo(() => {
     if (!selectedRoom || Object.keys(roomSeenByByMessageId).length === 0) {
@@ -10715,9 +10798,9 @@ export default function ChatPage() {
           <div className="details-member-title">
             <strong>{memberDisplayName}</strong>
             {isOwner ? (
-              <span className="details-role-badge owner-badge">👑 Trưởng nhóm</span>
+              <span className="details-role-badge owner-badge">👑 Owner</span>
             ) : isMod ? (
-              <span className="details-role-badge mod-badge">🛡️ Phó nhóm</span>
+              <span className="details-role-badge mod-badge">🛡️ Moderator</span>
             ) : null}
           </div>
           {user.username ? <span>@{user.username}</span> : null}
@@ -10745,7 +10828,7 @@ export default function ChatPage() {
                   role="menuitem"
                   onClick={() => handleStartEditGroupMemberNickname(user)}
                 >
-                  Đổi biệt danh
+                  Edit nickname
                 </button>
 
                 {isCurrentUserOwner && !isCurrentUser ? (
@@ -10757,7 +10840,7 @@ export default function ChatPage() {
                         disabled={groupSettingsSaving}
                         onClick={() => void handleUpdateMemberRole(user, 'MEMBER')}
                       >
-                        {rolePending ? 'Đang cập nhật...' : 'Bỏ quyền phó nhóm'}
+                        {rolePending ? 'Updating...' : 'Demote from moderator'}
                       </button>
                     ) : (
                       <button
@@ -10766,7 +10849,7 @@ export default function ChatPage() {
                         disabled={groupSettingsSaving}
                         onClick={() => void handleUpdateMemberRole(user, 'MODERATOR')}
                       >
-                        {rolePending ? 'Đang cập nhật...' : 'Thăng cấp phó nhóm'}
+                        {rolePending ? 'Updating...' : 'Promote to moderator'}
                       </button>
                     )}
                     <button
@@ -10775,7 +10858,7 @@ export default function ChatPage() {
                       disabled={groupSettingsSaving}
                       onClick={() => void handleTransferRoomOwner(user)}
                     >
-                      {ownerTransferPending ? 'Đang chuyển...' : 'Chuyển quyền trưởng nhóm'}
+                      {ownerTransferPending ? 'Transferring...' : 'Transfer group ownership'}
                     </button>
                   </>
                 ) : null}
@@ -10788,7 +10871,7 @@ export default function ChatPage() {
                     disabled={groupSettingsSaving}
                     onClick={() => void handleKickRoomMember(user)}
                   >
-                    {kickPending ? 'Đang xóa...' : 'Xóa khỏi nhóm'}
+                    {kickPending ? 'Removing...' : 'Remove from group'}
                   </button>
                 ) : null}
               </div>
@@ -10835,90 +10918,83 @@ export default function ChatPage() {
     );
   };
 
-  const renderMessageSearchContent = () => {
+  const renderSearchSidebar = () => {
     const query = messageSearchQuery.trim();
-    const hasPendingSearch = Boolean(
-      query && messageSearchRequestedQueryRef.current !== query
-    );
     const showInitialSearchLoading =
-      (messageSearchLoading || hasPendingSearch) && messageSearchItems.length === 0;
-    const activeSearchPosition =
-      activeMessageSearchIndex >= 0 ? activeMessageSearchIndex + 1 : 0;
-    const canStepToPreviousSearchResult = activeMessageSearchIndex > 0;
-    const canStepToNextSearchResult =
-      activeMessageSearchIndex >= 0 && activeMessageSearchIndex < messageSearchItems.length - 1;
+      messageSearchLoading && messageSearchItems.length === 0;
+    const conversationName = selectedUser
+      ? getUserDisplayName(selectedUser)
+      : selectedRoom?.name || 'conversation';
 
     return (
-      <div className="message-search-panel">
-        <div className="message-search-box" role="search">
-          <SearchIcon className="message-search-icon" />
-          <input
-            type="search"
-            value={messageSearchQuery}
-            onChange={(event) => handleMessageSearchChange(event.target.value)}
-            onKeyDown={handleMessageSearchInputKeyDown}
-            placeholder="Search messages"
-            aria-label="Search messages"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          {messageSearchQuery ? (
-            <button
-              type="button"
-              className="message-search-clear"
-              onClick={handleClearMessageSearch}
-              aria-label="Clear message search"
-            >
-              ×
-            </button>
-          ) : null}
+      <aside
+        id="conversation-search-sidebar"
+        className="details-sidebar search-sidebar"
+        aria-label="Search in conversation"
+      >
+        <div className="details-header search-sidebar-header">
+          <div className="search-sidebar-title-group">
+            <h3>Search Messages</h3>
+            <span className="search-sidebar-subtitle">{conversationName}</span>
+          </div>
+          <button
+            type="button"
+            className="details-close-btn"
+            onClick={handleCloseConversationDetails}
+            aria-label="Close search"
+            title="Close search"
+          >
+            <CloseIcon className="details-close-icon" />
+          </button>
         </div>
 
-        {query ? (
-          <div className="message-search-toolbar">
-            <span className="message-search-count">
-              {showInitialSearchLoading
-                ? 'Searching...'
-                : messageSearchItems.length > 0
-                  ? `${activeSearchPosition} of ${messageSearchItems.length}${messageSearchHasMore ? '+' : ''
-                  }`
-                  : 'No results'}
-            </span>
-            <div className="message-search-nav" aria-label="Search result navigation">
-              <button
-                type="button"
-                className="message-search-step-btn"
-                disabled={!canStepToPreviousSearchResult}
-                onClick={() => handleStepMessageSearchResult(-1)}
-                aria-label="Previous search result"
-                title="Previous result"
-              >
-                <ChevronDownIcon className="message-search-step-icon previous" />
-              </button>
-              <button
-                type="button"
-                className="message-search-step-btn"
-                disabled={!canStepToNextSearchResult}
-                onClick={() => handleStepMessageSearchResult(1)}
-                aria-label="Next search result"
-                title="Next result"
-              >
-                <ChevronDownIcon className="message-search-step-icon" />
-              </button>
+        <div className="search-sidebar-body">
+          <form
+            className="search-sidebar-form"
+            role="search"
+            onSubmit={handleMessageSearchSubmit}
+          >
+            <div className="search-sidebar-input-box">
+              <SearchIcon className="search-sidebar-input-icon" />
+              <input
+                ref={messageSearchInputRef}
+                type="search"
+                value={messageSearchQuery}
+                onChange={(event) => handleMessageSearchChange(event.target.value)}
+                onKeyDown={handleMessageSearchInputKeyDown}
+                placeholder="Search in conversation..."
+                aria-label="Search in conversation"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              {messageSearchQuery ? (
+                <button
+                  type="button"
+                  className="search-sidebar-clear-btn"
+                  onClick={handleClearMessageSearch}
+                  aria-label="Clear search"
+                  title="Clear search"
+                >
+                  ✕
+                </button>
+              ) : null}
             </div>
-          </div>
-        ) : null}
+          </form>
 
-        {showInitialSearchLoading ? (
-          <div className="message-search-list" aria-hidden="true">
-            {Array.from({ length: 3 }, (_, index) => (
-              <span key={`message-search-skeleton-${index}`} className="message-search-skeleton" />
-            ))}
-          </div>
-        ) : messageSearchError && messageSearchItems.length === 0 ? (
-          <div className="shared-content-state">
-            <span>{messageSearchError}</span>
-            {query ? (
+          {!messageSearchSubmitted || !query ? (
+            <div className="search-sidebar-empty-state">
+              <div className="search-sidebar-empty-icon">🔍</div>
+              <p className="search-sidebar-empty-heading">Search in conversation</p>
+              <p className="search-sidebar-empty-hint">Type keywords and press <strong>Enter</strong> to search.</p>
+            </div>
+          ) : showInitialSearchLoading ? (
+            <div className="search-sidebar-loading-state">
+              <div className="search-sidebar-spinner" />
+              <span>Searching messages...</span>
+            </div>
+          ) : messageSearchError && messageSearchItems.length === 0 ? (
+            <div className="search-sidebar-error-state">
+              <span>{messageSearchError}</span>
               <button
                 type="button"
                 className="shared-content-retry-btn"
@@ -10926,89 +11002,71 @@ export default function ChatPage() {
               >
                 Retry
               </button>
-            ) : null}
-          </div>
-        ) : query && messageSearchItems.length === 0 && !messageSearchLoading ? (
-          <div className="details-empty-text">No matching messages.</div>
-        ) : messageSearchItems.length > 0 ? (
-          <>
-            <div className="message-search-list">
-              {messageSearchItems.map((message) => {
-                const senderName = getMessageSenderName(message, selectedRoom);
-                const isActiveSearchResult = message.id === activeMessageSearchId;
-                const snippet = getMessageSearchSnippet(message, query);
-                return (
-                  <div
-                    key={message.id}
-                    className={`message-search-item ${isActiveSearchResult ? 'active' : ''}`}
-                  >
-                    <button
-                      type="button"
-                      className="message-search-result-btn"
-                      onClick={() => void handleJumpToSearchResult(message.id)}
-                      aria-current={isActiveSearchResult ? 'true' : undefined}
-                    >
-                      <span className="message-search-meta">
-                        {senderName} · {formatMessageTime(message.timestamp)}
-                      </span>
-                      <strong>{renderHighlightedSearchText(snippet, query)}</strong>
-                    </button>
-                    <button
-                      type="button"
-                      className="message-search-jump-btn"
-                      onClick={() => void handleJumpToSearchResult(message.id)}
-                      aria-label="Go to message"
-                      title="Go to message"
-                    >
-                      <JumpIcon className="message-search-jump-icon" />
-                    </button>
-                  </div>
-                );
-              })}
             </div>
+          ) : messageSearchItems.length === 0 ? (
+            <div className="search-sidebar-empty-state">
+              <div className="search-sidebar-empty-icon">💬</div>
+              <p className="search-sidebar-empty-heading">No results found</p>
+              <p className="search-sidebar-empty-hint">No messages matching &ldquo;{query}&rdquo;</p>
+            </div>
+          ) : (
+            <div className="search-sidebar-results-wrap">
+              <div className="search-sidebar-results-bar">
+                <span>{messageSearchItems.length}{messageSearchHasMore ? '+' : ''} matching messages</span>
+              </div>
+              <div className="search-sidebar-results-list">
+                {messageSearchItems.map((message) => {
+                  const senderName = getMessageSenderName(message, selectedRoom, findKnownUserById);
+                  const senderUser = findKnownUserById(message.senderId);
+                  const isActive = message.id === activeMessageSearchId;
+                  const snippet = getMessageSearchSnippet(message, query);
 
-            {messageSearchError ? (
-              <div className="shared-content-inline-error">{messageSearchError}</div>
-            ) : null}
+                  return (
+                    <button
+                      key={message.id}
+                      type="button"
+                      className={`search-result-card ${isActive ? 'active' : ''}`}
+                      onClick={() => void handleJumpToSearchResult(message.id)}
+                    >
+                      <div className="search-result-avatar-wrap">
+                        {senderUser ? (
+                          renderUserAvatar(senderUser, 'user-avatar small-avatar')
+                        ) : (
+                          <div className="user-avatar small-avatar search-fallback-avatar">
+                            {senderName.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                      <div className="search-result-content">
+                        <div className="search-result-header">
+                          <span className="search-result-sender">{senderName}</span>
+                          <span className="search-result-time">{formatMessageTime(message.timestamp)}</span>
+                        </div>
+                        <div className="search-result-snippet">
+                          {renderHighlightedSearchText(snippet, query)}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
 
-            {messageSearchHasMore ? (
-              <button
-                type="button"
-                className="shared-content-load-btn"
-                disabled={messageSearchLoading}
-                onClick={() => void loadMessageSearch()}
-              >
-                {messageSearchLoading ? 'Loading' : 'Load more'}
-              </button>
-            ) : null}
-          </>
-        ) : null}
-      </div>
+              {messageSearchHasMore ? (
+                <button
+                  type="button"
+                  className="shared-content-load-btn search-sidebar-load-more"
+                  disabled={messageSearchLoading}
+                  onClick={() => void loadMessageSearch()}
+                >
+                  {messageSearchLoading ? 'Loading...' : 'Load more results'}
+                </button>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </aside>
     );
   };
-
-  const renderMessageSearchSection = () => (
-    <section className="details-section" aria-labelledby="message-search-title">
-      <button
-        type="button"
-        className="details-section-toggle-btn"
-        onClick={() => setMessageSearchExpanded((current) => !current)}
-        aria-expanded={messageSearchExpanded}
-        aria-controls="message-search-panel"
-      >
-        <div className="details-section-heading">
-          <h4 id="message-search-title">Search</h4>
-          {messageSearchItems.length > 0 ? <span>{messageSearchItems.length}</span> : null}
-        </div>
-        <ChevronDownIcon className={`details-toggle-icon ${messageSearchExpanded ? 'expanded' : ''}`} />
-      </button>
-      {messageSearchExpanded ? (
-        <div id="message-search-panel" className="shared-content-panel">
-          {renderMessageSearchContent()}
-        </div>
-      ) : null}
-    </section>
-  );
 
   const renderSharedMediaContent = () => {
     const sharedPhotoVideoItems = sharedMediaItems.filter(
@@ -11460,7 +11518,6 @@ export default function ChatPage() {
           </section>
 
           {renderConversationSettingsSection({ type: 'user', user: selectedUser })}
-          {renderMessageSearchSection()}
           {renderSharedContentSections()}
         </aside>
       );
@@ -11492,7 +11549,7 @@ export default function ChatPage() {
             <div className="details-room-avatar-container">
               {renderRoomAvatar(selectedRoom, 'user-avatar room-avatar details-avatar')}
               {currentUserCanManageSelectedRoom ? (
-                <label className="details-avatar-upload-overlay" title="Đổi ảnh nhóm">
+                <label className="details-avatar-upload-overlay" title="Change group avatar">
                   <input
                     type="file"
                     accept="image/*"
@@ -11504,60 +11561,103 @@ export default function ChatPage() {
                 </label>
               ) : null}
             </div>
-            <h4>{selectedRoom.name}</h4>
+            {isEditingGroupName ? (
+              <form
+                className="details-group-name-inline-form"
+                onSubmit={(e) => void handleUpdateGroupSettingsName(e)}
+              >
+                <input
+                  type="text"
+                  className="details-group-name-inline-input"
+                  value={groupSettingsName}
+                  onChange={(event) => {
+                    setGroupSettingsError('');
+                    setGroupSettingsName(event.target.value);
+                  }}
+                  maxLength={100}
+                  disabled={groupSettingsSaving}
+                  autoFocus
+                  placeholder="Group name..."
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setIsEditingGroupName(false);
+                      setGroupSettingsName(selectedRoom.name);
+                    }
+                  }}
+                />
+                <div className="details-group-name-inline-actions">
+                  <button
+                    type="submit"
+                    className="details-group-name-btn save"
+                    disabled={!canSaveGroupSettingsName || groupSettingsSaving}
+                    title="Save group name"
+                    aria-label="Save group name"
+                  >
+                    {groupSettingsPendingAction === 'rename' ? '⏳' : '✓'}
+                  </button>
+                  <button
+                    type="button"
+                    className="details-group-name-btn cancel"
+                    disabled={groupSettingsSaving}
+                    onClick={() => {
+                      setIsEditingGroupName(false);
+                      setGroupSettingsName(selectedRoom.name);
+                    }}
+                    title="Cancel"
+                    aria-label="Cancel"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="details-group-name-row">
+                <h4>{selectedRoom.name}</h4>
+                {currentUserCanManageSelectedRoom ? (
+                  <button
+                    type="button"
+                    className="details-group-name-edit-btn"
+                    onClick={() => {
+                      setGroupSettingsName(selectedRoom.name);
+                      setGroupSettingsError('');
+                      setIsEditingGroupName(true);
+                    }}
+                    title="Edit group name"
+                    aria-label="Edit group name"
+                  >
+                    ✏️
+                  </button>
+                ) : null}
+              </div>
+            )}
             {currentUserMemberRole ? (
               <span className={`details-role-badge ${isCurrentUserOwner ? 'owner-badge' : isCurrentUserModerator ? 'mod-badge' : 'member-badge'}`}>
-                {isCurrentUserOwner ? '👑 Trưởng nhóm' : isCurrentUserModerator ? '🛡️ Phó nhóm' : 'Thành viên'}
+                {isCurrentUserOwner ? '👑 Owner' : isCurrentUserModerator ? '🛡️ Moderator' : 'Member'}
               </span>
             ) : null}
-            <span className="details-member-count-label">{selectedRoom.participants.length} thành viên</span>
+            <span className="details-member-count-label">{selectedRoom.participants.length} members</span>
           </div>
 
           <section className="details-section" aria-labelledby="group-settings-title">
             <div className="details-section-heading">
-              <h4 id="group-settings-title">Quản lý nhóm</h4>
-              {currentUserCanManageSelectedRoom ? <span>{isCurrentUserOwner ? 'Trưởng nhóm' : 'Phó nhóm'}</span> : null}
+              <h4 id="group-settings-title">Group Management</h4>
+              {currentUserCanManageSelectedRoom ? <span>{isCurrentUserOwner ? 'Owner' : 'Moderator'}</span> : null}
             </div>
 
             {currentUserCanManageSelectedRoom ? (
               <div className="details-group-management-stack">
-                <form className="details-management-form" onSubmit={handleUpdateGroupSettingsName}>
-                  <label className="details-field">
-                    <span>Tên nhóm</span>
-                    <input
-                      type="text"
-                      value={groupSettingsName}
-                      onChange={(event) => {
-                        setGroupSettingsError('');
-                        setGroupSettingsName(event.target.value);
-                      }}
-                      maxLength={100}
-                      disabled={groupSettingsSaving}
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    className="details-action-btn"
-                    disabled={!canSaveGroupSettingsName}
-                  >
-                    {groupSettingsPendingAction === 'rename' ? 'Đang lưu...' : 'Lưu tên nhóm'}
-                  </button>
-                </form>
-
                 <button
                   type="button"
                   className="details-action-btn secondary details-invite-btn"
                   onClick={() => void handleOpenInviteModal()}
                 >
-                  🔗 Link mời tham gia nhóm
+                  🔗 Group Invite Link
                 </button>
               </div>
             ) : (
               <div className="details-row">
-                <span>Trưởng nhóm</span>
-                <strong>{selectedRoomOwnerName || 'Trưởng nhóm'}</strong>
+                <span>Owner</span>
+                <strong>{selectedRoomOwnerName || 'Owner'}</strong>
               </div>
             )}
 
@@ -11566,19 +11666,18 @@ export default function ChatPage() {
             ) : null}
           </section>
 
-          {renderMessageSearchSection()}
           {renderSharedContentSections()}
           {renderConversationSettingsSection({ type: 'room', room: selectedRoom })}
 
           {currentUserCanManageSelectedRoom ? (
             <section className="details-section" aria-labelledby="add-members-title">
               <div className="details-section-heading">
-                <h4 id="add-members-title">Thêm thành viên</h4>
+                <h4 id="add-members-title">Add Members</h4>
                 {selectedAddMemberIds.length > 0 ? <span>{selectedAddMemberIds.length}</span> : null}
               </div>
 
               {addMemberCandidates.length === 0 ? (
-                <div className="details-empty-text">Tất cả bạn bè đã ở trong nhóm.</div>
+                <div className="details-empty-text">All friends are already in this group.</div>
               ) : (
                 <div className="details-add-member-list">
                   {addMemberCandidates.map((friend) => (
@@ -11605,7 +11704,7 @@ export default function ChatPage() {
                 disabled={!canAddRoomMembers}
                 onClick={() => void handleAddRoomMembers()}
               >
-                {groupSettingsPendingAction === 'add' ? 'Đang thêm...' : 'Thêm vào nhóm'}
+                {groupSettingsPendingAction === 'add' ? 'Adding...' : 'Add to group'}
               </button>
             </section>
           ) : null}
@@ -11619,7 +11718,7 @@ export default function ChatPage() {
               aria-controls="group-members-list"
             >
               <div className="details-section-heading">
-                <h4 id="group-members-title">Thành viên</h4>
+                <h4 id="group-members-title">Members</h4>
                 <span>{selectedRoom.participants.length}</span>
               </div>
               <ChevronDownIcon className={`details-toggle-icon ${groupMembersExpanded ? 'expanded' : ''}`} />
@@ -11632,7 +11731,7 @@ export default function ChatPage() {
           </section>
 
           <section className="details-section details-danger-zone" aria-labelledby="leave-group-title">
-            <h4 id="leave-group-title">{isCurrentUserOwner ? 'Khu vực quản trị' : 'Rời nhóm'}</h4>
+            <h4 id="leave-group-title">{isCurrentUserOwner ? 'Danger Zone' : 'Leave Group'}</h4>
             {isCurrentUserOwner ? (
               <button
                 type="button"
@@ -11640,7 +11739,7 @@ export default function ChatPage() {
                 disabled={groupSettingsSaving}
                 onClick={() => void handleDeleteSelectedGroup()}
               >
-                {groupSettingsPendingAction === 'delete-room' ? 'Đang giải tán...' : 'Giải tán nhóm'}
+                {groupSettingsPendingAction === 'delete-room' ? 'Dissolving...' : 'Dissolve Group'}
               </button>
             ) : null}
             <button
@@ -11649,7 +11748,7 @@ export default function ChatPage() {
               disabled={groupSettingsSaving}
               onClick={() => void handleLeaveSelectedGroup()}
             >
-              {groupSettingsPendingAction === 'leave' ? 'Đang rời...' : 'Rời nhóm'}
+              {groupSettingsPendingAction === 'leave' ? 'Leaving...' : 'Leave Group'}
             </button>
           </section>
         </aside>
@@ -11925,12 +12024,21 @@ export default function ChatPage() {
                   ) : null}
                   <button
                     type="button"
-                    className={`conversation-details-toggle ${detailsOpen ? 'active' : ''}`}
+                    className={`conversation-search-toggle ${detailsOpen && rightSidebarTab === 'search' ? 'active' : ''}`}
+                    onClick={handleToggleMessageSearch}
+                    aria-label={detailsOpen && rightSidebarTab === 'search' ? 'Close message search' : 'Search in conversation'}
+                    title="Search in conversation"
+                  >
+                    <SearchIcon className="conversation-search-icon" />
+                  </button>
+                  <button
+                    type="button"
+                    className={`conversation-details-toggle ${detailsOpen && rightSidebarTab === 'details' ? 'active' : ''}`}
                     onClick={handleToggleConversationDetails}
-                    aria-label={detailsOpen ? 'Hide conversation details' : 'Show conversation details'}
-                    aria-expanded={detailsOpen}
+                    aria-label={detailsOpen && rightSidebarTab === 'details' ? 'Hide conversation details' : 'Show conversation details'}
+                    aria-expanded={detailsOpen && rightSidebarTab === 'details'}
                     aria-controls="conversation-details"
-                    title={detailsOpen ? 'Hide details' : 'Show details'}
+                    title={detailsOpen && rightSidebarTab === 'details' ? 'Hide details' : 'Show details'}
                   >
                     <InfoIcon className="conversation-details-icon" />
                   </button>
@@ -12071,7 +12179,21 @@ export default function ChatPage() {
                       const isLatestSeenOutgoingMessage =
                         Boolean(selectedUser) &&
                         isSentByCurrentUser &&
+                        message.id > 0 &&
                         message.id === latestSeenOutgoingMessageId;
+                      const isLatestOutgoingMessage =
+                        isSentByCurrentUser &&
+                        (message.id > 0
+                          ? message.id === latestOutgoingMessageId
+                          : message.clientId === latestOutgoingMessageId);
+                      const deliveryStatusLabel = isSentByCurrentUser
+                        ? getDeliveryStatusLabel(
+                          message,
+                          selectedUser,
+                          isLatestSeenOutgoingMessage,
+                          isLatestOutgoingMessage
+                        )
+                        : '';
                       const groupSeenByUsers =
                         selectedRoom && isSentByCurrentUser && message.id > 0 && !message.recalled
                           ? latestRoomSeenByByMessageId[message.id] ?? []
@@ -12084,7 +12206,8 @@ export default function ChatPage() {
                         groupSeenByUsers.length === 0 &&
                         seenByLoadingMessageIds.includes(message.id);
                       const isMessageSearchMatch = Boolean(
-                        messageSearchExpanded &&
+                        detailsOpen &&
+                        rightSidebarTab === 'search' &&
                         messageSearchQuery.trim() &&
                         messageSearchResultIds.has(message.id)
                       );
@@ -12109,6 +12232,9 @@ export default function ChatPage() {
                           (selectedRoom && message.content && /@all\b/i.test(message.content))
                         )
                       );
+                      const senderUser = !isSentByCurrentUser
+                        ? getMessageSenderUser(message, selectedUser, selectedRoom, findKnownUserById)
+                        : null;
 
                       return (
                         <div
@@ -12118,10 +12244,27 @@ export default function ChatPage() {
                         >
                           {showSender ? (
                             <div className="message-sender">
-                              {getMessageSenderName(message, selectedRoom)}
+                              {getMessageSenderName(message, selectedRoom, findKnownUserById)}
                             </div>
                           ) : null}
                           <div className="message-bubble-row">
+                            {!isSentByCurrentUser && senderUser ? (
+                              <div className="message-sender-avatar-wrap">
+                                {!groupedWithNext ? (
+                                  <button
+                                    type="button"
+                                    className="message-avatar-btn"
+                                    onClick={() => handleOpenUserProfile(senderUser)}
+                                    title={getUserDisplayName(senderUser)}
+                                    aria-label={`View profile of ${getUserDisplayName(senderUser)}`}
+                                  >
+                                    {renderUserAvatar(senderUser, 'user-avatar message-bubble-avatar')}
+                                  </button>
+                                ) : (
+                                  <div className="message-avatar-spacer" aria-hidden="true" />
+                                )}
+                              </div>
+                            ) : null}
                             {isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
                             <div className="message-bubble-wrap">
                               {renderMessageBody(message)}
@@ -12134,9 +12277,11 @@ export default function ChatPage() {
                               <span>{formatMessageTime(message.timestamp)}</span>
                               {isSentByCurrentUser ? (
                                 <>
-                                  <span className={`message-read-status ${message.deliveryStatus ?? ''}`}>
-                                    {getDeliveryStatusLabel(message, selectedUser)}
-                                  </span>
+                                  {deliveryStatusLabel ? (
+                                    <span className={`message-read-status ${message.deliveryStatus ?? ''}`}>
+                                      {deliveryStatusLabel}
+                                    </span>
+                                  ) : null}
                                   {message.deliveryStatus === 'failed' ? (
                                     <button
                                       type="button"
@@ -12381,7 +12526,7 @@ export default function ChatPage() {
               onClick={handleCloseConversationDetails}
               aria-label="Close conversation details"
             />
-            {renderConversationDetails()}
+            {rightSidebarTab === 'search' ? renderSearchSidebar() : renderConversationDetails()}
           </>
         ) : null}
       </div>
@@ -12709,14 +12854,14 @@ export default function ChatPage() {
           <div className="group-modal invite-modal">
             <div className="group-modal-header">
               <div>
-                <h3 id="invite-modal-title">Link tham gia nhóm</h3>
-                <span>Bất kỳ ai có link này đều có thể tham gia nhóm {selectedRoom.name}</span>
+                <h3 id="invite-modal-title">Group Invite Link</h3>
+                <span>Anyone with this link can join {selectedRoom.name}</span>
               </div>
               <button
                 type="button"
                 className="modal-close-btn"
                 onClick={() => setInviteModalOpen(false)}
-                aria-label="Đóng"
+                aria-label="Close"
               >
                 ×
               </button>
@@ -12724,7 +12869,7 @@ export default function ChatPage() {
 
             <div className="invite-modal-body">
               {inviteLoading ? (
-                <div className="invite-modal-loading">Đang lấy link mời...</div>
+                <div className="invite-modal-loading">Loading invite link...</div>
               ) : (
                 <>
                   <div className="invite-link-box">
@@ -12742,7 +12887,7 @@ export default function ChatPage() {
                       className={`invite-copy-btn ${inviteCopied ? 'copied' : ''}`}
                       onClick={() => void handleCopyInviteLink()}
                     >
-                      {inviteCopied ? '✓ Đã sao chép' : 'Sao chép link'}
+                      {inviteCopied ? '✓ Copied' : 'Copy link'}
                     </button>
                   </div>
 
@@ -12750,14 +12895,14 @@ export default function ChatPage() {
 
                   {currentUserCanManageSelectedRoom ? (
                     <div className="invite-admin-actions">
-                      <p>Bạn có thể thu hồi link cũ và tạo mã mời mới nếu cần:</p>
+                      <p>You can revoke the old link and generate a new invite code if needed:</p>
                       <button
                         type="button"
                         className="invite-revoke-btn"
                         disabled={inviteRevoking}
                         onClick={() => void handleRevokeInviteLink()}
                       >
-                        {inviteRevoking ? 'Đang tạo lại...' : '🔄 Thu hồi & Tạo link mới'}
+                        {inviteRevoking ? 'Generating...' : '🔄 Revoke & Generate new link'}
                       </button>
                     </div>
                   ) : null}
@@ -12771,7 +12916,7 @@ export default function ChatPage() {
                 className="secondary-btn"
                 onClick={() => setInviteModalOpen(false)}
               >
-                Đóng
+                Close
               </button>
             </div>
           </div>

@@ -23,7 +23,7 @@ export default function InviteJoinPage() {
 
     useEffect(() => {
         if (!inviteCode) {
-            setError('Mã mời không hợp lệ.');
+            setError('Invalid invite code.');
             setLoading(false);
             return;
         }
@@ -44,7 +44,7 @@ export default function InviteJoinPage() {
                     console.error('Failed to fetch group preview:', err);
                     setError(
                         err.response?.data?.message ||
-                        'Link mời không hợp lệ hoặc đã hết hạn.'
+                        'Invite link is invalid or has expired.'
                     );
                 }
             })
@@ -78,7 +78,7 @@ export default function InviteJoinPage() {
         } catch (err: any) {
             console.error('Failed to join group:', err);
             setJoinError(
-                err.response?.data?.message || 'Không thể tham gia nhóm. Vui lòng thử lại.'
+                err.response?.data?.message || 'Unable to join group. Please try again.'
             );
         } finally {
             setJoining(false);
@@ -91,15 +91,15 @@ export default function InviteJoinPage() {
                 {loading ? (
                     <div className="invite-join-loading">
                         <div className="invite-spinner" />
-                        <p>Đang tải thông tin nhóm...</p>
+                        <p>Loading group details...</p>
                     </div>
                 ) : error ? (
                     <div className="invite-join-error-state">
                         <div className="invite-icon-error">⚠️</div>
-                        <h2>Không thể tham gia nhóm</h2>
+                        <h2>Unable to join group</h2>
                         <p>{error}</p>
                         <Link to={ROUTES.CHAT} className="invite-btn secondary">
-                            Về trang chủ
+                            Back to home
                         </Link>
                     </div>
                 ) : preview ? (
@@ -118,16 +118,16 @@ export default function InviteJoinPage() {
                             )}
                         </div>
 
-                        <div className="invite-header-badge">Lời mời tham gia nhóm</div>
+                        <div className="invite-header-badge">Group Invitation</div>
                         <h2 className="invite-group-name">{preview.name}</h2>
 
                         <div className="invite-group-meta">
                             <span className="invite-meta-item">
-                                👥 <strong>{preview.memberCount}</strong> thành viên
+                                👥 <strong>{preview.memberCount}</strong> members
                             </span>
                             {preview.ownerFullName || preview.ownerUsername ? (
                                 <span className="invite-meta-item">
-                                    👑 Trưởng nhóm:{' '}
+                                    👑 Owner:{' '}
                                     <strong>
                                         {preview.ownerFullName || preview.ownerUsername}
                                     </strong>
@@ -147,14 +147,14 @@ export default function InviteJoinPage() {
                                 onClick={handleJoinGroup}
                             >
                                 {joining
-                                    ? 'Đang tham gia...'
+                                    ? 'Joining...'
                                     : isAuthenticated
-                                        ? 'Tham gia nhóm ngay'
-                                        : 'Đăng nhập để tham gia'}
+                                        ? 'Join Group Now'
+                                        : 'Log in to Join'}
                             </button>
 
                             <Link to={ROUTES.CHAT} className="invite-btn ghost">
-                                Bỏ qua
+                                Cancel
                             </Link>
                         </div>
                     </div>
