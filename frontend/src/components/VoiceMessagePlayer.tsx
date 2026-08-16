@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 export interface VoiceMessagePlayerProps {
   src: string;
@@ -17,6 +17,25 @@ export function VoiceMessagePlayer({ src, durationSeconds }: VoiceMessagePlayerP
     }
   }, [durationSeconds]);
 
+  const handleLoadedMetadata = useCallback(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.duration && isFinite(a.duration) && a.duration > 0) {
+      setDuration(Math.round(a.duration));
+    } else if (a.duration === Infinity && (!durationSeconds || durationSeconds <= 0)) {
+      // Chromium WebM duration fix trick: seek to infinity to force browser demuxer to calculate duration
+      a.currentTime = 1e101;
+      const onTimeUpdate = () => {
+        a.removeEventListener('timeupdate', onTimeUpdate);
+        a.currentTime = 0;
+        if (isFinite(a.duration) && a.duration > 0) {
+          setDuration(Math.round(a.duration));
+        }
+      };
+      a.addEventListener('timeupdate', onTimeUpdate);
+    }
+  }, [durationSeconds]);
+
   const togglePlay = () => {
     const a = audioRef.current;
     if (!a) return;
@@ -30,13 +49,11 @@ export function VoiceMessagePlayer({ src, durationSeconds }: VoiceMessagePlayerP
 
   const handleTimeUpdate = () => {
     const a = audioRef.current;
-    if (a) setCurrentTime(a.currentTime);
-  };
-
-  const handleLoadedMetadata = () => {
-    const a = audioRef.current;
-    if (a && a.duration && isFinite(a.duration)) {
-      setDuration(Math.round(a.duration));
+    if (a && isFinite(a.currentTime)) {
+      setCurrentTime(a.currentTime);
+      if (a.duration && isFinite(a.duration) && a.duration > 0 && (!durationSeconds || durationSeconds <= 0)) {
+        setDuration(Math.round(a.duration));
+      }
     }
   };
 
@@ -48,17 +65,21 @@ export function VoiceMessagePlayer({ src, durationSeconds }: VoiceMessagePlayerP
   const handleScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = Number(e.target.value);
     const a = audioRef.current;
-    if (a) {
+    if (a && isFinite(val)) {
       a.currentTime = val;
       setCurrentTime(val);
     }
   };
 
   const fmt = (s: number) => {
+    if (!isFinite(s) || isNaN(s) || s < 0) return '0:00';
     const m = Math.floor(s / 60);
     const sec = String(Math.floor(s % 60)).padStart(2, '0');
     return `${m}:${sec}`;
   };
+
+  const validMax = duration > 0 ? duration : 1;
+  const validValue = Math.min(currentTime, validMax);
 
   return (
     <div className="voice-player">
@@ -68,6 +89,7 @@ export function VoiceMessagePlayer({ src, durationSeconds }: VoiceMessagePlayerP
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={handleEnded}
+        preload="metadata"
       />
       <button
         type="button"
@@ -83,9 +105,9 @@ export function VoiceMessagePlayer({ src, durationSeconds }: VoiceMessagePlayerP
           type="range"
           className="voice-player-scrub"
           min={0}
-          max={duration || 1}
-          step={0.5}
-          value={currentTime}
+          max={validMax}
+          step={0.1}
+          value={validValue}
           onChange={handleScrub}
           aria-label="Seek"
         />

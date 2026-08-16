@@ -5349,7 +5349,7 @@ export default function ChatPage() {
     handleFileSelected(file);
   };
 
-  const uploadToLocalMedia = async (file: File): Promise<MediaAttachment> => {
+  const uploadToLocalMedia = async (file: File, duration?: number): Promise<MediaAttachment> => {
     const formData = new FormData();
     formData.append('file', file);
     const response = await apiClient.postForm<LocalMediaUploadResult>('/media/upload', formData);
@@ -5361,6 +5361,7 @@ export default function ChatPage() {
       resourceType: data.resourceType,
       format: data.format ?? getFileFormat(file),
       bytes: data.bytes ?? file.size,
+      duration: duration ?? data.duration,
     };
   };
 
@@ -5376,7 +5377,7 @@ export default function ChatPage() {
         signature.cloudName === 'chat-app' ||
         signature.apiKey === '933935263295315'
       ) {
-        return await uploadToLocalMedia(media.file);
+        return await uploadToLocalMedia(media.file, media.mediaDuration);
       }
 
       const formData = new FormData();
@@ -5408,9 +5409,10 @@ export default function ChatPage() {
         ...cloudinaryResultToMedia(uploadResult),
         format: uploadResult.format ?? getFileFormat(media.file),
         bytes: uploadResult.bytes ?? media.file.size,
+        duration: media.mediaDuration ?? uploadResult.duration,
       };
     } catch {
-      return await uploadToLocalMedia(media.file);
+      return await uploadToLocalMedia(media.file, media.mediaDuration);
     }
   };
 
