@@ -21,12 +21,18 @@ function getInitialTheme(): ThemeMode {
     return 'light';
 }
 
-function applyThemeToDocument(theme: ThemeMode) {
+function applyThemeToDocument(theme: ThemeMode, animate = false) {
     if (typeof document === 'undefined') {
         return;
     }
 
     const root = document.documentElement;
+    if (animate) {
+        root.classList.add('theme-transitioning');
+        setTimeout(() => {
+            root.classList.remove('theme-transitioning');
+        }, 400);
+    }
     root.setAttribute('data-theme', theme);
     root.style.colorScheme = theme;
 }
@@ -34,18 +40,19 @@ function applyThemeToDocument(theme: ThemeMode) {
 export function useTheme() {
     const [theme, setThemeState] = useState<ThemeMode>(() => {
         const initial = getInitialTheme();
-        applyThemeToDocument(initial);
+        applyThemeToDocument(initial, false);
         return initial;
     });
 
     const setTheme = useCallback((newTheme: ThemeMode) => {
         setThemeState(newTheme);
         try {
+            localStorage.getItem(THEME_STORAGE_KEY);
             localStorage.setItem(THEME_STORAGE_KEY, newTheme);
         } catch {
             // ignore storage errors
         }
-        applyThemeToDocument(newTheme);
+        applyThemeToDocument(newTheme, true);
     }, []);
 
     const toggleTheme = useCallback(() => {

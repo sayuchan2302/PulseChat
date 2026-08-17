@@ -3009,7 +3009,7 @@ button.main-list-item {
   padding: 0;
   border: 1px solid var(--purple-100);
   background: var(--purple-50);
-  cursor: zoom-in;
+  cursor: pointer;
   display: block;
   width: 100%;
   height: 100%;
@@ -4286,7 +4286,7 @@ button.main-list-item {
   padding: 0;
   background: transparent;
   display: block;
-  cursor: zoom-in;
+  cursor: pointer;
 }
 
 .message-image-preview-btn img,
@@ -6886,27 +6886,51 @@ button.main-list-item {
    Dark Mode Overrides for Chat Page
    ========================================================================== */
 
+/* Smooth Theme Transition Engine */
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition: background-color 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important,
+    color 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important,
+    border-color 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important,
+    box-shadow 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important,
+    fill 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important,
+    stroke 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
 /* Theme Toggle Button */
 .header-icon-btn.theme-toggle-btn {
   color: var(--purple-700);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.header-icon-btn.theme-toggle-btn .header-icon {
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .header-icon-btn.theme-toggle-btn:hover {
-  transform: rotate(18deg) scale(1.06);
+  transform: rotate(22deg) scale(1.1);
+  box-shadow: 0 4px 14px rgba(147, 51, 234, 0.2);
+}
+
+.header-icon-btn.theme-toggle-btn:active {
+  transform: scale(0.9) rotate(-15deg);
 }
 
 [data-theme='dark'] .header-icon-btn.theme-toggle-btn {
   color: #facc15;
-  background: rgba(250, 204, 21, 0.12);
-  border-color: rgba(250, 204, 21, 0.25);
+  background: rgba(250, 204, 21, 0.14);
+  border-color: rgba(250, 204, 21, 0.3);
+  box-shadow: 0 0 14px rgba(250, 204, 21, 0.15);
 }
 
 [data-theme='dark'] .header-icon-btn.theme-toggle-btn:hover {
-  background: rgba(250, 204, 21, 0.22);
-  border-color: rgba(250, 204, 21, 0.45);
+  background: rgba(250, 204, 21, 0.24);
+  border-color: rgba(250, 204, 21, 0.5);
   color: #fde047;
-  transform: rotate(-24deg) scale(1.08);
+  transform: rotate(-28deg) scale(1.12);
+  box-shadow: 0 0 20px rgba(250, 204, 21, 0.35);
 }
 
 /* Dark Mode Backgrounds & Surfaces */
