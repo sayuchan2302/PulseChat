@@ -49,6 +49,8 @@ export interface DetailsSidebarProps {
     renderDetailsMemberItem: (member: User) => React.ReactNode;
     handleDeleteSelectedGroup: () => Promise<void>;
     handleLeaveSelectedGroup: () => Promise<void>;
+    chatWallpaper?: 'default' | 'ocean' | 'space' | 'sunset' | 'cyber';
+    setChatWallpaper?: (wallpaper: 'default' | 'ocean' | 'space' | 'sunset' | 'cyber') => void;
 }
 
 export function DetailsSidebar({
@@ -244,10 +246,10 @@ export function DetailsSidebar({
                     {currentUserMemberRole ? (
                         <span
                             className={`details-role-badge ${isCurrentUserOwner
-                                    ? 'owner-badge'
-                                    : isCurrentUserModerator
-                                        ? 'mod-badge'
-                                        : 'member-badge'
+                                ? 'owner-badge'
+                                : isCurrentUserModerator
+                                    ? 'mod-badge'
+                                    : 'member-badge'
                                 }`}
                         >
                             {isCurrentUserOwner ? '👑 Owner' : isCurrentUserModerator ? '🛡️ Moderator' : 'Member'}

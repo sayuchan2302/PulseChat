@@ -80,6 +80,10 @@ export function VoiceMessagePlayer({ src, durationSeconds }: VoiceMessagePlayerP
 
   const validMax = duration > 0 ? duration : 1;
   const validValue = Math.min(currentTime, validMax);
+  const progressRatio = validMax > 0 ? validValue / validMax : 0;
+
+  // Waveform bars simulation
+  const waveformHeights = [30, 60, 45, 80, 50, 90, 40, 70, 85, 35, 65, 95, 55, 75, 40, 60];
 
   return (
     <div className="voice-player">
@@ -101,6 +105,22 @@ export function VoiceMessagePlayer({ src, durationSeconds }: VoiceMessagePlayerP
         {playing ? '⏸' : '▶'}
       </button>
       <div className="voice-player-track">
+        <div className="voice-player-waveform">
+          {waveformHeights.map((h, i) => {
+            const barRatio = i / waveformHeights.length;
+            const isPlayed = barRatio <= progressRatio;
+            return (
+              <span
+                key={i}
+                className={`waveform-bar ${isPlayed ? 'played' : ''} ${playing ? 'animating' : ''}`}
+                style={{
+                  height: `${playing ? Math.max(20, (h * (0.6 + Math.sin(Date.now() / 200 + i) * 0.4))) : h}%`,
+                  animationDelay: `${i * 0.05}s`,
+                }}
+              />
+            );
+          })}
+        </div>
         <input
           type="range"
           className="voice-player-scrub"

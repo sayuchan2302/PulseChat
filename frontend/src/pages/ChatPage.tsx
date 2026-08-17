@@ -145,6 +145,10 @@ import {
 } from '../utils/renderUtils';
 import VoiceRecorderButton from '../components/VoiceRecorderButton';
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer';
+import MediaLightbox, { type LightboxMediaItem } from '../components/chat/MediaLightbox';
+import GroupSeenByModal from '../components/chat/GroupSeenByModal';
+import PinnedMessageBar from '../components/chat/PinnedMessageBar';
+import ReactionSummaryModal, { type ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
 import './ChatPage.css';
 
 const PRIVATE_MESSAGE_DESTINATION = '/app/chat.send';
@@ -536,6 +540,19 @@ export default function ChatPage() {
   useEffect(() => {
     roomsRef.current = rooms;
   }, [rooms]);
+
+  const [lightboxState, setLightboxState] = useState<{ items: LightboxMediaItem[]; index: number } | null>(null);
+  const [groupSeenModalMessage, setGroupSeenModalMessage] = useState<{ message: Message; seenUsers: User[] } | null>(null);
+  const [pinnedMessageMap, setPinnedMessageMap] = useState<Record<string, ChatMessage | null>>({});
+  const [reactionModalGroups, setReactionModalGroups] = useState<ReactionDetailGroup[] | null>(null);
+  const [chatWallpaper, setChatWallpaper] = useState<'default' | 'ocean' | 'space' | 'sunset' | 'cyber'>('default');
+
+  const handleOpenLightbox = useCallback((url: string, type: 'IMAGE' | 'VIDEO', fileName?: string) => {
+    setLightboxState({
+      items: [{ url, type, fileName }],
+      index: 0,
+    });
+  }, []);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -6135,6 +6152,29 @@ export default function ChatPage() {
     );
   };
 
+  const handleOpenReactionSummary = (message: ChatMessage) => {
+    if (!message.reactions || message.reactions.length === 0) return;
+    const map = new Map<string, User[]>();
+    for (const r of message.reactions) {
+      const userObj: User = {
+        id: r.userId,
+        username: r.username,
+        fullName: r.fullName,
+        email: '',
+        online: false,
+        createdAt: r.createdAt,
+      };
+      const list = map.get(r.emoji) || [];
+      list.push(userObj);
+      map.set(r.emoji, list);
+    }
+    const groups: ReactionDetailGroup[] = Array.from(map.entries()).map(([emoji, users]) => ({
+      emoji,
+      users,
+    }));
+    setReactionModalGroups(groups);
+  };
+
   const renderMessageReactions = (message: ChatMessage) => {
     const groupedReactions = getGroupedMessageReactions(message, currentUser?.id ?? null);
     if (groupedReactions.length === 0) {
@@ -6149,13 +6189,26 @@ export default function ChatPage() {
             type="button"
             className={`message-reaction-pill ${reaction.reactedByCurrentUser ? 'active' : ''}`}
             onClick={() => void handleReactToMessage(message, reaction.emoji)}
-            title={reaction.title}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              handleOpenReactionSummary(message);
+            }}
+            title={`${reaction.title} (Right-click to view details)`}
             aria-label={`${reaction.count} ${reaction.emoji} reactions`}
           >
             <span>{reaction.emoji}</span>
             {reaction.count > 1 ? <small>{reaction.count}</small> : null}
           </button>
         ))}
+        <button
+          type="button"
+          className="message-reaction-pill reaction-summary-trigger"
+          onClick={() => handleOpenReactionSummary(message)}
+          title="View reaction details"
+          aria-label="View reaction details"
+        >
+          <small style={{ fontSize: '10px', opacity: 0.7 }}>📊</small>
+        </button>
       </div>
     );
   };
@@ -6295,7 +6348,7 @@ export default function ChatPage() {
           <button
             type="button"
             className="message-image-preview-btn"
-            onClick={() => setMediaViewerMessage(message)}
+            onClick={() => handleOpenLightbox(mediaUrl, 'IMAGE', message.content || 'image')}
             aria-label="Open image preview"
           >
             <img
@@ -6316,14 +6369,20 @@ export default function ChatPage() {
       return (
         <div className="message-media-content">
           {renderReplyQuote(message.replyTo)}
-          <video
-            className="message-video-preview"
-            src={mediaUrl}
-            controls
-            preload="metadata"
-            onLoadedMetadata={handleMessageAssetLoaded}
-            onError={handleMessageAssetLoaded}
-          />
+          <div
+            className="message-video-preview-wrap"
+            onClick={() => handleOpenLightbox(mediaUrl, 'VIDEO', message.content || 'video')}
+            style={{ cursor: 'pointer' }}
+          >
+            <video
+              className="message-video-preview"
+              src={mediaUrl}
+              controls={false}
+              preload="metadata"
+              onLoadedMetadata={handleMessageAssetLoaded}
+              onError={handleMessageAssetLoaded}
+            />
+          </div>
           {message.content ? (
             <div className="message-media-caption">{renderLinkedText(message.content)}</div>
           ) : null}
@@ -6423,11 +6482,7 @@ export default function ChatPage() {
         <button
           type="button"
           className="message-seen-by-btn"
-          onClick={() =>
-            setSeenByPopupMessageId((currentMessageId) =>
-              currentMessageId === message.id ? null : message.id
-            )
-          }
+          onClick={() => setGroupSeenModalMessage({ message, seenUsers: seenByUsers })}
           aria-label={seenByLabel}
           title={seenByLabel}
         >
@@ -9846,6 +9901,30 @@ export default function ChatPage() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {lightboxState ? (
+        <MediaLightbox
+          items={lightboxState.items}
+          currentIndex={lightboxState.index}
+          onClose={() => setLightboxState(null)}
+          onSelectIndex={(idx) => setLightboxState((prev) => (prev ? { ...prev, index: idx } : null))}
+        />
+      ) : null}
+
+      {groupSeenModalMessage ? (
+        <GroupSeenByModal
+          message={groupSeenModalMessage.message}
+          seenUsers={groupSeenModalMessage.seenUsers}
+          onClose={() => setGroupSeenModalMessage(null)}
+        />
+      ) : null}
+
+      {reactionModalGroups ? (
+        <ReactionSummaryModal
+          reactionGroups={reactionModalGroups}
+          onClose={() => setReactionModalGroups(null)}
+        />
       ) : null}
     </div>
   );
