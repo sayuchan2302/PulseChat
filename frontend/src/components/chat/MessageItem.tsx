@@ -1,5 +1,6 @@
 import React from 'react';
-import type { ChatMessage, ChatRoom, User, MessageListItem } from '../../types/chat.types';
+import type { User, ChatRoom } from '../../types';
+import type { ChatMessage, MessageListItem } from '../../types/chat.types';
 import { isCallMessage, getMessageSenderUser, getMessageSenderName, getDeliveryStatusLabel } from '../../utils/messageUtils';
 import { formatMessageTime } from '../../utils/formatUtils';
 import { getUserDisplayName } from '../../utils/userUtils';
@@ -145,7 +146,7 @@ export function MessageItem({
             className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${message.deliveryStatus ?? ''
                 } ${groupedWithPrevious ? 'grouped-with-previous' : ''} ${groupedWithNext ? 'grouped-with-next' : ''
                 } ${hasVisibleMessageTime ? 'has-visible-time' : ''} ${isMessageSearchMatch ? 'message-search-match' : ''
-                } ${highlightedMessageId === message.id ? 'highlighted' : ''} ${isMentioned ? 'message-mentioned' : ''
+                } ${highlightedMessageId === message.id ? 'highlighted message-highlight-pulse' : ''} ${isMentioned ? 'message-mentioned' : ''
                 }`}
         >
             {showSender ? (
@@ -171,12 +172,11 @@ export function MessageItem({
                         )}
                     </div>
                 ) : null}
-                {isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
                 <div className="message-bubble-wrap">
                     {renderMessageBody(message)}
+                    {renderMessageActions(message, isSentByCurrentUser)}
                     {renderMessageReactions(message)}
                 </div>
-                {!isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
             </div>
             {hasVisibleMessageTime ? (
                 <div className="message-time">

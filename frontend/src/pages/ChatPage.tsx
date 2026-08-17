@@ -38,6 +38,7 @@ import type {
 import { apiClient, clearAuthSession } from '../services/api';
 import { wsService } from '../services/websocket';
 import { soundService } from '../services/soundService';
+import { dbService } from '../services/dbService';
 import { useTheme } from '../hooks/useTheme';
 import {
   STOP_TYPING_DELAY_MS, USER_SEARCH_DEBOUNCE_MS, REMOTE_TYPING_VISIBLE_MS,
@@ -892,18 +893,17 @@ export default function ChatPage() {
   }, [navigate]);
 
   const notifyWithBrowserNotification = useCallback((notification: ChatBrowserNotification, isMention = false) => {
-    if (browserNotificationPermissionRef.current === 'default') {
-      void requestBrowserNotificationPermission();
-      return;
+    if (isMention) {
+      soundService.playMentionSound();
+    } else {
+      soundService.playNotificationSound();
     }
 
-    if (showBrowserNotification(notification)) {
-      if (isMention) {
-        soundService.playMentionSound();
-      } else {
-        soundService.playNotificationSound();
-      }
+    if (browserNotificationPermissionRef.current === 'default') {
+      void requestBrowserNotificationPermission();
     }
+
+    void showBrowserNotification(notification);
   }, [requestBrowserNotificationPermission, showBrowserNotification]);
 
   const buildMessageNotification = useCallback((message: Message) => {
@@ -1018,6 +1018,30 @@ export default function ChatPage() {
       window.removeEventListener('keydown', requestPermission);
     };
   }, [currentUser?.id, requestBrowserNotificationPermission]);
+
+  useEffect(() => {
+    dbService.getConversationsCache('conversations_cache').then((cached) => {
+      if (cached && cached.rooms && cached.users) {
+        setRooms((prev) => (prev.length === 0 ? cached.rooms : prev));
+        setUsers((prev) => (prev.length === 0 ? cached.users : prev));
+      }
+    }).catch(() => { });
+  }, []);
+
+  useEffect(() => {
+    if (rooms.length > 0 || users.length > 0) {
+      void dbService.saveConversationsCache('conversations_cache', { rooms, users });
+    }
+  }, [rooms, users]);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      const key = selectedUser ? `user_${selectedUser.id}` : selectedRoom ? `room_${selectedRoom.id}` : null;
+      if (key) {
+        void dbService.saveMessagesCache(key, messages);
+      }
+    }
+  }, [messages, selectedUser, selectedRoom]);
 
   useEffect(() => () => {
     stopIncomingCallRingtone();
@@ -7161,12 +7185,12 @@ export default function ChatPage() {
         <div className="user-info">
           <div className="user-title-row">
             <div className="user-name">{getUserDisplayName(user)}</div>
-            {sidebarTime ? <span className="user-time">{sidebarTime}</span> : null}
           </div>
           {showConversationPreview ? (
             <div className="user-preview-row">
               <span className="user-preview">
                 {getConversationPreviewText(user, currentUser?.id ?? null)}
+                {sidebarTime ? ` · ${sidebarTime}` : ''}
               </span>
             </div>
           ) : (
@@ -7323,11 +7347,11 @@ export default function ChatPage() {
           <div className="user-info">
             <div className="user-title-row">
               <div className="user-name">{room.name}</div>
-              {sidebarTime ? <span className="user-time">{sidebarTime}</span> : null}
             </div>
             <div className="user-preview-row">
               <span className="user-preview">
                 {getRoomPreviewText(room, currentUser?.id ?? null)}
+                {sidebarTime ? ` · ${sidebarTime}` : ''}
               </span>
             </div>
           </div>
