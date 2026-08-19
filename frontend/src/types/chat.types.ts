@@ -2,7 +2,8 @@
  * Local types used exclusively within the ChatPage feature.
  * These augment the shared types in src/types/index.ts.
  */
-import type { CallType, Message, MessageType, MediaAttachment, User } from './index';
+import type { CallType, Message, MessageType, MediaAttachment, User, ChatRoom } from './index';
+export type { CallType, Message, MessageType, MediaAttachment, User, ChatRoom };
 
 // ─── Delivery & Message ────────────────────────────────────────────────────────
 

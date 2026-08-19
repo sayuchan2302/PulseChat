@@ -231,6 +231,12 @@ export interface FriendshipSummary {
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline';
 
+export interface RoomPermissions {
+  onlyAdminsCanSend?: boolean;
+  onlyAdminsCanEditGroup?: boolean;
+  onlyAdminsCanPin?: boolean;
+}
+
 export interface ChatRoom {
   id: number;
   name: string;
@@ -242,6 +248,7 @@ export interface ChatRoom {
   ownerId?: number | null;
   ownerUsername?: string | null;
   ownerFullName?: string | null;
+  permissions?: RoomPermissions;
   unreadCount?: number;
   lastMessageContent?: string;
   lastMessageAt?: string;

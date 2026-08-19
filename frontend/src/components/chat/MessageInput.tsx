@@ -43,6 +43,8 @@ export interface MessageInputProps {
     insertMention: (candidate: MentionCandidate) => void;
     emojiPickerRef: React.RefObject<HTMLDivElement | null>;
     handleInsertEmoji: (symbol: string) => void;
+    isDisabledByPermissions?: boolean;
+    disabledPermissionsReason?: string;
 }
 
 export function MessageInput({
@@ -73,7 +75,18 @@ export function MessageInput({
     insertMention,
     emojiPickerRef,
     handleInsertEmoji,
+    isDisabledByPermissions = false,
+    disabledPermissionsReason = 'Only group admins can send messages in this room.',
 }: MessageInputProps) {
+    if (isDisabledByPermissions) {
+        return (
+            <div className="message-input-restricted-banner" role="status">
+                <span className="restricted-icon">🔒</span>
+                <span>{disabledPermissionsReason}</span>
+            </div>
+        );
+    }
+
     return (
         <form className="message-input-form" onSubmit={handleSendMessage}>
             <div className="message-input-container">
