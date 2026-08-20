@@ -16,6 +16,7 @@ import com.chatapp.service.CallSessionService;
 import com.chatapp.service.CallRealtimeNotifier;
 import com.chatapp.model.User;
 import com.chatapp.service.ChatRoomService;
+import com.chatapp.service.FriendshipService;
 import com.chatapp.service.MessageService;
 import com.chatapp.service.UserService;
 import jakarta.validation.Valid;
@@ -43,6 +44,7 @@ public class ChatWebSocketController {
     private final MessageService messageService;
     private final UserService userService;
     private final ChatRoomService chatRoomService;
+    private final FriendshipService friendshipService;
     private final SimpMessagingTemplate messagingTemplate;
 
     @MessageMapping("/chat.send")
@@ -93,6 +95,7 @@ public class ChatWebSocketController {
         Principal authenticatedPrincipal = requireAuthenticatedPrincipal(principal);
         User sender = userService.findByUsername(authenticatedPrincipal.getName());
         User receiver = userService.findById(request.receiverId());
+        requireFriends(sender, receiver);
 
         TypingResponse response = new TypingResponse(
                 sender.getId(),
@@ -216,5 +219,11 @@ public class ChatWebSocketController {
         }
 
         return principal;
+    }
+
+    private void requireFriends(User sender, User receiver) {
+        if (!friendshipService.areFriends(sender, receiver)) {
+            throw new AppException(ErrorCode.FRIENDSHIP_REQUIRED);
+        }
     }
 }

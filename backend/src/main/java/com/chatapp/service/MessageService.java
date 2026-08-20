@@ -1008,6 +1008,8 @@ public class MessageService {
             throw new AppException(ErrorCode.SELF_CONVERSATION_NOT_ALLOWED);
         }
 
+        validateFriends(reader, sender);
+
         int readCount = messageRepository.markConversationAsRead(sender.getId(), reader.getId());
         return new ReadReceiptResponse(reader.getId(), sender.getId(), readCount);
     }

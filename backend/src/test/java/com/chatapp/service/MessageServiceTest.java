@@ -602,6 +602,22 @@ class MessageServiceTest {
                 assertEquals("", response.content());
         }
 
+        @Test
+        void markConversationAsReadRequiresAcceptedFriendship() {
+                User reader = user(1L, "sayu");
+                User sender = user(2L, "thinh");
+                when(userService.findByUsername("sayu")).thenReturn(reader);
+                when(userService.findById(sender.getId())).thenReturn(sender);
+                when(friendshipService.areFriends(reader, sender)).thenReturn(false);
+
+                AppException exception = assertThrows(
+                                AppException.class,
+                                () -> messageService.markConversationAsRead("sayu", sender.getId()));
+
+                assertEquals(ErrorCode.FRIENDSHIP_REQUIRED, exception.getErrorCode());
+                verify(messageRepository, never()).markConversationAsRead(any(), any());
+        }
+
         private static User user(Long id, String username) {
                 User user = new User();
                 user.setId(id);

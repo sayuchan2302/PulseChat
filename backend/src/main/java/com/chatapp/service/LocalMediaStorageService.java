@@ -75,7 +75,7 @@ public class LocalMediaStorageService {
 
         validateFileSize(mediaFile, isImage, isVideo, isAudio);
 
-        String format = determineFormat(mediaFile, contentType);
+        String format = determineFormat(contentType);
         String publicId = UUID.randomUUID().toString();
         String filename = publicId + "." + format;
 
@@ -120,26 +120,17 @@ public class LocalMediaStorageService {
         }
     }
 
-    private String determineFormat(MultipartFile file, String contentType) {
-        String originalName = file.getOriginalFilename();
-        if (StringUtils.hasText(originalName) && originalName.contains(".")) {
-            return originalName.substring(originalName.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
+    private String determineFormat(String contentType) {
+        if (!StringUtils.hasText(contentType)) {
+            throw new AppException(ErrorCode.INVALID_MEDIA_FILE);
         }
 
-        if (StringUtils.hasText(contentType)) {
-            String ext = EXTENSIONS_BY_CONTENT_TYPE.get(contentType.toLowerCase(Locale.ROOT));
-            if (ext != null) {
-                return ext;
-            }
-            if (contentType.startsWith("video/"))
-                return "mp4";
-            if (contentType.startsWith("audio/"))
-                return "webm";
-            if (contentType.startsWith("image/"))
-                return "png";
+        String format = EXTENSIONS_BY_CONTENT_TYPE.get(contentType.toLowerCase(Locale.ROOT));
+        if (format == null) {
+            throw new AppException(ErrorCode.INVALID_MEDIA_FILE);
         }
 
-        return "bin";
+        return format;
     }
 
     private String normalizedContextPath() {
