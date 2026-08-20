@@ -22,7 +22,7 @@ export interface MessageItemProps {
     messageSearchResultIds: Set<number>;
     highlightedMessageId: number | null;
     renderCallMessageBody: (msg: ChatMessage) => React.ReactNode;
-    findKnownUserById: (id: number) => User | undefined;
+    findKnownUserById: (id: number) => User | null;
     handleOpenUserProfile: (user: User) => void;
     renderMessageActions: (msg: ChatMessage, isSent: boolean) => React.ReactNode;
     renderMessageBody: (msg: ChatMessage) => React.ReactNode;

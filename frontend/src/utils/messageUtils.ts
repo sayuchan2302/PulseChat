@@ -8,8 +8,6 @@ import type {
     PendingMedia,
     CloudinaryUploadResult,
     SharedContentPredicate,
-    MessageListItem,
-    MessageBubbleItem,
 } from '../types/chat.types';
 import type {
     Message,

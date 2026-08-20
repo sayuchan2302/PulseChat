@@ -89,6 +89,7 @@ export type LocalMediaUploadResult = {
     resourceType: 'image' | 'video' | 'raw';
     format?: string;
     bytes?: number;
+    duration?: number;
 };
 
 // ─── Loading ──────────────────────────────────────────────────────────────────
@@ -172,6 +173,13 @@ export type PendingReadConversation =
     | { type: 'user'; id: number; unreadCount: number }
     | { type: 'room'; id: number; unreadCount: number }
     | null;
+
+export type MentionCandidate = {
+    id: number | 'all';
+    username: string;
+    fullName: string;
+    isAll?: boolean;
+};
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import type React from 'react';
 import type { ChatMessage, PendingMedia, MentionCandidate } from '../../types/chat.types';
 import { EMOJI_CATEGORIES } from '../../constants/chatConstants';
 import {
@@ -13,7 +13,7 @@ import {
     getFileExtension,
     getFileBadgeColor,
     formatFileSize,
-} from '../../utils/formatUtils';
+} from '../../utils/mediaUtils';
 
 export interface MessageInputProps {
     handleSendMessage: (e: React.FormEvent) => void;
@@ -27,7 +27,7 @@ export interface MessageInputProps {
     clearPendingMedia: () => void;
     handleOpenMediaPicker: () => void;
     handleOpenDocPicker: () => void;
-    handleVoiceRecorded: (file: File, durationSeconds: number) => void;
+    handleVoiceRecorded: (blob: Blob, durationSeconds: number) => void;
     emojiButtonRef: React.RefObject<HTMLButtonElement | null>;
     emojiPickerOpen: boolean;
     handleToggleEmojiPicker: () => void;

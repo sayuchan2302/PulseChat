@@ -1,13 +1,12 @@
-import React from 'react';
+import type React from 'react';
 import type { ChatMessage, ChatRoom, User } from '../../types/chat.types';
 import { SearchIcon, CloseIcon } from '../../icons/ChatIcons';
 import {
     getMessageSenderName,
     getMessageSearchSnippet,
-    renderHighlightedSearchText,
 } from '../../utils/messageUtils';
 import { formatMessageTime } from '../../utils/formatUtils';
-import { renderUserAvatar } from '../../utils/renderUtils';
+import { renderHighlightedSearchText, renderUserAvatar } from '../../utils/renderUtils';
 
 export interface SearchSidebarProps {
     conversationName: string;
@@ -27,7 +26,7 @@ export interface SearchSidebarProps {
     messageSearchLoading: boolean;
     loadMessageSearch: (options?: { reset?: boolean; query?: string }) => Promise<void>;
     selectedRoom: ChatRoom | null;
-    findKnownUserById: (id: number) => User | undefined;
+    findKnownUserById: (id: number) => User | null;
     activeMessageSearchId: number | null;
     handleJumpToSearchResult: (id: number) => Promise<void>;
 }

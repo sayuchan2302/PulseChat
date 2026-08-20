@@ -1,11 +1,8 @@
-import React from 'react';
+import type React from 'react';
 import type { User, ChatRoom, ConversationTarget } from '../../types/chat.types';
 import {
     CloseIcon,
     ChevronDownIcon,
-    PinIcon,
-    MutedIcon,
-    ArchiveIcon,
 } from '../../icons/ChatIcons';
 import {
     getUserDisplayName,
@@ -52,7 +49,6 @@ export interface DetailsSidebarProps {
     chatWallpaper?: 'default' | 'ocean' | 'space' | 'sunset' | 'cyber';
     setChatWallpaper?: (wallpaper: 'default' | 'ocean' | 'space' | 'sunset' | 'cyber') => void;
     onUpdateRoomPermissions?: (permissions: { onlyAdminsCanSend?: boolean; onlyAdminsCanEditGroup?: boolean; onlyAdminsCanPin?: boolean }) => void;
-    onMemberRoleChange?: (memberId: number, newRole: 'OWNER' | 'MODERATOR' | 'MEMBER') => void;
 }
 
 export function DetailsSidebar({
@@ -90,7 +86,6 @@ export function DetailsSidebar({
     handleDeleteSelectedGroup,
     handleLeaveSelectedGroup,
     onUpdateRoomPermissions,
-    onMemberRoleChange,
 }: DetailsSidebarProps) {
     if (selectedUser) {
         return (

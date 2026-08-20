@@ -8,30 +8,26 @@ import {
   useState,
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { API_BASE_URL, CALL_RINGING_TIMEOUT_MS, ROUTES, RTC_ICE_SERVERS } from '../config/constants';
+import { CALL_RINGING_TIMEOUT_MS, ROUTES, RTC_ICE_SERVERS } from '../config/constants';
 import type {
   CallSignalEvent,
   CallSignalPayload,
   CallType,
   ChatRoom,
   CloudinaryUploadSignature,
-  ConnectionStatus,
   ConversationSetting,
   Friendship,
   FriendshipSummary,
   GroupInviteResponse,
   GroupMemberRole,
-  LinkPreview,
   MediaAttachment,
   Message,
   MessagePage,
   MessageReply,
   MessageSeenByResponse,
   MessageType,
-  PresenceEvent,
   ReadReceiptEvent,
   RoomReadReceiptEvent,
-  TypingEvent,
   UnreadCount,
   User,
 } from '../types';
@@ -42,27 +38,25 @@ import { dbService } from '../services/dbService';
 import { useTheme } from '../hooks/useTheme';
 import {
   STOP_TYPING_DELAY_MS, USER_SEARCH_DEBOUNCE_MS, REMOTE_TYPING_VISIBLE_MS,
-  OPTIMISTIC_SEND_TIMEOUT_MS, MESSAGE_GROUP_THRESHOLD_MS,
+  OPTIMISTIC_SEND_TIMEOUT_MS,
   MESSAGE_PAGE_SIZE, SHARED_CONTENT_PAGE_SIZE, MESSAGE_SEARCH_PAGE_SIZE,
   MESSAGE_AROUND_PAGE_SIZE, MESSAGE_JUMP_HIGHLIGHT_MS,
   LOAD_OLDER_SCROLL_THRESHOLD, READ_BOTTOM_THRESHOLD, AUTO_SCROLL_BOTTOM_THRESHOLD,
   BROWSER_NOTIFICATION_CLOSE_MS, CALL_RECONNECT_TIMEOUT_MS,
   MIN_GROUP_MEMBERS, MIN_GROUP_INVITED_MEMBERS, BIO_MAX_LENGTH,
   MAX_AVATAR_SIZE_BYTES, MAX_AVATAR_SIZE_MB,
-  MAX_IMAGE_MEDIA_SIZE_BYTES, MAX_VIDEO_MEDIA_SIZE_BYTES,
-  MAX_IMAGE_MEDIA_SIZE_MB, MAX_VIDEO_MEDIA_SIZE_MB,
   ACCEPTED_AVATAR_TYPES, AVATAR_ACCEPT, MEDIA_ACCEPT,
-  TEXT_URL_REGEX, USER_SKELETON_KEYS, MESSAGE_SKELETON_KEYS,
+  USER_SKELETON_KEYS, MESSAGE_SKELETON_KEYS,
   CONVERSATION_FILTERS, QUICK_REACTION_EMOJIS, EMOJI_CATEGORIES,
-  MAX_VOICE_DURATION_MS,
 } from '../constants/chatConstants';
 import type {
-  DeliveryStatus, ChatMessage, ActiveCall, CallConnectionState,
+  ChatMessage, ActiveCall, CallConnectionState,
   CallPermissionSnapshot, PreCallSetup,
   SendMessagePayload, SendRoomMessagePayload,
   PendingMedia, CloudinaryUploadResult, LocalMediaUploadResult,
   LoadOptions, SharedContentLoadOptions, MessageSearchLoadOptions,
-  MainView, ConversationFilter, SharedContentKind,
+  MainView, ConversationFilter, SharedContentKind, MessageListItem,
+  PendingReadConversation, ChatBrowserNotification, ConversationTarget,
 } from '../types/chat.types';
 import {
   SoundIcon, MuteIcon, SunIcon, MoonIcon, FriendsIcon, FriendRequestIcon,
@@ -74,52 +68,45 @@ import {
   PinIcon, MutedIcon, ArchiveIcon, ChevronDownIcon,
 } from '../icons/ChatIcons';
 import {
-  toDeliveredMessage, sortMessagesByTimeline, appendOrReconcileMessage,
+  toDeliveredMessage, appendOrReconcileMessage,
   mergeKnownMessageUpdate, appendOptimisticMessage, mergeServerMessagesWithPending,
-  isConversationMessage, isActiveConversationMessage,
-  getMessageType, isMediaMessage, isCallMessage,
-  applyReadReceipt, isUnreadMessageForCurrentUser, getUnreadDividerCandidateId,
+  isActiveConversationMessage, getMessageType, isCallMessage,
+  applyReadReceipt, getUnreadDividerCandidateId,
   markOptimisticMessageSending, markOptimisticMessageFailed,
   getDeliveryStatusLabel, getGroupedMessageReactions, hasCurrentUserReaction,
-  canUseMessageActions, getMessagePreviewContent, getMessageSearchPreview,
-  getSearchableMessageValues, getMessageSearchSnippet, messageMatchesSearchQuery,
-  applyMediaPayload, getMediaPayloadFromMessage, createReplyFromMessage,
+  canUseMessageActions, getMessagePreviewContent, getMessageSearchSnippet,
+  messageMatchesSearchQuery, getMediaPayloadFromMessage, createReplyFromMessage,
   getPendingMediaType, cloudinaryResultToMedia,
   createOptimisticMessage, createOptimisticRoomMessage,
   getMessageSenderName, getMessageSenderUser,
-  getPrivateConversationUserId, getLatestSeenOutgoingMessageId, getLatestOutgoingMessageId,
+  getLatestSeenOutgoingMessageId, getLatestOutgoingMessageId,
   isSharedMediaMessage, mergeSharedContentPage, prependSharedContentItem,
   updateKnownSharedContentItem, shouldGroupAdjacentMessages,
   appendSeenByUser, createClientId, getCallEventLabel,
   isMessagesContainerNearBottom, getMessagesContainerBottomScrollTop,
 } from '../utils/messageUtils';
 import {
-  getTimestampValue, getLocalDateKey, getLocalDateKeyFromDate,
-  formatRelativeTime, formatSidebarTime, formatMessageDateDivider,
-  formatMessageTime, formatCallTimer, escapeRegExp, trimUrlToken,
+  getLocalDateKey, formatSidebarTime, formatMessageDateDivider,
+  formatMessageTime, formatCallTimer,
   getMediaDeviceLabel,
 } from '../utils/formatUtils';
 import {
   getUserDisplayName, getUserAccountDisplayName, getUserInitial,
-  getApiAssetUrl, getAvatarUrl, getMediaUrl,
+  getAvatarUrl, getMediaUrl,
   applyPresenceToUser, applyProfileToUser, applyProfileToRoom,
   applyConversationSettingToUser, applyConversationSettingToRoom,
-  getProfileUserFromFriendship, getUserFriendshipStatusFromFriendship,
   applyFriendshipToProfileUser, mergeViewedProfileUser,
   canChatWithUser, getUserStatusClass, getFriendshipStatusLabel,
   getRelationshipLabel, getPresenceLabel,
   isTypingFromSelectedUser, getTypingIndicatorLabel,
   mergeUnreadCounts, incrementUnreadCount, resetUnreadCount, resetRoomUnreadCount,
-  shouldShowUsername, getRoomInitial, getRoomMemberSummary,
+  shouldShowUsername, getRoomInitial,
   sortParticipantsForDetails, shouldOpenConversationDetailsByDefault, matchesFriendSearch,
 } from '../utils/userUtils';
 import {
-  getRoomActivityTimestamp, isPinnedConversation,
-  isArchivedUserConversation, isArchivedRoomConversation,
-  hasUnreadUserConversation, hasUnreadRoomConversation, hasPrivateConversation,
+  hasPrivateConversation,
   sortRoomsByChatActivity, buildSidebarConversationItems,
-  shouldIncludeUserConversation, shouldIncludeRoomConversation,
-  isRoomParticipant, appendOrUpdateRoom,
+  isRoomParticipant, appendOrUpdateRoom, compareUsersByChatActivity,
   applyRoomPreviewToRoom, applyRoomPreviewToRooms,
   applyConversationPreviewToUser, applyConversationPreviewToUsers,
   getConversationPreviewText, getRoomPreviewText, isMutedIncomingConversation,
@@ -132,7 +119,7 @@ import {
   getBrowserNotificationStatusLabel,
 } from '../utils/callUtils';
 import {
-  formatFileSize, getFileExtension, getFileBadgeColor, getDownloadFilename,
+  formatFileSize, getFileExtension, getFileBadgeColor, getDownloadFilename, getMediaSizeError,
   getFileFormat, hasLinkPreview, isSharedLinkMessage, getLinkPreviewDomain,
 } from '../utils/mediaUtils';
 import {
@@ -140,14 +127,13 @@ import {
   getUserChatRoute, getRoomChatRoute, parseChatRoute,
 } from '../utils/routeUtils';
 import {
-  renderHighlightedSearchText, renderTextWithMentions, renderLinkedText,
+  renderHighlightedSearchText, renderLinkedText,
   renderLinkPreviewCard, renderUserAvatar, renderRoomAvatar,
 } from '../utils/renderUtils';
 import VoiceRecorderButton from '../components/VoiceRecorderButton';
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer';
 import MediaLightbox, { type LightboxMediaItem } from '../components/chat/MediaLightbox';
 import GroupSeenByModal from '../components/chat/GroupSeenByModal';
-import PinnedMessageBar from '../components/chat/PinnedMessageBar';
 import ReactionSummaryModal, { type ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
 import './ChatPage.css';
 
@@ -162,7 +148,6 @@ const UNKNOWN_CALL_PERMISSIONS: CallPermissionSnapshot = {
   camera: 'unknown',
 };
 
-const MENTION_TOKEN_REGEX = /@([a-zA-Z0-9_.-]+)/g;
 
 function buildMessageListItems(
   messages: ChatMessage[],
@@ -543,9 +528,7 @@ export default function ChatPage() {
 
   const [lightboxState, setLightboxState] = useState<{ items: LightboxMediaItem[]; index: number } | null>(null);
   const [groupSeenModalMessage, setGroupSeenModalMessage] = useState<{ message: Message; seenUsers: User[] } | null>(null);
-  const [pinnedMessageMap, setPinnedMessageMap] = useState<Record<string, ChatMessage | null>>({});
   const [reactionModalGroups, setReactionModalGroups] = useState<ReactionDetailGroup[] | null>(null);
-  const [chatWallpaper, setChatWallpaper] = useState<'default' | 'ocean' | 'space' | 'sunset' | 'cyber'>('default');
 
   const handleOpenLightbox = useCallback((url: string, type: 'IMAGE' | 'VIDEO', fileName?: string) => {
     setLightboxState({

@@ -1,4 +1,3 @@
-import React from 'react';
 import type { Message } from '../../types';
 import { formatMessageTime } from '../../utils/formatUtils';
 import { PinIcon, CloseIcon } from '../../icons/ChatIcons';

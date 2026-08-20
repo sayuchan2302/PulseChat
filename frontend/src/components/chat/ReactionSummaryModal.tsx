@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import type { User } from '../../types';
 import { getUserDisplayName } from '../../utils/userUtils';
 import { renderUserAvatar } from '../../utils/renderUtils';

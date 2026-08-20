@@ -38,6 +38,10 @@ export function getAvatarUrl(avatar?: string | null) {
     return getApiAssetUrl(avatar);
 }
 
+export function getUserAvatarUrl(user: User | null) {
+    return getAvatarUrl(user?.avatar);
+}
+
 export function getMediaUrl(mediaUrl?: string | null) {
     return getApiAssetUrl(mediaUrl);
 }

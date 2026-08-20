@@ -1,4 +1,3 @@
-import React from 'react';
 import type { User, MainView } from '../../types/chat.types';
 import {
     SunIcon,
