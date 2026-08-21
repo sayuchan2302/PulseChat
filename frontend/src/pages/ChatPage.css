@@ -352,8 +352,6 @@
   color: var(--gray-700);
 }
 
-.profile-sound-btn,
-.profile-notification-btn,
 .profile-edit-btn,
 .profile-logout-btn {
   min-height: 38px;
@@ -364,43 +362,10 @@
   transition: all 0.2s;
 }
 
-.profile-sound-btn,
-.profile-notification-btn {
-  border: 1px solid var(--purple-100);
-  background: var(--white);
-  color: var(--gray-700);
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-  text-align: left;
-}
-
-.profile-sound-btn:hover,
-.profile-notification-btn:hover:not(:disabled) {
-  background: var(--purple-50);
-  border-color: var(--purple-200);
-  color: var(--purple-700);
-}
-
-.profile-sound-btn:focus-visible,
-.profile-notification-btn:focus-visible,
 .profile-edit-btn:focus-visible,
 .profile-logout-btn:focus-visible {
   outline: 2px solid var(--purple-500);
   outline-offset: 2px;
-}
-
-.profile-notification-btn:disabled {
-  cursor: not-allowed;
-  background: var(--gray-100);
-  color: var(--gray-400);
-}
-
-.profile-notification-icon {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
 }
 
 .profile-edit-btn {
@@ -421,13 +386,6 @@
 
 .profile-logout-btn:hover {
   background: var(--purple-200);
-}
-
-.profile-notification-btn:focus-visible,
-.profile-edit-btn:focus-visible,
-.profile-logout-btn:focus-visible {
-  outline: 2px solid var(--purple-500);
-  outline-offset: 2px;
 }
 
 .chat-container {
@@ -888,6 +846,28 @@
   object-fit: cover;
 }
 
+.conversation-avatar-presence {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+}
+
+.conversation-presence-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--white);
+  border-radius: 50%;
+  background: var(--gray-400);
+}
+
+.conversation-presence-dot.online {
+  background: #10B981;
+}
+
 .room-avatar {
   border-radius: 50%;
   background: linear-gradient(135deg, #7C3AED, #DB2777);
@@ -1338,6 +1318,29 @@ button.main-list-item {
   color: var(--gray-500);
 }
 
+.friend-main-item {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.friend-main-profile-trigger {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: transparent;
+  text-align: left;
+}
+
+.friend-main-profile-trigger:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.friend-main-message-btn {
+  min-width: 76px;
+}
+
 .request-main-item {
   align-items: center;
 }
@@ -1392,6 +1395,23 @@ button.main-list-item {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.selected-user-profile-btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.selected-user-profile-btn:hover .user-name {
+  color: var(--purple-700);
+}
+
+.selected-user-profile-btn:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 4px;
 }
 
 .selected-user .user-avatar {
@@ -5697,6 +5717,16 @@ button.main-list-item {
   color-scheme: light;
 }
 
+.add-members-modal-body {
+  min-height: 0;
+  padding: 12px 16px;
+}
+
+.add-members-modal .details-add-member-list {
+  max-height: min(360px, calc(100dvh - 280px));
+  margin-bottom: 0;
+}
+
 .user-profile-modal {
   width: min(380px, 100%);
   overflow: hidden;
@@ -5829,6 +5859,37 @@ button.main-list-item {
   padding: 10px 20px;
 }
 
+.profile-call-btn {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--purple-200);
+  border-radius: 10px;
+  background: var(--purple-50);
+  color: var(--purple-700);
+  display: inline-grid;
+  place-items: center;
+}
+
+.profile-call-btn:hover:not(:disabled) {
+  background: var(--purple-100);
+}
+
+.profile-call-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.profile-call-btn:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 2px;
+}
+
+.profile-call-icon {
+  width: 18px;
+  height: 18px;
+}
+
 .profile-action-error {
   width: 100%;
   padding: 10px 12px;
@@ -5841,7 +5902,7 @@ button.main-list-item {
 }
 
 .profile-modal {
-  width: min(440px, 100%);
+  width: min(480px, 100%);
 }
 
 .group-form {
@@ -5898,70 +5959,82 @@ button.main-list-item {
 
 .profile-avatar-editor {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding: 20px 20px 0;
+  gap: 10px;
+  padding: 24px 20px 4px;
+  text-align: center;
 }
 
 .profile-avatar-preview {
-  width: 88px;
-  height: 88px;
-  font-size: 32px;
+  width: 104px;
+  height: 104px;
+  font-size: 38px;
   box-shadow: 0 0 0 4px var(--purple-50);
+  transition: filter 0.2s, transform 0.2s;
 }
 
-.profile-avatar-actions {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.avatar-upload-btn {
+.profile-avatar-upload {
   position: relative;
-  min-height: 38px;
-  padding: 0 12px;
-  border: 1px solid var(--purple-200);
-  border-radius: 8px;
-  background: var(--purple-50);
-  color: var(--purple-700);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 700;
+  display: block;
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
   cursor: pointer;
-  overflow: hidden;
-  transition: background 0.2s, border-color 0.2s;
 }
 
-.avatar-upload-btn:hover {
-  background: var(--purple-100);
-  border-color: var(--purple-300);
+.profile-avatar-upload:hover .profile-avatar-preview {
+  filter: brightness(0.82);
+  transform: scale(1.03);
 }
 
-.avatar-upload-btn:focus-within {
+.profile-avatar-upload:focus-within {
   outline: 2px solid var(--purple-500);
-  outline-offset: 2px;
+  outline-offset: 5px;
 }
 
-.avatar-upload-btn input {
+.profile-avatar-upload input {
   position: absolute;
   inset: 0;
   opacity: 0;
   cursor: pointer;
 }
 
-.avatar-upload-btn input:disabled {
+.profile-avatar-upload input:disabled {
   cursor: not-allowed;
 }
 
-.profile-avatar-actions small {
+.profile-avatar-upload:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.profile-avatar-edit-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 34px;
+  height: 34px;
+  border: 3px solid var(--white);
+  border-radius: 50%;
+  background: var(--purple-600);
+  color: var(--white);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 10px rgba(124, 58, 237, 0.25);
+}
+
+.profile-avatar-edit-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.profile-avatar-help {
   color: var(--gray-400);
   font-size: 12px;
   font-weight: 600;
   line-height: 1.35;
+  max-width: 300px;
 }
 
 .group-field {
@@ -6324,6 +6397,11 @@ button.main-list-item {
     width: 40px;
     height: 40px;
     font-size: 18px;
+  }
+
+  .conversation-avatar-presence {
+    width: 40px;
+    height: 40px;
   }
 
   .chat-area-header {
@@ -6763,15 +6841,18 @@ button.main-list-item {
   }
 
   .profile-avatar-editor {
-    padding-left: 16px;
-    padding-right: 16px;
-    align-items: flex-start;
+    padding: 20px 16px 4px;
   }
 
   .profile-avatar-preview {
-    width: 76px;
-    height: 76px;
-    font-size: 28px;
+    width: 84px;
+    height: 84px;
+    font-size: 30px;
+  }
+
+  .profile-avatar-upload {
+    width: 84px;
+    height: 84px;
   }
 
   .user-profile-body {

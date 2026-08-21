@@ -50,4 +50,11 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
             @Param("userId") Long userId,
             @Param("status") FriendshipStatus status
     );
+
+    @EntityGraph(attributePaths = {"requester", "receiver"})
+    @Query("""
+            select friendship from Friendship friendship
+            where friendship.requester.id = :userId or friendship.receiver.id = :userId
+            """)
+    List<Friendship> findFriendshipsForUser(@Param("userId") Long userId);
 }

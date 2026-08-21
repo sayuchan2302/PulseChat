@@ -104,9 +104,3 @@ export function shouldShowBrowserNotification() {
     return typeof document === 'undefined' || document.hidden || !document.hasFocus();
 }
 
-export function getBrowserNotificationStatusLabel(permission: NotificationPermission) {
-    if (!isBrowserNotificationSupported()) return 'Browser notifications unavailable';
-    if (permission === 'granted') return 'Browser notifications enabled';
-    if (permission === 'denied') return 'Browser notifications blocked';
-    return 'Enable browser notifications';
-}

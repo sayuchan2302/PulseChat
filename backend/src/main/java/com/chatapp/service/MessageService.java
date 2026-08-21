@@ -289,7 +289,8 @@ public class MessageService {
             throw new AppException(ErrorCode.SELF_MESSAGE_NOT_ALLOWED);
         }
 
-        validateFriends(sender, receiver);
+        boolean areFriends = friendshipService.areFriends(sender, receiver);
+        validateNonFriendMessage(areFriends, type, request.media() != null);
         validateMessagePayload(type, content, request.media());
         Message replyToMessage = resolvePrivateReplyTarget(sender, receiver, request.replyToMessageId());
 
@@ -440,7 +441,10 @@ public class MessageService {
             if (sender.getId().equals(target.getId())) {
                 throw new AppException(ErrorCode.SELF_MESSAGE_NOT_ALLOWED);
             }
-            validateFriends(sender, target);
+            validateNonFriendMessage(
+                    friendshipService.areFriends(sender, target),
+                    source.getType(),
+                    source.getMediaUrl() != null);
             return saveForwardedDmMessage(sender, source, target);
         }
 
@@ -890,9 +894,12 @@ public class MessageService {
                 .toList();
     }
 
-    private void validateFriends(User firstUser, User secondUser) {
-        if (!friendshipService.areFriends(firstUser, secondUser)) {
-            throw new AppException(ErrorCode.FRIENDSHIP_REQUIRED);
+    private void validateNonFriendMessage(
+            boolean areFriends,
+            MessageType type,
+            boolean hasMedia) {
+        if (!areFriends && (type != MessageType.TEXT || hasMedia)) {
+            throw new AppException(ErrorCode.NON_FRIEND_TEXT_ONLY);
         }
     }
 
@@ -906,7 +913,6 @@ public class MessageService {
             throw new AppException(ErrorCode.SELF_CONVERSATION_NOT_ALLOWED);
         }
 
-        validateFriends(currentUser, otherUser);
         return new PrivateConversationParticipants(currentUser, otherUser);
     }
 
@@ -1007,8 +1013,6 @@ public class MessageService {
         if (reader.getId().equals(sender.getId())) {
             throw new AppException(ErrorCode.SELF_CONVERSATION_NOT_ALLOWED);
         }
-
-        validateFriends(reader, sender);
 
         int readCount = messageRepository.markConversationAsRead(sender.getId(), reader.getId());
         return new ReadReceiptResponse(reader.getId(), sender.getId(), readCount);

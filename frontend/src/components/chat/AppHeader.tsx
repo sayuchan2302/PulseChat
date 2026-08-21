@@ -1,7 +1,6 @@
 import type { MainView } from '../../types/chat.types';
 import type { User } from '../../types';
 import {
-  BellIcon,
   FriendRequestIcon,
   FriendsIcon,
   MoonIcon,
@@ -21,15 +20,11 @@ export interface AppHeaderProps {
   currentUser: User | null;
   currentUserDisplayName: string;
   currentUserOnline: boolean;
-  browserNotificationPermission: NotificationPermission;
-  browserNotificationStatusLabel: string;
-  isBrowserNotificationAvailable: boolean;
   onToggleTheme: () => void;
   onOpenFriends: () => void;
   onToggleSound: () => void;
   onOpenRequests: () => void;
   onToggleProfileMenu: () => void;
-  onBrowserNotificationAction: () => void;
   onOpenProfileEditor: () => void;
   onLogout: () => void;
 }
@@ -43,15 +38,11 @@ export function AppHeader({
   currentUser,
   currentUserDisplayName,
   currentUserOnline,
-  browserNotificationPermission,
-  browserNotificationStatusLabel,
-  isBrowserNotificationAvailable,
   onToggleTheme,
   onOpenFriends,
   onToggleSound,
   onOpenRequests,
   onToggleProfileMenu,
-  onBrowserNotificationAction,
   onOpenProfileEditor,
   onLogout,
 }: AppHeaderProps) {
@@ -142,21 +133,6 @@ export function AppHeader({
                 <span className="account-status-dot" aria-hidden="true" />
                 {currentUserOnline ? 'Online' : 'Offline'}
               </span>
-              <button type="button" onClick={onToggleSound} className="profile-sound-btn" role="menuitem">
-                {soundMuted ? <MuteIcon className="profile-notification-icon" /> : <SoundIcon className="profile-notification-icon" />}
-                <span>{soundMuted ? 'Sounds: Muted' : 'Sounds: Enabled'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={onBrowserNotificationAction}
-                className="profile-notification-btn"
-                role="menuitem"
-                disabled={!isBrowserNotificationAvailable || browserNotificationPermission === 'denied'}
-                title={browserNotificationStatusLabel}
-              >
-                <BellIcon className="profile-notification-icon" />
-                <span>{browserNotificationStatusLabel}</span>
-              </button>
               <button type="button" onClick={onOpenProfileEditor} className="profile-edit-btn" role="menuitem">
                 Edit profile
               </button>

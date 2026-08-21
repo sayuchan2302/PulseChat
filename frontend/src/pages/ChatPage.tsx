@@ -68,7 +68,7 @@ import {
   JumpIcon, CloseIcon,
   DocumentIcon, DownloadIcon, PaperclipIcon,
   ReplyIcon, CopyIcon, ForwardIcon, RecallIcon, MoreIcon,
-  PinIcon, MutedIcon, ArchiveIcon, ChevronDownIcon,
+  PinIcon, MutedIcon, ArchiveIcon, ChevronDownIcon, ProfileIcon, MediaIcon,
 } from '../icons/ChatIcons';
 import {
   toDeliveredMessage, appendOrReconcileMessage,
@@ -118,7 +118,6 @@ import {
   getCallPermissionLabel, getScreenShareErrorMessage, buildCallMediaConstraints,
   stopMediaStream, getBrowserAwareConnectionStatus, isBrowserNotificationSupported,
   getBrowserNotificationPermission, shouldShowBrowserNotification,
-  getBrowserNotificationStatusLabel,
 } from '../utils/callUtils';
 import {
   formatFileSize, getFileExtension, getFileBadgeColor, getDownloadFilename, getMediaSizeError,
@@ -135,6 +134,7 @@ import {
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer';
 import AppHeader from '../components/chat/AppHeader';
 import ActiveCallOverlay from '../components/chat/ActiveCallOverlay';
+import AddMembersModal from '../components/chat/AddMembersModal';
 import ConversationHeader from '../components/chat/ConversationHeader';
 import ConversationSidebar from '../components/chat/ConversationSidebar';
 import DetailsSidebar from '../components/chat/DetailsSidebar';
@@ -287,6 +287,7 @@ export default function ChatPage() {
   const [groupSettingsName, setGroupSettingsName] = useState('');
   const [isEditingGroupName, setIsEditingGroupName] = useState(false);
   const [selectedAddMemberIds, setSelectedAddMemberIds] = useState<number[]>([]);
+  const [addMembersModalOpen, setAddMembersModalOpen] = useState(false);
   const [groupMemberNicknames, setGroupMemberNicknames] = useState<Record<number, string>>({});
   const [openGroupMemberMenuId, setOpenGroupMemberMenuId] = useState<number | null>(null);
   const [editingGroupMemberNicknameId, setEditingGroupMemberNicknameId] = useState<number | null>(
@@ -424,6 +425,11 @@ export default function ChatPage() {
   const releaseInitialScrollBlockFrameRef = useRef<number | null>(null);
   const messageJumpHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageJumpFrameRef = useRef<number | null>(null);
+
+  const canOpenDirectConversation = useCallback(
+    (user: User) => user.id !== currentUserIdRef.current,
+    []
+  );
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const unreadDividerRef = useRef<HTMLDivElement | null>(null);
@@ -1157,7 +1163,7 @@ export default function ChatPage() {
   const loadUsers = useCallback(async (options: LoadOptions = {}) => {
     const search = (options.search ?? userSearchQueryRef.current).trim();
     const isCurrentSearch = () => userSearchQueryRef.current.trim() === search;
-    const usersEndpoint = search ? '/friends/search' : '/friends';
+    const usersEndpoint = search ? '/friends/search' : '/conversations';
 
     if (!options.silent) {
       setUsersLoading(true);
@@ -1165,11 +1171,12 @@ export default function ChatPage() {
     setUsersError('');
 
     try {
-      const [usersResponse, unreadCountsResponse] = await Promise.all([
+      const [usersResponse, unreadCountsResponse, friendsResponse] = await Promise.all([
         apiClient.get<User[]>(usersEndpoint, {
           params: search ? { username: search } : undefined,
         }),
         apiClient.get<UnreadCount[]>('/messages/unread-counts'),
+        search ? Promise.resolve(null) : apiClient.get<User[]>('/friends'),
       ]);
       if (!isCurrentSearch()) {
         return;
@@ -1177,14 +1184,14 @@ export default function ChatPage() {
 
       const nextUsers = mergeUnreadCounts(usersResponse.data, unreadCountsResponse.data);
       setUsers(nextUsers);
-      if (!search) {
-        setFriends(nextUsers);
+      if (friendsResponse) {
+        setFriends(mergeUnreadCounts(friendsResponse.data, unreadCountsResponse.data));
       }
 
       const selectedUserIdForUpdate = selectedUserIdRef.current;
       if (selectedUserIdForUpdate !== null) {
         const updatedSelectedUser = nextUsers.find((user) => user.id === selectedUserIdForUpdate);
-        if (updatedSelectedUser && canChatWithUser(updatedSelectedUser)) {
+        if (updatedSelectedUser && canOpenDirectConversation(updatedSelectedUser)) {
           setSelectedUser(updatedSelectedUser);
         } else if (!search || updatedSelectedUser) {
           selectedUserIdRef.current = null;
@@ -1204,7 +1211,7 @@ export default function ChatPage() {
         setUsersLoading(false);
       }
     }
-  }, [resetMessagePagination]);
+  }, [canOpenDirectConversation, resetMessagePagination]);
 
   const loadIncomingFriendRequests = useCallback(async (options: LoadOptions = {}) => {
     if (!options.silent) {
@@ -3111,6 +3118,33 @@ export default function ChatPage() {
             return;
           }
 
+          if (
+            isIncomingFromOther &&
+            !userSearchQueryRef.current.trim() &&
+            !usersRef.current.some((user) => user.id === incomingMessage.senderId) &&
+            incomingMessage.senderUsername
+          ) {
+            void apiClient
+              .get<User>(`/users/${encodeURIComponent(incomingMessage.senderUsername)}`)
+              .then((response) => {
+                if (!active) {
+                  return;
+                }
+
+                setUsers((currentUsers) => {
+                  if (currentUsers.some((user) => user.id === response.data.id)) {
+                    return currentUsers;
+                  }
+
+                  return [
+                    ...currentUsers,
+                    applyConversationPreviewToUser(response.data, incomingMessage, currentUserId),
+                  ].sort(compareUsersByChatActivity);
+                });
+              })
+              .catch((error) => console.error('Failed to load direct message sender:', error));
+          }
+
           setUsers((currentUsers) =>
             applyConversationPreviewToUsers(
               currentUsers,
@@ -4024,7 +4058,7 @@ export default function ChatPage() {
   }, [clearPendingReadConversation, hideRemoteTyping, resetMessagePagination, stopRoomTyping, stopTyping]);
 
   const activateUserConversation = useCallback((user: User) => {
-    if (!canChatWithUser(user)) {
+    if (!canOpenDirectConversation(user)) {
       return;
     }
 
@@ -4059,7 +4093,7 @@ export default function ChatPage() {
     if (conversationChanged) {
       void loadMessages(user.id);
     }
-  }, [hideRemoteTyping, loadMessages, preparePendingReadConversation, stopRoomTyping, stopTyping]);
+  }, [canOpenDirectConversation, hideRemoteTyping, loadMessages, preparePendingReadConversation, stopRoomTyping, stopTyping]);
 
   const activateRoomConversation = useCallback((room: ChatRoom) => {
     const previousSelectedUserId = selectedUserIdRef.current;
@@ -4173,7 +4207,7 @@ export default function ChatPage() {
       friends.find((friend) => usernameMatches(friend, routeStateForPath.username)) ??
       users.find((user) => usernameMatches(user, routeStateForPath.username));
     if (userFromLists) {
-      if (canChatWithUser(userFromLists)) {
+      if (canOpenDirectConversation(userFromLists)) {
         activateUserConversation(userFromLists);
       } else {
         navigate(getFriendsRoute(), { replace: true });
@@ -4192,7 +4226,7 @@ export default function ChatPage() {
           return;
         }
 
-        if (canChatWithUser(response.data)) {
+        if (canOpenDirectConversation(response.data)) {
           activateUserConversation(response.data);
         } else {
           navigate(getFriendsRoute(), { replace: true });
@@ -4211,6 +4245,7 @@ export default function ChatPage() {
   }, [
     activateRoomConversation,
     activateUserConversation,
+    canOpenDirectConversation,
     currentUser?.id,
     friends,
     location.pathname,
@@ -4341,7 +4376,7 @@ export default function ChatPage() {
   };
 
   const handleUserSelect = (user: User) => {
-    if (!canChatWithUser(user)) {
+    if (!canOpenDirectConversation(user)) {
       return;
     }
 
@@ -4536,6 +4571,8 @@ export default function ChatPage() {
         setMediaViewerMessage(null);
       } else if (forwardingMessage) {
         setForwardingMessage(null);
+      } else if (addMembersModalOpen) {
+        setAddMembersModalOpen(false);
       } else if (inviteModalOpen) {
         setInviteModalOpen(false);
       } else if (detailsOpen) {
@@ -4549,6 +4586,7 @@ export default function ChatPage() {
     return () => window.removeEventListener('keydown', handleEscapeKey);
   }, [
     detailsOpen,
+    addMembersModalOpen,
     forwardingMessage,
     groupSeenModalMessage,
     inviteModalOpen,
@@ -4686,6 +4724,7 @@ export default function ChatPage() {
       });
       setSelectedAddMemberIds([]);
       applyRoomMembershipUpdate(response.data);
+      setAddMembersModalOpen(false);
     } catch (error) {
       console.error('Failed to add group members:', error);
       setGroupSettingsError('Unable to add members.');
@@ -5247,7 +5286,7 @@ export default function ChatPage() {
       return;
     }
 
-    if (selectedUser) {
+    if (selectedUser && canChatWithUser(selectedUser)) {
       publishTyping(selectedUser.id, true);
     } else if (selectedRoom) {
       publishRoomTyping(selectedRoom.id, true);
@@ -5255,7 +5294,7 @@ export default function ChatPage() {
 
     clearTypingTimeout();
     typingTimeoutRef.current = setTimeout(() => {
-      if (selectedUser) {
+      if (selectedUser && canChatWithUser(selectedUser)) {
         publishTyping(selectedUser.id, false);
       } else if (selectedRoom) {
         publishRoomTyping(selectedRoom.id, false);
@@ -6009,11 +6048,6 @@ export default function ChatPage() {
     groupSettingsName.trim() !== selectedRoom.name.trim() &&
     !groupSettingsSaving
   );
-  const canAddRoomMembers = Boolean(
-    currentUserCanManageSelectedRoom &&
-    selectedAddMemberIds.length > 0 &&
-    !groupSettingsSaving
-  );
   const canKickMember = useCallback(
     (user: User) => {
       if (!selectedRoom || !currentUser || groupSettingsSaving) return false;
@@ -6638,21 +6672,55 @@ export default function ChatPage() {
   };
 
   const renderProfileAction = (user: User) => {
+    const openProfileChat = () => {
+      handleCloseUserProfile();
+      handleUserSelect(user);
+    };
+    const openProfileCall = (callType: CallType) => {
+      handleCloseUserProfile();
+      openPreCallSetupForUser(user, callType);
+    };
+
     switch (user.friendshipStatus) {
       case 'accepted':
         return (
-          <button
-            type="button"
-            className="send-btn profile-message-btn"
-            onClick={() => handleUserSelect(user)}
-          >
-            Message
-          </button>
+          <>
+            <button
+              type="button"
+              className="send-btn profile-message-btn"
+              onClick={openProfileChat}
+            >
+              Message
+            </button>
+            <button
+              type="button"
+              className="profile-call-btn"
+              onClick={() => openProfileCall('AUDIO')}
+              disabled={Boolean(activeCall)}
+              aria-label={`Start audio call with ${getUserDisplayName(user)}`}
+              title="Audio call"
+            >
+              <PhoneIcon className="profile-call-icon" />
+            </button>
+            <button
+              type="button"
+              className="profile-call-btn"
+              onClick={() => openProfileCall('VIDEO')}
+              disabled={Boolean(activeCall)}
+              aria-label={`Start video call with ${getUserDisplayName(user)}`}
+              title="Video call"
+            >
+              <VideoCallIcon className="profile-call-icon" />
+            </button>
+          </>
         );
       case 'pending_incoming': {
         const requestId = user.friendshipId;
         return requestId ? (
           <>
+            <button type="button" className="send-btn profile-message-btn" onClick={openProfileChat}>
+              Message
+            </button>
             <button
               type="button"
               className="friend-action-btn"
@@ -6679,6 +6747,9 @@ export default function ChatPage() {
       case 'pending_outgoing':
         return (
           <>
+            <button type="button" className="send-btn profile-message-btn" onClick={openProfileChat}>
+              Message
+            </button>
             <span className="friend-status-pill">Pending</span>
             <button
               type="button"
@@ -6695,14 +6766,19 @@ export default function ChatPage() {
       case undefined:
       default:
         return (
-          <button
-            type="button"
-            className="friend-action-btn"
-            disabled={friendActionKeys.includes(`send-${user.id}`)}
-            onClick={() => void handleSendFriendRequest(user)}
-          >
-            Add friend
-          </button>
+          <>
+            <button type="button" className="send-btn profile-message-btn" onClick={openProfileChat}>
+              Message
+            </button>
+            <button
+              type="button"
+              className="friend-action-btn"
+              disabled={friendActionKeys.includes(`send-${user.id}`)}
+              onClick={() => void handleSendFriendRequest(user)}
+            >
+              Add friend
+            </button>
+          </>
         );
     }
   };
@@ -6712,7 +6788,16 @@ export default function ChatPage() {
 
     return (
       <>
-        {renderUserAvatar(user)}
+        {showConversationPreview ? (
+          <span className="conversation-avatar-presence">
+            {renderUserAvatar(user)}
+            <span
+              className={`conversation-presence-dot ${user.online ? 'online' : 'offline'}`}
+              role="img"
+              aria-label={user.online ? 'Online' : 'Offline'}
+            />
+          </span>
+        ) : renderUserAvatar(user)}
         <div className="user-info">
           <div className="user-title-row">
             <div className="user-name">{getUserDisplayName(user)}</div>
@@ -6784,6 +6869,19 @@ export default function ChatPage() {
 
         {openConversationMenuKey === targetKey ? (
           <div className="conversation-menu" role="menu">
+            {target.type === 'user' ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpenConversationMenuKey(null);
+                  void handleOpenUserProfile(target.user);
+                }}
+              >
+                <ProfileIcon className="conversation-menu-item-icon" />
+                View profile
+              </button>
+            ) : null}
             <button
               type="button"
               role="menuitem"
@@ -6819,9 +6917,10 @@ export default function ChatPage() {
 
   const renderUserItem = (user: User) => {
     const unreadCount = user.unreadCount ?? 0;
-    const showConversationPreview = !hasUserSearch && canChatWithUser(user);
+    const showConversationPreview = !hasUserSearch && hasPrivateConversation(user);
+    const isAcceptedFriend = user.friendshipStatus === 'accepted';
 
-    if (canChatWithUser(user) && !hasUserSearch) {
+    if (showConversationPreview) {
       return (
         <div
           key={user.id}
@@ -6848,12 +6947,25 @@ export default function ChatPage() {
         <button
           type="button"
           className="profile-result-trigger"
-          onClick={() => void handleOpenUserProfile(user)}
-          aria-label={`View profile for ${getUserDisplayName(user)}`}
+          onClick={() => {
+            if (isAcceptedFriend) {
+              handleUserSelect(user);
+              return;
+            }
+
+            void handleOpenUserProfile(user);
+          }}
+          aria-label={isAcceptedFriend
+            ? `Open chat with ${getUserDisplayName(user)}`
+            : `View profile for ${getUserDisplayName(user)}`}
         >
           {renderUserIdentity(user)}
         </button>
-        {renderFriendshipAction(user)}
+        {!isAcceptedFriend ? (
+          <div className="friend-actions">
+            {renderFriendshipAction(user)}
+          </div>
+        ) : null}
       </div>
     );
   };
@@ -6946,7 +7058,7 @@ export default function ChatPage() {
         ? 'No archived conversations.'
         : conversationFilter === 'unread'
           ? 'No unread conversations.'
-          : 'No conversations yet. Open Friends to start a new chat.';
+          : 'No conversations yet. Search a username to start a chat.';
 
     if (sidebarBusy && !hasAnyConversation) {
       return renderSidebarSkeletons();
@@ -6956,11 +7068,6 @@ export default function ChatPage() {
       return (
         <div className="list-state empty-groups-state">
           <span>{emptyConversationMessage}</span>
-          {conversationFilter === 'all' ? (
-            <button type="button" className="retry-btn" onClick={handleOpenFriendsPanel}>
-              Open friends
-            </button>
-          ) : null}
         </div>
       );
     }
@@ -6991,27 +7098,36 @@ export default function ChatPage() {
   };
 
   const renderMainFriendItem = (user: User) => (
-    <button
-      type="button"
-      key={user.id}
-      className="main-list-item friend-main-item"
-      onClick={() => handleUserSelect(user)}
-    >
-      <div className="main-list-avatar-wrap">
-        {renderUserAvatar(user)}
-        <span
-          className={`main-list-presence-dot ${user.online ? 'online' : 'offline'}`}
-          aria-hidden="true"
-        />
-      </div>
-      <div className="main-list-copy">
-        <strong>{getUserDisplayName(user)}</strong>
-        <span>@{user.username}</span>
-      </div>
+    <div key={user.id} className="main-list-item friend-main-item">
+      <button
+        type="button"
+        className="friend-main-profile-trigger"
+        onClick={() => void handleOpenUserProfile(user)}
+        aria-label={`View profile of ${getUserDisplayName(user)}`}
+      >
+        <div className="main-list-avatar-wrap">
+          {renderUserAvatar(user)}
+          <span
+            className={`main-list-presence-dot ${user.online ? 'online' : 'offline'}`}
+            aria-hidden="true"
+          />
+        </div>
+        <div className="main-list-copy">
+          <strong>{getUserDisplayName(user)}</strong>
+          <span>@{user.username}</span>
+        </div>
+      </button>
+      <button
+        type="button"
+        className="friend-action-btn secondary friend-main-message-btn"
+        onClick={() => handleUserSelect(user)}
+      >
+        Message
+      </button>
       <span className={`main-status-pill ${user.online ? 'online' : 'offline'}`}>
         {user.online ? 'Online' : 'Offline'}
       </span>
-    </button>
+    </div>
   );
 
   const renderMainPanelSkeletons = () => (
@@ -7240,45 +7356,73 @@ export default function ChatPage() {
     const canKick = canKickMember(user);
     const memberMenuOpen = openGroupMemberMenuId === user.id;
     const editingNickname = editingGroupMemberNicknameId === user.id;
-    const canShowMenu =
-      currentUserCanManageSelectedRoom ||
-      isCurrentUser;
 
     return (
       <div
         key={user.id}
         className={`details-member-item ${editingNickname ? 'editing' : ''}`}
       >
-        {renderUserAvatar(user, 'user-avatar small-avatar')}
-        <div className="details-member-copy">
-          <div className="details-member-title">
-            <strong>{memberDisplayName}</strong>
-            {isOwner ? (
-              <span className="details-role-badge owner-badge">👑 Owner</span>
-            ) : isMod ? (
-              <span className="details-role-badge mod-badge">🛡️ Moderator</span>
-            ) : null}
-          </div>
-          {user.username ? <span>@{user.username}</span> : null}
-        </div>
+        {isCurrentUser ? (
+          <>
+            {renderUserAvatar(user, 'user-avatar small-avatar')}
+            <div className="details-member-copy">
+              <div className="details-member-title">
+                <strong>{memberDisplayName}</strong>
+                {isOwner ? (
+                  <span className="details-role-badge owner-badge">👑 Owner</span>
+                ) : isMod ? (
+                  <span className="details-role-badge mod-badge">🛡️ Moderator</span>
+                ) : null}
+              </div>
+              {user.username ? <span>@{user.username}</span> : null}
+            </div>
+          </>
+        ) : (
+          <>
+            {renderUserAvatar(user, 'user-avatar small-avatar')}
+            <div className="details-member-copy">
+              <div className="details-member-title">
+                <strong>{memberDisplayName}</strong>
+                {isOwner ? (
+                  <span className="details-role-badge owner-badge">👑 Owner</span>
+                ) : isMod ? (
+                  <span className="details-role-badge mod-badge">🛡️ Moderator</span>
+                ) : null}
+              </div>
+              {user.username ? <span>@{user.username}</span> : null}
+            </div>
+          </>
+        )}
 
-        {canShowMenu ? (
-          <div className="details-member-menu-wrap">
-            <button
-              type="button"
-              className="details-member-menu-btn"
-              disabled={groupSettingsSaving}
-              onClick={() => handleToggleGroupMemberMenu(user.id)}
-              aria-haspopup="menu"
-              aria-expanded={memberMenuOpen}
-              aria-label={`Member actions for ${memberDisplayName}`}
-              title="Member actions"
-            >
-              <MoreIcon className="details-member-menu-icon" />
-            </button>
+        <div className="details-member-menu-wrap">
+          <button
+            type="button"
+            className="details-member-menu-btn"
+            disabled={groupSettingsSaving}
+            onClick={() => handleToggleGroupMemberMenu(user.id)}
+            aria-haspopup="menu"
+            aria-expanded={memberMenuOpen}
+            aria-label={`Member actions for ${memberDisplayName}`}
+            title="Member actions"
+          >
+            <MoreIcon className="details-member-menu-icon" />
+          </button>
 
-            {memberMenuOpen ? (
-              <div className="details-member-menu" role="menu">
+          {memberMenuOpen ? (
+            <div className="details-member-menu" role="menu">
+                {!isCurrentUser ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setOpenGroupMemberMenuId(null);
+                      void handleOpenUserProfile(user);
+                    }}
+                  >
+                    View profile
+                  </button>
+                ) : null}
+
                 <button
                   type="button"
                   role="menuitem"
@@ -7332,8 +7476,7 @@ export default function ChatPage() {
                 ) : null}
               </div>
             ) : null}
-          </div>
-        ) : null}
+        </div>
 
         {editingNickname ? (
           <div className="details-member-editor">
@@ -7787,11 +7930,6 @@ export default function ChatPage() {
         handleOpenInviteModal={handleOpenInviteModal}
         selectedRoomOwnerName={selectedRoomOwnerName}
         groupSettingsError={groupSettingsError}
-        selectedAddMemberIds={selectedAddMemberIds}
-        addMemberCandidates={addMemberCandidates}
-        handleToggleAddRoomMember={handleToggleAddRoomMember}
-        canAddRoomMembers={canAddRoomMembers}
-        handleAddRoomMembers={handleAddRoomMembers}
         groupMembersExpanded={groupMembersExpanded}
         setGroupMembersExpanded={setGroupMembersExpanded}
         renderDetailsMemberItem={renderDetailsMemberItem}
@@ -7812,21 +7950,11 @@ export default function ChatPage() {
         currentUser={currentUser}
         currentUserDisplayName={currentUserDisplayName}
         currentUserOnline={currentUserOnline}
-        browserNotificationPermission={browserNotificationPermission}
-        browserNotificationStatusLabel={getBrowserNotificationStatusLabel(browserNotificationPermission)}
-        isBrowserNotificationAvailable={isBrowserNotificationSupported()}
         onToggleTheme={toggleTheme}
         onOpenFriends={handleOpenFriendsPanel}
         onToggleSound={() => soundService.toggleMuted()}
         onOpenRequests={handleOpenRequestsPanel}
         onToggleProfileMenu={handleToggleProfileMenu}
-        onBrowserNotificationAction={() => {
-          if (browserNotificationPermission === 'granted') {
-            soundService.playNotificationSound();
-          } else {
-            void requestBrowserNotificationPermission();
-          }
-        }}
         onOpenProfileEditor={handleOpenProfileEditor}
         onLogout={() => void handleLogout()}
       />
@@ -7859,10 +7987,17 @@ export default function ChatPage() {
                 selectedRoom={selectedRoom}
                 selectedConversationName={selectedConversationName}
                 canStartPrivateCall={canStartPrivateCall}
+                canAddMembers={currentUserCanManageSelectedRoom}
                 detailsOpen={detailsOpen}
                 rightSidebarTab={rightSidebarTab}
                 onBackToChatList={handleReturnToConversationList}
                 onStartCall={handleStartCall}
+                onOpenUserProfile={(user) => void handleOpenUserProfile(user)}
+                onOpenAddMembers={() => {
+                  setGroupSettingsError('');
+                  setSelectedAddMemberIds([]);
+                  setAddMembersModalOpen(true);
+                }}
                 onToggleMessageSearch={handleToggleMessageSearch}
                 onToggleConversationDetails={handleToggleConversationDetails}
               />
@@ -8047,6 +8182,7 @@ export default function ChatPage() {
                 pendingMedia={pendingMedia}
                 mediaError={mediaError}
                 mediaUploading={mediaUploading}
+                canAttachMedia={Boolean(selectedRoom || (selectedUser && canChatWithUser(selectedUser)))}
                 onClearPendingMedia={clearPendingMedia}
                 onOpenMediaPicker={handleOpenMediaPicker}
                 onOpenDocumentPicker={handleOpenDocPicker}
@@ -8219,25 +8355,27 @@ export default function ChatPage() {
               </div>
 
               <div className="profile-avatar-editor">
-                <div className="user-avatar profile-avatar-preview">
-                  {profileAvatarPreview ? (
-                    <img src={profileAvatarPreview} alt="" />
-                  ) : (
-                    getUserInitial(currentUser)
-                  )}
-                </div>
-                <div className="profile-avatar-actions">
-                  <label className="avatar-upload-btn">
-                    <input
-                      type="file"
-                      accept={AVATAR_ACCEPT}
-                      onChange={handleProfileAvatarChange}
-                      disabled={profileSaving}
-                    />
-                    Change avatar
-                  </label>
-                  <small>JPG, PNG, GIF, or WebP. Max {MAX_AVATAR_SIZE_MB}MB.</small>
-                </div>
+                <label className="profile-avatar-upload" aria-label="Change avatar">
+                  <div className="user-avatar profile-avatar-preview">
+                    {profileAvatarPreview ? (
+                      <img src={profileAvatarPreview} alt="" />
+                    ) : (
+                      getUserInitial(currentUser)
+                    )}
+                  </div>
+                  <span className="profile-avatar-edit-badge" aria-hidden="true">
+                    <MediaIcon className="profile-avatar-edit-icon" />
+                  </span>
+                  <input
+                    type="file"
+                    accept={AVATAR_ACCEPT}
+                    onChange={handleProfileAvatarChange}
+                    disabled={profileSaving}
+                  />
+                </label>
+                <small className="profile-avatar-help">
+                  Click your avatar to change it · JPG, PNG, GIF, or WebP · Max {MAX_AVATAR_SIZE_MB}MB
+                </small>
               </div>
 
               <label className="group-field">
@@ -8404,6 +8542,22 @@ export default function ChatPage() {
       ) : null}
 
       {/* Invite Link Modal */}
+      {addMembersModalOpen && selectedRoom ? (
+        <AddMembersModal
+          roomName={selectedRoom.name}
+          candidates={addMemberCandidates}
+          selectedMemberIds={selectedAddMemberIds}
+          saving={groupSettingsSaving}
+          error={groupSettingsError}
+          onClose={() => {
+            setSelectedAddMemberIds([]);
+            setAddMembersModalOpen(false);
+          }}
+          onToggleMember={handleToggleAddRoomMember}
+          onAddMembers={handleAddRoomMembers}
+        />
+      ) : null}
+
       {inviteModalOpen && selectedRoom ? (
         <div
           className="modal-backdrop invite-modal-backdrop"

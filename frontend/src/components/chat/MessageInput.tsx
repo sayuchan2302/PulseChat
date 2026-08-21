@@ -17,6 +17,7 @@ export interface MessageInputProps {
   pendingMedia: PendingMedia | null;
   mediaError: string;
   mediaUploading: boolean;
+  canAttachMedia: boolean;
   onClearPendingMedia: () => void;
   onOpenMediaPicker: () => void;
   onOpenDocumentPicker: () => void;
@@ -43,7 +44,7 @@ export interface MessageInputProps {
 export function MessageInput(props: MessageInputProps) {
   const {
     onSubmit, mediaFileInputRef, docFileInputRef, mediaAccept, onFileChange,
-    replyPreview, onCancelReply, pendingMedia, mediaError, mediaUploading,
+    replyPreview, onCancelReply, pendingMedia, mediaError, mediaUploading, canAttachMedia,
     onClearPendingMedia, onOpenMediaPicker, onOpenDocumentPicker, onVoiceRecorded,
     emojiButtonRef, emojiPickerOpen, onToggleEmojiPicker, messageInputRef,
     messageInput, onMessageInputChange, onMessageInputKeyDown,
@@ -54,8 +55,8 @@ export function MessageInput(props: MessageInputProps) {
 
   return (
     <form onSubmit={onSubmit} className="message-input-form">
-      <input ref={mediaFileInputRef} type="file" className="media-file-input" accept={mediaAccept} onChange={onFileChange} />
-      <input ref={docFileInputRef} type="file" className="media-file-input" accept="*/*" onChange={onFileChange} />
+      <input ref={mediaFileInputRef} type="file" className="media-file-input" accept={mediaAccept} onChange={onFileChange} disabled={!canAttachMedia} />
+      <input ref={docFileInputRef} type="file" className="media-file-input" accept="*/*" onChange={onFileChange} disabled={!canAttachMedia} />
 
       {replyPreview ? (
         <div className="replying-composer-preview">
@@ -96,13 +97,13 @@ export function MessageInput(props: MessageInputProps) {
 
       <div className="message-input-row">
         <div className="message-composer">
-          <button type="button" className="composer-icon-btn" onClick={onOpenMediaPicker} disabled={mediaUploading} aria-label="Attach image or video" title="Attach photo/video">
+          <button type="button" className="composer-icon-btn" onClick={onOpenMediaPicker} disabled={mediaUploading || !canAttachMedia} aria-label="Attach image or video" title={canAttachMedia ? 'Attach photo/video' : 'Media is available after becoming friends'}>
             <MediaIcon className="composer-icon" />
           </button>
-          <button type="button" className="composer-icon-btn" onClick={onOpenDocumentPicker} disabled={mediaUploading} aria-label="Attach file or document" title="Attach file">
+          <button type="button" className="composer-icon-btn" onClick={onOpenDocumentPicker} disabled={mediaUploading || !canAttachMedia} aria-label="Attach file or document" title={canAttachMedia ? 'Attach file' : 'Files are available after becoming friends'}>
             <PaperclipIcon className="composer-icon" />
           </button>
-          <VoiceRecorderButton disabled={mediaUploading} onRecorded={onVoiceRecorded} />
+          <VoiceRecorderButton disabled={mediaUploading || !canAttachMedia} onRecorded={onVoiceRecorded} />
           <button
             ref={emojiButtonRef}
             type="button"

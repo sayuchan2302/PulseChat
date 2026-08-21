@@ -193,6 +193,17 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     );
 
     @Query("""
+            select distinct case
+                when m.sender.id = :userId then m.receiver.id
+                else m.sender.id
+            end
+            from Message m
+            where m.chatRoom is null
+              and (m.sender.id = :userId or m.receiver.id = :userId)
+            """)
+    List<Long> findPrivateConversationPartnerIds(@Param("userId") Long userId);
+
+    @Query("""
             select m from Message m
             join fetch m.sender
             join fetch m.chatRoom

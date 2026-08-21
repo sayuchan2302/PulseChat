@@ -35,11 +35,6 @@ export interface DetailsSidebarProps {
     handleOpenInviteModal: () => Promise<void>;
     selectedRoomOwnerName: string;
     groupSettingsError: string;
-    selectedAddMemberIds: number[];
-    addMemberCandidates: User[];
-    handleToggleAddRoomMember: (id: number) => void;
-    canAddRoomMembers: boolean;
-    handleAddRoomMembers: () => Promise<void>;
     groupMembersExpanded: boolean;
     setGroupMembersExpanded: React.Dispatch<React.SetStateAction<boolean>>;
     renderDetailsMemberItem: (member: User) => React.ReactNode;
@@ -70,11 +65,6 @@ export function DetailsSidebar({
     handleOpenInviteModal,
     selectedRoomOwnerName,
     groupSettingsError,
-    selectedAddMemberIds,
-    addMemberCandidates,
-    handleToggleAddRoomMember,
-    canAddRoomMembers,
-    handleAddRoomMembers,
     groupMembersExpanded,
     setGroupMembersExpanded,
     renderDetailsMemberItem,
@@ -284,46 +274,6 @@ export function DetailsSidebar({
                 </section>
 
                 {renderSharedContentSections()}
-
-                {currentUserCanManageSelectedRoom ? (
-                    <section className="details-section" aria-labelledby="add-members-title">
-                        <div className="details-section-heading">
-                            <h4 id="add-members-title">Add Members</h4>
-                            {selectedAddMemberIds.length > 0 ? <span>{selectedAddMemberIds.length}</span> : null}
-                        </div>
-
-                        {addMemberCandidates.length === 0 ? (
-                            <div className="details-empty-text">All friends are already in this group.</div>
-                        ) : (
-                            <div className="details-add-member-list">
-                                {addMemberCandidates.map((friend) => (
-                                    <label key={friend.id} className="details-add-member-option">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedAddMemberIds.includes(friend.id)}
-                                            disabled={groupSettingsSaving}
-                                            onChange={() => handleToggleAddRoomMember(friend.id)}
-                                        />
-                                        {renderUserAvatar(friend, 'user-avatar small-avatar')}
-                                        <span className="details-add-member-copy">
-                                            <strong>{getUserDisplayName(friend)}</strong>
-                                            <small>@{friend.username}</small>
-                                        </span>
-                                    </label>
-                                ))}
-                            </div>
-                        )}
-
-                        <button
-                            type="button"
-                            className="details-action-btn"
-                            disabled={!canAddRoomMembers}
-                            onClick={() => void handleAddRoomMembers()}
-                        >
-                            {groupSettingsPendingAction === 'add' ? 'Adding...' : 'Add to group'}
-                        </button>
-                    </section>
-                ) : null}
 
                 <section className="details-section" aria-labelledby="group-members-title">
                     <button

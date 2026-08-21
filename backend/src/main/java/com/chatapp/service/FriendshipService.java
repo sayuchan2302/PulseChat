@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -57,6 +58,45 @@ public class FriendshipService {
                         friend,
                         latestMessagesByFriendId.get(friend.getId()),
                         settingsByFriendId.get(friend.getId())
+                ))
+                .sorted(FriendshipService::compareAcceptedFriendResponses)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<UserResponse> listPrivateConversations(String currentUsername) {
+        User currentUser = userService.findByUsername(currentUsername);
+        Map<Long, Friendship> friendshipsByUserId = friendshipRepository.findFriendshipsForUser(currentUser.getId())
+                .stream()
+                .collect(Collectors.toMap(
+                        friendship -> otherParticipant(friendship, currentUser).getId(),
+                        Function.identity()
+                ));
+        Map<Long, User> contactsById = new LinkedHashMap<>();
+
+        friendshipsByUserId.values().stream()
+                .filter(friendship -> friendship.getStatus() == FriendshipStatus.ACCEPTED)
+                .map(friendship -> otherParticipant(friendship, currentUser))
+                .forEach(friend -> contactsById.put(friend.getId(), friend));
+
+        List<Long> conversationPartnerIds = messageRepository.findPrivateConversationPartnerIds(currentUser.getId())
+                .stream()
+                .filter(partnerId -> !partnerId.equals(currentUser.getId()))
+                .toList();
+        userRepository.findAllById(conversationPartnerIds)
+                .forEach(partner -> contactsById.put(partner.getId(), partner));
+
+        List<User> contacts = List.copyOf(contactsById.values());
+        Map<Long, Message> latestMessagesByContactId = findLatestMessagesByFriendId(currentUser, contacts);
+        Map<Long, ConversationSetting> settingsByContactId = findSettingsByFriendId(currentUser, contacts);
+
+        return contacts.stream()
+                .map(contact -> toConversationResponse(
+                        currentUser,
+                        contact,
+                        friendshipsByUserId.get(contact.getId()),
+                        latestMessagesByContactId.get(contact.getId()),
+                        settingsByContactId.get(contact.getId())
                 ))
                 .sorted(FriendshipService::compareAcceptedFriendResponses)
                 .toList();
@@ -281,6 +321,30 @@ public class FriendshipService {
                 friend,
                 STATUS_ACCEPTED,
                 null,
+                MessagePreviewFormatter.previewContent(lastMessage),
+                lastMessage.getTimestamp(),
+                lastMessage.getSender().getId(),
+                setting
+        );
+    }
+
+    private UserResponse toConversationResponse(
+            User currentUser,
+            User contact,
+            Friendship friendship,
+            Message lastMessage,
+            ConversationSetting setting
+    ) {
+        String friendshipStatus = friendship == null ? STATUS_NONE : toFriendshipStatus(currentUser, friendship);
+        Long friendshipId = friendship == null ? null : friendship.getId();
+        if (lastMessage == null) {
+            return UserResponse.from(contact, friendshipStatus, friendshipId, null, null, null, setting);
+        }
+
+        return UserResponse.from(
+                contact,
+                friendshipStatus,
+                friendshipId,
                 MessagePreviewFormatter.previewContent(lastMessage),
                 lastMessage.getTimestamp(),
                 lastMessage.getSender().getId(),

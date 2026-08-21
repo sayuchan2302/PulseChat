@@ -73,7 +73,6 @@ class MessageServiceTest {
                 User otherUser = user(2L, "thinh");
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
-                when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(true);
                 when(messageRepository.findConversationPage(eq(1L), eq(2L), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of(
                                                 privateMessage(3L, "three", currentUser, otherUser),
@@ -92,19 +91,18 @@ class MessageServiceTest {
         }
 
         @Test
-        void getConversationRequiresAcceptedFriendship() {
+        void getConversationAllowsNonFriend() {
                 User currentUser = user(1L, "sayu");
                 User otherUser = user(2L, "thinh");
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
-                when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(false);
+                when(messageRepository.findConversationPage(eq(1L), eq(2L), isNull(), any(Pageable.class)))
+                                .thenReturn(List.of());
 
-                AppException exception = assertThrows(
-                                AppException.class,
-                                () -> messageService.getConversation("sayu", otherUser.getId(), null, 30));
+                MessagePageResponse page = messageService.getConversation("sayu", otherUser.getId(), null, 30);
 
-                assertEquals(ErrorCode.FRIENDSHIP_REQUIRED, exception.getErrorCode());
-                verify(messageRepository, never()).findConversationPage(any(), any(), any(), any());
+                assertTrue(page.items().isEmpty());
+                verify(messageRepository).findConversationPage(eq(1L), eq(2L), isNull(), any(Pageable.class));
         }
 
         @Test
@@ -129,19 +127,20 @@ class MessageServiceTest {
         }
 
         @Test
-        void getConversationMediaRequiresAcceptedFriendship() {
+        void getConversationMediaAllowsNonFriend() {
                 User currentUser = user(1L, "sayu");
                 User otherUser = user(2L, "thinh");
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
-                when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(false);
+                when(messageRepository.findConversationMediaPage(
+                                eq(1L), eq(2L), any(), isNull(), any(Pageable.class)))
+                                .thenReturn(List.of());
 
-                AppException exception = assertThrows(
-                                AppException.class,
-                                () -> messageService.getConversationMedia("sayu", otherUser.getId(), null, 12));
+                MessagePageResponse page = messageService.getConversationMedia("sayu", otherUser.getId(), null, 12);
 
-                assertEquals(ErrorCode.FRIENDSHIP_REQUIRED, exception.getErrorCode());
-                verify(messageRepository, never()).findConversationMediaPage(any(), any(), any(), any(), any());
+                assertTrue(page.items().isEmpty());
+                verify(messageRepository).findConversationMediaPage(
+                                eq(1L), eq(2L), any(), isNull(), any(Pageable.class));
         }
 
         @Test
@@ -150,7 +149,6 @@ class MessageServiceTest {
                 User otherUser = user(2L, "thinh");
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
-                when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(true);
                 when(messageRepository.findConversationMediaPage(
                                 eq(1L),
                                 eq(2L),
@@ -183,7 +181,6 @@ class MessageServiceTest {
                 User otherUser = user(2L, "thinh");
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
-                when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(true);
                 when(messageRepository.findConversationLinkPage(eq(1L), eq(2L), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of(
                                                 linkMessage(6L, currentUser, otherUser),
@@ -228,19 +225,21 @@ class MessageServiceTest {
         }
 
         @Test
-        void searchConversationRequiresAcceptedFriendship() {
+        void searchConversationAllowsNonFriend() {
                 User currentUser = user(1L, "sayu");
                 User otherUser = user(2L, "thinh");
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
-                when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(false);
+                when(messageRepository.findConversationSearchPage(
+                                eq(1L), eq(2L), any(), isNull(), any(Pageable.class)))
+                                .thenReturn(List.of());
 
-                AppException exception = assertThrows(
-                                AppException.class,
-                                () -> messageService.searchConversation("sayu", otherUser.getId(), "hello", null, 12));
+                MessagePageResponse page = messageService.searchConversation(
+                                "sayu", otherUser.getId(), "hello", null, 12);
 
-                assertEquals(ErrorCode.FRIENDSHIP_REQUIRED, exception.getErrorCode());
-                verify(messageRepository, never()).findConversationSearchPage(any(), any(), any(), any(), any());
+                assertTrue(page.items().isEmpty());
+                verify(messageRepository).findConversationSearchPage(
+                                eq(1L), eq(2L), any(), isNull(), any(Pageable.class));
         }
 
         @Test
@@ -249,7 +248,6 @@ class MessageServiceTest {
                 User otherUser = user(2L, "thinh");
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
-                when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(true);
                 when(messageRepository.findConversationSearchPage(
                                 eq(1L),
                                 eq(2L),
@@ -297,7 +295,6 @@ class MessageServiceTest {
                 Message anchor = privateMessage(10L, "anchor", currentUser, otherUser);
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
-                when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(true);
                 when(messageRepository.findConversationMessageById(1L, 2L, anchor.getId()))
                                 .thenReturn(Optional.of(anchor));
                 when(messageRepository.findConversationMessagesBefore(eq(1L), eq(2L), eq(anchor.getId()),
@@ -330,7 +327,6 @@ class MessageServiceTest {
                 User otherUser = user(2L, "thinh");
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
-                when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(true);
                 when(messageRepository.findConversationMessageById(1L, 2L, 30L)).thenReturn(Optional.empty());
 
                 AppException exception = assertThrows(
@@ -432,6 +428,57 @@ class MessageServiceTest {
                 assertEquals(media.publicId(), savedMessage.getMediaPublicId());
                 assertEquals("image", savedMessage.getMediaResourceType());
                 assertEquals(media.bytes(), savedMessage.getMediaBytes());
+        }
+
+        @Test
+        void sendTextMessageAllowsNonFriend() {
+                User sender = user(1L, "sayu");
+                User receiver = user(2L, "thinh");
+                when(userService.findByUsername("sayu")).thenReturn(sender);
+                when(userService.findById(receiver.getId())).thenReturn(receiver);
+                when(friendshipService.areFriends(sender, receiver)).thenReturn(false);
+                when(messageRepository.saveAndFlush(any(Message.class))).thenAnswer(invocation -> {
+                        Message message = invocation.getArgument(0);
+                        message.setId(100L);
+                        message.setTimestamp(LocalDateTime.of(2026, 8, 3, 12, 0));
+                        return message;
+                });
+
+                messageService.sendMessage(
+                                "sayu",
+                                new SendMessageRequest(receiver.getId(), "Hello", null, null, MessageType.TEXT, null));
+
+                verify(messageRepository).saveAndFlush(any(Message.class));
+        }
+
+        @Test
+        void sendMediaMessageRejectsNonFriend() {
+                User sender = user(1L, "sayu");
+                User receiver = user(2L, "thinh");
+                MediaAttachmentRequest media = media(
+                                "https://res.cloudinary.com/chat-app/image/upload/sample.jpg",
+                                "chat-app/messages/sample",
+                                "image",
+                                "jpg",
+                                1024L);
+                when(userService.findByUsername("sayu")).thenReturn(sender);
+                when(userService.findById(receiver.getId())).thenReturn(receiver);
+                when(friendshipService.areFriends(sender, receiver)).thenReturn(false);
+
+                AppException exception = assertThrows(
+                                AppException.class,
+                                () -> messageService.sendMessage(
+                                                "sayu",
+                                                new SendMessageRequest(
+                                                                receiver.getId(),
+                                                                "Look",
+                                                                null,
+                                                                null,
+                                                                MessageType.IMAGE,
+                                                                media)));
+
+                assertEquals(ErrorCode.NON_FRIEND_TEXT_ONLY, exception.getErrorCode());
+                verify(messageRepository, never()).saveAndFlush(any(Message.class));
         }
 
         @Test
@@ -603,19 +650,15 @@ class MessageServiceTest {
         }
 
         @Test
-        void markConversationAsReadRequiresAcceptedFriendship() {
+        void markConversationAsReadAllowsNonFriend() {
                 User reader = user(1L, "sayu");
                 User sender = user(2L, "thinh");
                 when(userService.findByUsername("sayu")).thenReturn(reader);
                 when(userService.findById(sender.getId())).thenReturn(sender);
-                when(friendshipService.areFriends(reader, sender)).thenReturn(false);
+                when(messageRepository.markConversationAsRead(sender.getId(), reader.getId())).thenReturn(2);
 
-                AppException exception = assertThrows(
-                                AppException.class,
-                                () -> messageService.markConversationAsRead("sayu", sender.getId()));
-
-                assertEquals(ErrorCode.FRIENDSHIP_REQUIRED, exception.getErrorCode());
-                verify(messageRepository, never()).markConversationAsRead(any(), any());
+                assertEquals(2, messageService.markConversationAsRead("sayu", sender.getId()).readCount());
+                verify(messageRepository).markConversationAsRead(sender.getId(), reader.getId());
         }
 
         private static User user(Long id, String username) {

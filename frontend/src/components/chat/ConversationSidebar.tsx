@@ -50,7 +50,7 @@ export function ConversationSidebar({
             value={userSearchQuery}
             onChange={(event) => onUserSearchChange(event.target.value)}
             className="user-search-input"
-            placeholder="Search username to add"
+            placeholder="Search username"
             aria-label="Search users by username"
             autoComplete="off"
             spellCheck={false}

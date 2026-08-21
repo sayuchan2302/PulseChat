@@ -1,6 +1,7 @@
 import type { CallType, ChatRoom, User } from '../../types';
 import {
   ArrowLeftIcon,
+  GroupPlusIcon,
   InfoIcon,
   PhoneIcon,
   SearchIcon,
@@ -14,10 +15,13 @@ export interface ConversationHeaderProps {
   selectedRoom: ChatRoom | null;
   selectedConversationName: string;
   canStartPrivateCall: boolean;
+  canAddMembers: boolean;
   detailsOpen: boolean;
   rightSidebarTab: 'details' | 'search';
   onBackToChatList: () => void;
   onStartCall: (callType: CallType) => void;
+  onOpenUserProfile: (user: User) => void;
+  onOpenAddMembers: () => void;
   onToggleMessageSearch: () => void;
   onToggleConversationDetails: () => void;
 }
@@ -27,10 +31,13 @@ export function ConversationHeader({
   selectedRoom,
   selectedConversationName,
   canStartPrivateCall,
+  canAddMembers,
   detailsOpen,
   rightSidebarTab,
   onBackToChatList,
   onStartCall,
+  onOpenUserProfile,
+  onOpenAddMembers,
   onToggleMessageSearch,
   onToggleConversationDetails,
 }: ConversationHeaderProps) {
@@ -48,27 +55,35 @@ export function ConversationHeader({
       >
         <ArrowLeftIcon className="mobile-chat-list-icon" />
       </button>
-      <div className="selected-user">
-        {selectedRoom ? (
-          <div className="user-avatar room-avatar">{getRoomInitial(selectedRoom)}</div>
-        ) : (
-          renderUserAvatar(selectedUser)
-        )}
-        <div className="selected-user-copy">
-          <div className="user-name">{selectedConversationName}</div>
-          {selectedRoom ? (
-            <div className="user-meta">
-              <span className="user-status">{selectedRoom.participants.length} members</span>
-            </div>
-          ) : selectedUser ? (
+      {selectedUser ? (
+        <button
+          type="button"
+          className="selected-user selected-user-profile-btn"
+          onClick={() => onOpenUserProfile(selectedUser)}
+          aria-label={`View profile of ${getUserDisplayName(selectedUser)}`}
+          title="View profile"
+        >
+          {renderUserAvatar(selectedUser)}
+          <div className="selected-user-copy">
+            <div className="user-name">{selectedConversationName}</div>
             <div className="user-meta">
               <span className={`user-status ${selectedUser.online ? 'online' : 'offline'}`}>
                 {getPresenceLabel(selectedUser)}
               </span>
             </div>
-          ) : null}
+          </div>
+        </button>
+      ) : (
+        <div className="selected-user">
+          <div className="user-avatar room-avatar">{selectedRoom ? getRoomInitial(selectedRoom) : '?'}</div>
+          <div className="selected-user-copy">
+            <div className="user-name">{selectedConversationName}</div>
+            <div className="user-meta">
+              <span className="user-status">{selectedRoom?.participants.length ?? 0} members</span>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
       <div className="conversation-header-actions">
         {selectedUser ? (
           <>
@@ -93,6 +108,17 @@ export function ConversationHeader({
               <VideoCallIcon className="conversation-call-icon" />
             </button>
           </>
+        ) : null}
+        {selectedRoom && canAddMembers ? (
+          <button
+            type="button"
+            className="conversation-call-btn"
+            onClick={onOpenAddMembers}
+            aria-label="Add members"
+            title="Add members"
+          >
+            <GroupPlusIcon className="conversation-call-icon" />
+          </button>
         ) : null}
         <button
           type="button"

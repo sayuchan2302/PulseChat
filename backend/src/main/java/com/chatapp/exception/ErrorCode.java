@@ -41,6 +41,8 @@ public enum ErrorCode {
         INVALID_REPLY_TARGET(HttpStatus.BAD_REQUEST, "MESSAGE_007", "Reply target is invalid"),
         INVALID_MESSAGE_REACTION(HttpStatus.BAD_REQUEST, "MESSAGE_008", "Message reaction is invalid"),
         MESSAGE_RECALL_NOT_ALLOWED(HttpStatus.FORBIDDEN, "MESSAGE_009", "You can only recall your own messages"),
+        NON_FRIEND_TEXT_ONLY(HttpStatus.FORBIDDEN, "MESSAGE_010",
+                        "Only text messages are available until you become friends"),
 
         CLOUDINARY_CONFIG_MISSING(
                         HttpStatus.INTERNAL_SERVER_ERROR,

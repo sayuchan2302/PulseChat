@@ -210,6 +210,26 @@ class FriendshipServiceTest {
     }
 
     @Test
+    void listPrivateConversationsIncludesNonFriendWhoSentAMessage() {
+        User currentUser = user(1L, "sayu");
+        User sender = user(2L, "thinh");
+        Message message = message(10L, sender, currentUser, "Hello from a non-friend", LocalDateTime.of(2026, 8, 1, 10, 0));
+        when(userService.findByUsername("sayu")).thenReturn(currentUser);
+        when(friendshipRepository.findFriendshipsForUser(currentUser.getId())).thenReturn(List.of());
+        when(messageRepository.findPrivateConversationPartnerIds(currentUser.getId())).thenReturn(List.of(sender.getId()));
+        when(userRepository.findAllById(List.of(sender.getId()))).thenReturn(List.of(sender));
+        when(messageRepository.findLatestMessagesForPrivateConversations(currentUser.getId(), List.of(sender.getId())))
+                .thenReturn(List.of(message));
+
+        List<UserResponse> conversations = friendshipService.listPrivateConversations("sayu");
+
+        assertEquals(1, conversations.size());
+        assertEquals("thinh", conversations.get(0).username());
+        assertEquals("none", conversations.get(0).friendshipStatus());
+        assertEquals("Hello from a non-friend", conversations.get(0).lastMessageContent());
+    }
+
+    @Test
     void getUserProfileIncludesFriendshipStatus() {
         User currentUser = user(1L, "sayu");
         User profileUser = user(2L, "thinh");
