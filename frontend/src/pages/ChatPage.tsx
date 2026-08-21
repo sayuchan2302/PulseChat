@@ -58,7 +58,7 @@ import type {
   SendMessagePayload, SendRoomMessagePayload,
   PendingMedia, CloudinaryUploadResult, LocalMediaUploadResult,
   LoadOptions, SharedContentLoadOptions, MessageSearchLoadOptions,
-  MainView, ConversationFilter, SharedContentKind, MessageListItem,
+  MainView, ConversationFilter, SharedContentKind, MessageListItem, RoomSummaryResponse,
   PendingReadConversation, ChatBrowserNotification, ConversationTarget,
 } from '../types/chat.types';
 import {
@@ -219,6 +219,11 @@ export default function ChatPage() {
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageInput, setMessageInput] = useState('');
+  const [roomSummary, setRoomSummary] = useState<RoomSummaryResponse | null>(null);
+  const [roomSummaryRoomId, setRoomSummaryRoomId] = useState<number | null>(null);
+  const [roomSummaryLoading, setRoomSummaryLoading] = useState(false);
+  const [roomSummaryError, setRoomSummaryError] = useState('');
+  const roomSummaryRequestRef = useRef(0);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [replyingToMessage, setReplyingToMessage] = useState<ChatMessage | null>(null);
   const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
@@ -231,6 +236,14 @@ export default function ChatPage() {
   useEffect(() => {
     return soundService.onMuteChange((muted) => setSoundMuted(muted));
   }, []);
+
+  useEffect(() => {
+    roomSummaryRequestRef.current += 1;
+    setRoomSummary(null);
+    setRoomSummaryRoomId(null);
+    setRoomSummaryLoading(false);
+    setRoomSummaryError('');
+  }, [selectedRoom?.id]);
 
   const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null);
   const [mediaUploading, setMediaUploading] = useState(false);
@@ -5434,6 +5447,42 @@ export default function ChatPage() {
       return;
     }
 
+    if (!mediaToSend && selectedRoom && /^\/summary$/i.test(content)) {
+      if (roomSummaryLoading) {
+        return;
+      }
+
+      const roomId = selectedRoom.id;
+      const requestId = ++roomSummaryRequestRef.current;
+
+      setMessageInput('');
+      setEmojiPickerOpen(false);
+      setReplyingToMessage(null);
+      setRoomSummary(null);
+      setRoomSummaryRoomId(roomId);
+      setRoomSummaryError('');
+      setRoomSummaryLoading(true);
+
+      try {
+        const response = await apiClient.post<RoomSummaryResponse>(`/rooms/${roomId}/summaries`);
+        if (roomSummaryRequestRef.current === requestId) {
+          setRoomSummary(response.data);
+        }
+      } catch (error) {
+        console.error('Failed to summarize room messages:', error);
+        if (roomSummaryRequestRef.current === requestId) {
+          const responseError = error as { response?: { data?: { message?: string } } };
+          setRoomSummaryError(responseError.response?.data?.message || 'Unable to summarize recent messages.');
+        }
+      } finally {
+        if (roomSummaryRequestRef.current === requestId) {
+          setRoomSummaryLoading(false);
+        }
+      }
+
+      return;
+    }
+
     let mediaPayload: MediaAttachment | undefined;
     const messageType: MessageType = mediaToSend ? mediaToSend.type : 'TEXT';
     const replyTo = createReplyFromMessage(replyingToMessage);
@@ -7973,6 +8022,34 @@ export default function ChatPage() {
                 ) : null}
                 <div ref={messagesEndRef} />
               </div>
+
+              {roomSummaryRoomId === selectedRoom?.id && (roomSummaryLoading || roomSummaryError || roomSummary) ? (
+                <section className="room-summary-card" aria-live="polite" aria-label="Private chat summary">
+                  <div className="room-summary-card-header">
+                    <div>
+                      <span>Private summary</span>
+                      {roomSummary ? <small>{roomSummary.messageCount} recent messages</small> : null}
+                    </div>
+                    <button
+                      type="button"
+                      className="room-summary-close-btn"
+                      onClick={() => {
+                        setRoomSummary(null);
+                        setRoomSummaryRoomId(null);
+                        setRoomSummaryError('');
+                      }}
+                      disabled={roomSummaryLoading}
+                      aria-label="Close summary"
+                      title="Close summary"
+                    >
+                      <CloseIcon className="room-summary-close-icon" />
+                    </button>
+                  </div>
+                  {roomSummaryLoading ? <div className="room-summary-loading">Summarizing recent messages...</div> : null}
+                  {roomSummaryError ? <div className="room-summary-error">{roomSummaryError}</div> : null}
+                  {roomSummary ? <div className="room-summary-content">{roomSummary.summary}</div> : null}
+                </section>
+              ) : null}
 
               <MessageInput
                 onSubmit={handleSendMessage}

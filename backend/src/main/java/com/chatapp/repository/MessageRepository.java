@@ -263,6 +263,20 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     @Query("""
             select m from Message m
             join fetch m.sender
+            where m.chatRoom.id = :roomId
+              and m.recalled = false
+              and m.type = :messageType
+            order by m.id desc
+            """)
+    List<Message> findRecentSummarizableRoomMessages(
+            @Param("roomId") Long roomId,
+            @Param("messageType") MessageType messageType,
+            Pageable pageable
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
             join fetch m.chatRoom
             left join fetch m.receiver
             where m.chatRoom.id = :roomId

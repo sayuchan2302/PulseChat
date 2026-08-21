@@ -3683,6 +3683,94 @@ button.main-list-item {
   background: var(--gray-50);
 }
 
+.room-summary-card {
+  align-self: stretch;
+  flex: 0 0 auto;
+  border: 1px solid var(--purple-200);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.1);
+  overflow: hidden;
+}
+
+.room-summary-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--purple-50);
+  color: var(--purple-800);
+}
+
+.room-summary-card-header > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.room-summary-card-header span {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.room-summary-card-header small {
+  color: var(--purple-600);
+  font-size: 12px;
+}
+
+.room-summary-close-btn {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  flex: 0 0 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--purple-700);
+  cursor: pointer;
+}
+
+.room-summary-close-btn:hover:not(:disabled) {
+  background: rgba(109, 40, 217, 0.12);
+}
+
+.room-summary-close-btn:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.room-summary-close-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.room-summary-loading,
+.room-summary-error,
+.room-summary-content {
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.room-summary-loading {
+  color: var(--gray-500);
+}
+
+.room-summary-error {
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
+.room-summary-content {
+  max-height: min(40dvh, 360px);
+  overflow-y: auto;
+  color: var(--gray-800);
+  white-space: pre-wrap;
+}
+
 .older-messages-btn {
   align-self: center;
   min-height: 30px;

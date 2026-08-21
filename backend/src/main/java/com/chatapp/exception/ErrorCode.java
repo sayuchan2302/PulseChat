@@ -74,6 +74,10 @@ public enum ErrorCode {
         ROOM_INVITE_INVALID(HttpStatus.NOT_FOUND, "ROOM_011", "Invite link is invalid or disabled"),
         CANNOT_REMOVE_ADMIN(HttpStatus.FORBIDDEN, "ROOM_012", "Cannot remove an admin or higher privileged member"),
 
+        AI_SUMMARY_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "AI_001", "AI summary is not configured"),
+        AI_SUMMARY_NO_MESSAGES(HttpStatus.BAD_REQUEST, "AI_002", "There are no messages to summarize"),
+        AI_SUMMARY_FAILED(HttpStatus.BAD_GATEWAY, "AI_003", "Unable to generate a chat summary"),
+
         SELF_CALL_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "CALL_001", "Cannot call yourself"),
         CALL_NOT_FOUND(HttpStatus.NOT_FOUND, "CALL_002", "Call session not found"),
         CALL_ACCESS_DENIED(HttpStatus.FORBIDDEN, "CALL_003", "You cannot access this call"),

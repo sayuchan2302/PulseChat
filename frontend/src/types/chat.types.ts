@@ -116,6 +116,15 @@ export type MainView = 'chat' | 'friends' | 'requests';
 export type ConversationFilter = 'all' | 'unread' | 'archived';
 export type SharedContentKind = 'media' | 'links';
 
+export type RoomSummaryResponse = {
+    roomId: number;
+    fromMessageId: number;
+    toMessageId: number;
+    messageCount: number;
+    summary: string;
+    generatedAt: string;
+};
+
 // ─── Routing ─────────────────────────────────────────────────────────────────
 
 export type ChatRouteState =

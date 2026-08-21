@@ -11,8 +11,10 @@ import com.chatapp.dto.response.MessagePageResponse;
 import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.dto.response.MessageSeenByResponse;
 import com.chatapp.dto.response.RoomReadReceiptResponse;
+import com.chatapp.dto.response.RoomSummaryResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.service.ChatRoomService;
+import com.chatapp.service.GeminiGroupSummaryService;
 import com.chatapp.service.MessageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +44,7 @@ public class ChatRoomController {
         private static final String ROOM_READ_RECEIPT_QUEUE = "/queue/room-read-receipts";
 
         private final ChatRoomService chatRoomService;
+        private final GeminiGroupSummaryService geminiGroupSummaryService;
         private final MessageService messageService;
         private final SimpMessagingTemplate messagingTemplate;
 
@@ -67,6 +70,13 @@ public class ChatRoomController {
                         @RequestParam(required = false) Long before,
                         @RequestParam(required = false) Integer size) {
                 return messageService.getRoomMessages(authentication.getName(), roomId, before, size);
+        }
+
+        @PostMapping("/{roomId}/summaries")
+        public RoomSummaryResponse summarizeLatestRoomMessages(
+                        Authentication authentication,
+                        @PathVariable Long roomId) {
+                return geminiGroupSummaryService.summarizeLatestMessages(authentication.getName(), roomId);
         }
 
         @GetMapping("/{roomId}/media")
