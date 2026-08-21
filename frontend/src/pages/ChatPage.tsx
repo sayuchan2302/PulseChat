@@ -37,6 +37,7 @@ import { apiClient, clearAuthSession } from '../services/api';
 import { wsService } from '../services/websocket';
 import { soundService } from '../services/soundService';
 import { dbService } from '../services/dbService';
+import { useCallSession } from '../hooks/useCallSession';
 import { useTheme } from '../hooks/useTheme';
 import {
   STOP_TYPING_DELAY_MS, USER_SEARCH_DEBOUNCE_MS, REMOTE_TYPING_VISIBLE_MS,
@@ -159,7 +160,6 @@ const UNKNOWN_CALL_PERMISSIONS: CallPermissionSnapshot = {
   microphone: 'unknown',
   camera: 'unknown',
 };
-
 
 function buildMessageListItems(
   messages: ChatMessage[],
@@ -331,7 +331,7 @@ export default function ChatPage() {
   const [callDevicesLoading, setCallDevicesLoading] = useState(false);
   const [callDeviceError, setCallDeviceError] = useState('');
   const [callPermissions, setCallPermissions] = useState<CallPermissionSnapshot>(
-    UNKNOWN_CALL_PERMISSIONS
+    UNKNOWN_CALL_PERMISSIONS,
   );
   const [selectedAudioInputId, setSelectedAudioInputId] = useState('');
   const [selectedVideoInputId, setSelectedVideoInputId] = useState('');
@@ -474,31 +474,32 @@ export default function ChatPage() {
     messagesRef.current = messages;
   }, [messages]);
 
-  useEffect(() => {
-    activeCallRef.current = activeCall;
-  }, [activeCall]);
-
-  useEffect(() => {
-    if (!activeCall || (activeCall.direction === 'incoming' && activeCall.status === 'ringing')) {
-      setCallMinimized(false);
-    }
-  }, [activeCall]);
-
-  useEffect(() => {
-    localCallStreamRef.current = localCallStream;
-  }, [localCallStream]);
-
-  useEffect(() => {
-    preCallPreviewStreamRef.current = preCallPreviewStream;
-  }, [preCallPreviewStream]);
-
-  useEffect(() => {
-    micMutedRef.current = micMuted;
-  }, [micMuted]);
-
-  useEffect(() => {
-    cameraOffRef.current = cameraOff;
-  }, [cameraOff]);
+  useCallSession({
+    activeCall,
+    setCallMinimized,
+    localCallStream,
+    remoteCallStream,
+    preCallPreviewStream,
+    micMuted,
+    cameraOff,
+    screenSharing,
+    selectedAudioInputId,
+    selectedVideoInputId,
+    callStartedAt,
+    setCallElapsedSeconds,
+    activeCallRef,
+    localCallStreamRef,
+    preCallPreviewStreamRef,
+    micMutedRef,
+    cameraOffRef,
+    screenSharingRef,
+    selectedAudioInputIdRef,
+    selectedVideoInputIdRef,
+    remoteAudioRef,
+    remoteVideoRef,
+    localVideoRef,
+    preCallPreviewVideoRef,
+  });
 
   // Sync pinned message when switching conversations
   useEffect(() => {
@@ -510,39 +511,6 @@ export default function ChatPage() {
       setPinnedMessage(null);
     }
   }, [selectedRoom?.id, selectedUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    screenSharingRef.current = screenSharing;
-  }, [screenSharing]);
-
-  useEffect(() => {
-    selectedAudioInputIdRef.current = selectedAudioInputId;
-  }, [selectedAudioInputId]);
-
-  useEffect(() => {
-    selectedVideoInputIdRef.current = selectedVideoInputId;
-  }, [selectedVideoInputId]);
-
-  useEffect(() => {
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.srcObject = remoteCallStream;
-    }
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = remoteCallStream;
-    }
-  }, [remoteCallStream]);
-
-  useEffect(() => {
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = localCallStream;
-    }
-  }, [cameraOff, localCallStream]);
-
-  useEffect(() => {
-    if (preCallPreviewVideoRef.current) {
-      preCallPreviewVideoRef.current.srcObject = preCallPreviewStream;
-    }
-  }, [cameraOff, preCallPreviewStream]);
 
   useEffect(() => {
     browserNotificationPermissionRef.current = browserNotificationPermission;
@@ -2463,24 +2431,6 @@ export default function ChatPage() {
 
     void refreshCallPermissions(callType);
   }, [activeCall?.type, preCallSetup?.type, refreshCallPermissions]);
-
-  useEffect(() => {
-    if (!activeCall || activeCall.status !== 'connected' || callStartedAt === null) {
-      setCallElapsedSeconds(0);
-      return undefined;
-    }
-
-    const updateElapsedSeconds = () => {
-      setCallElapsedSeconds(Math.floor((Date.now() - callStartedAt) / 1000));
-    };
-
-    updateElapsedSeconds();
-    const intervalId = window.setInterval(updateElapsedSeconds, 1000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [activeCall, callStartedAt]);
 
   useEffect(() => {
     if (
