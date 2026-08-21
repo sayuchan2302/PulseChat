@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiClient, storeAuthSession } from '../services/api';
+import { apiClient } from '../services/api';
 import { ROUTES } from '../config/constants';
+import { useAuth } from '../context/useAuth';
 import type { AuthResponse } from '../types';
 import './AuthPage.css';
 
@@ -18,6 +19,7 @@ export default function AuthPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { completeLogin } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,8 +34,8 @@ export default function AuthPage() {
 
       const response = await apiClient.post<AuthResponse>(endpoint, payload);
 
-      if (response.data.token && response.data.refreshToken) {
-        storeAuthSession(response.data);
+      if (response.data.token) {
+        completeLogin(response.data);
         navigate(ROUTES.CHAT, { replace: true });
       }
     } catch (err: any) {

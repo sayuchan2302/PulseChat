@@ -1,39 +1,73 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type { User } from '../types';
 import { AuthContext } from './auth-context';
-import { clearAuthSession } from '../services/api';
+import {
+  apiClient,
+  clearAuthSession,
+  onAuthSessionInvalidated,
+  refreshAuthSession,
+  storeAuthSession,
+} from '../services/api';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    const refreshToken = localStorage.getItem('refreshToken');
+    let active = true;
+    const clearLocalSession = () => {
+      clearAuthSession();
+      if (active) {
+        setUser(null);
+        setIsLoading(false);
+      }
+    };
+    const unsubscribe = onAuthSessionInvalidated(clearLocalSession);
 
-    if (storedUser && refreshToken) {
-      setUser(JSON.parse(storedUser));
-    }
+    void refreshAuthSession().then((session) => {
+      if (!active) {
+        return;
+      }
+
+      setUser(session?.user ?? null);
+      setIsLoading(false);
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
-  const login = (userData: User, token: string, refreshToken: string) => {
-    localStorage.setItem('user', JSON.stringify(userData));
-    localStorage.setItem('token', token);
-    localStorage.setItem('refreshToken', refreshToken);
-    setUser(userData);
-  };
+  const completeLogin = useCallback((response: { token: string; user: User }) => {
+    storeAuthSession(response);
+    setUser(response.user);
+    setIsLoading(false);
+  }, []);
 
-  const logout = () => {
-    clearAuthSession();
-    setUser(null);
-  };
+  const updateCurrentUser = useCallback((updatedUser: User) => {
+    setUser(updatedUser);
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      await apiClient.post('/auth/logout');
+    } finally {
+      clearAuthSession();
+      setUser(null);
+      setIsLoading(false);
+    }
+  }, []);
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        login,
+        isLoading,
+        completeLogin,
+        updateCurrentUser,
         logout,
-        isAuthenticated: !!user,
+        isAuthenticated: user !== null,
       }}
     >
       {children}

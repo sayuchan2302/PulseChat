@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { User, ChatRoom, ConversationTarget } from '../../types/chat.types';
+import type { User, ChatRoom } from '../../types/chat.types';
 import {
     CloseIcon,
     ChevronDownIcon,
@@ -16,7 +16,6 @@ export interface DetailsSidebarProps {
     selectedUser: User | null;
     selectedRoom: ChatRoom | null;
     handleCloseConversationDetails: () => void;
-    renderConversationSettingsSection: (target: ConversationTarget) => React.ReactNode;
     renderSharedContentSections: () => React.ReactNode;
     currentUserCanManageSelectedRoom: boolean;
     groupAvatarUploading: boolean;
@@ -52,7 +51,6 @@ export function DetailsSidebar({
     selectedUser,
     selectedRoom,
     handleCloseConversationDetails,
-    renderConversationSettingsSection,
     renderSharedContentSections,
     currentUserCanManageSelectedRoom,
     groupAvatarUploading,
@@ -125,7 +123,6 @@ export function DetailsSidebar({
                     </div>
                 </section>
 
-                {renderConversationSettingsSection({ type: 'user', user: selectedUser })}
                 {renderSharedContentSections()}
             </aside>
         );
@@ -287,7 +284,6 @@ export function DetailsSidebar({
                 </section>
 
                 {renderSharedContentSections()}
-                {renderConversationSettingsSection({ type: 'room', room: selectedRoom })}
 
                 {currentUserCanManageSelectedRoom ? (
                     <section className="details-section" aria-labelledby="add-members-title">

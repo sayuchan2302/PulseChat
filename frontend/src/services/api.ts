@@ -1,11 +1,14 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios';
-import { API_BASE_URL, ROUTES } from '../config/constants';
+import { API_BASE_URL } from '../config/constants';
 import type { AuthResponse } from '../types';
 
-const ACCESS_TOKEN_KEY = 'token';
-const REFRESH_TOKEN_KEY = 'refreshToken';
 const ACCESS_TOKEN_REFRESH_SKEW_MS = 30_000;
 type RetryableRequestConfig = InternalAxiosRequestConfig & { _retry?: boolean };
+type SessionInvalidationListener = () => void;
+
+let accessToken: string | null = null;
+let refreshPromise: Promise<AuthResponse | null> | null = null;
+const sessionInvalidationListeners = new Set<SessionInvalidationListener>();
 
 function isAuthEndpoint(url?: string) {
   return url?.startsWith('/auth/') ?? false;
@@ -13,23 +16,27 @@ function isAuthEndpoint(url?: string) {
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-let refreshPromise: Promise<string | null> | null = null;
-
 export function clearAuthSession() {
-  localStorage.removeItem('user');
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  accessToken = null;
 }
 
 export function storeAuthSession(response: AuthResponse) {
-  localStorage.setItem(ACCESS_TOKEN_KEY, response.token);
-  localStorage.setItem(REFRESH_TOKEN_KEY, response.refreshToken);
-  localStorage.setItem('user', JSON.stringify(response.user));
+  accessToken = response.token;
+}
+
+export function onAuthSessionInvalidated(listener: SessionInvalidationListener) {
+  sessionInvalidationListeners.add(listener);
+  return () => sessionInvalidationListeners.delete(listener);
+}
+
+function notifyAuthSessionInvalidated() {
+  sessionInvalidationListeners.forEach((listener) => listener());
 }
 
 function getJwtExpirationMs(token: string) {
@@ -56,22 +63,17 @@ function shouldRefreshAccessToken(token: string) {
   return expiresAt > 0 && expiresAt - Date.now() <= ACCESS_TOKEN_REFRESH_SKEW_MS;
 }
 
-export async function refreshAccessToken() {
-  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-  if (!refreshToken) {
-    return null;
-  }
-
+export async function refreshAuthSession() {
   if (!refreshPromise) {
     refreshPromise = axios
-      .post<AuthResponse>(`${API_BASE_URL}/auth/refresh`, { refreshToken })
+      .post<AuthResponse>(`${API_BASE_URL}/auth/refresh`, undefined, { withCredentials: true })
       .then((response) => {
         storeAuthSession(response.data);
-        return response.data.token;
+        return response.data;
       })
-      .catch((error) => {
+      .catch(() => {
         clearAuthSession();
-        throw error;
+        return null;
       })
       .finally(() => {
         refreshPromise = null;
@@ -82,15 +84,13 @@ export async function refreshAccessToken() {
 }
 
 export async function getValidAccessToken() {
-  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-  if (token && !shouldRefreshAccessToken(token)) {
-    return token;
+  if (accessToken && !shouldRefreshAccessToken(accessToken)) {
+    return accessToken;
   }
 
-  return refreshAccessToken();
+  return (await refreshAuthSession())?.token ?? null;
 }
 
-// Request interceptor for adding auth token
 apiClient.interceptors.request.use(
   async (config) => {
     if (config.data instanceof FormData) {
@@ -106,7 +106,6 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor for handling errors
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -119,18 +118,13 @@ apiClient.interceptors.response.use(
       !isAuthEndpoint(originalRequest.url)
     ) {
       originalRequest._retry = true;
-
-      try {
-        const token = await refreshAccessToken();
-        if (token) {
-          originalRequest.headers.Authorization = `Bearer ${token}`;
-          return apiClient(originalRequest);
-        }
-      } catch {
-        clearAuthSession();
+      const session = await refreshAuthSession();
+      if (session) {
+        originalRequest.headers.Authorization = `Bearer ${session.token}`;
+        return apiClient(originalRequest);
       }
 
-      window.location.href = ROUTES.LOGIN;
+      notifyAuthSessionInvalidated();
     }
 
     return Promise.reject(error);

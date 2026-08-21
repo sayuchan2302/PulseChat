@@ -141,7 +141,7 @@ public class GeminiGroupSummaryService {
             transcript.append("[id=")
                     .append(message.getId())
                     .append("] ")
-                    .append(message.getSender().getUsername())
+                    .append(displayName(message.getSender()))
                     .append(": ")
                     .append(truncate(content, MAX_MESSAGE_CHARACTERS))
                     .append('\n');
@@ -161,5 +161,10 @@ public class GeminiGroupSummaryService {
 
     private String truncate(String value, int maxLength) {
         return value.length() <= maxLength ? value : value.substring(0, maxLength) + "...";
+    }
+
+    private String displayName(com.chatapp.model.User user) {
+        String fullName = user.getFullName();
+        return StringUtils.hasText(fullName) ? fullName.trim() : user.getUsername();
     }
 }

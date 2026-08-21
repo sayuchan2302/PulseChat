@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiClient } from '../services/api';
 import type { GroupPreviewResponse, ChatRoom } from '../types';
 import { ROUTES } from '../config/constants';
+import { useAuth } from '../context/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import './InviteJoinPage.css';
 
@@ -10,16 +11,13 @@ export default function InviteJoinPage() {
     const { inviteCode } = useParams<{ inviteCode: string }>();
     const navigate = useNavigate();
     const { isDark } = useTheme();
+    const { isAuthenticated, isLoading: authLoading } = useAuth();
 
     const [preview, setPreview] = useState<GroupPreviewResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [joining, setJoining] = useState(false);
     const [joinError, setJoinError] = useState('');
-
-    const isAuthenticated = Boolean(
-        localStorage.getItem('token') && localStorage.getItem('user')
-    );
 
     useEffect(() => {
         if (!inviteCode) {
@@ -60,7 +58,7 @@ export default function InviteJoinPage() {
     }, [inviteCode]);
 
     const handleJoinGroup = async () => {
-        if (!inviteCode || joining) return;
+        if (!inviteCode || joining || authLoading) return;
         if (!isAuthenticated) {
             // Save invite destination to redirect back after login
             sessionStorage.setItem('redirect_after_login', `/invite/${inviteCode}`);
@@ -143,10 +141,12 @@ export default function InviteJoinPage() {
                             <button
                                 type="button"
                                 className="invite-btn primary"
-                                disabled={joining}
+                                disabled={joining || authLoading}
                                 onClick={handleJoinGroup}
                             >
-                                {joining
+                                {authLoading
+                                    ? 'Checking session...'
+                                    : joining
                                     ? 'Joining...'
                                     : isAuthenticated
                                         ? 'Join Group Now'

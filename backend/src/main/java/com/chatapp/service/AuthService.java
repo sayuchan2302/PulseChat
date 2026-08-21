@@ -2,7 +2,6 @@ package com.chatapp.service;
 
 import com.chatapp.dto.request.LoginRequest;
 import com.chatapp.dto.request.RegisterRequest;
-import com.chatapp.dto.request.RefreshTokenRequest;
 import com.chatapp.dto.response.AuthResponse;
 import com.chatapp.dto.response.UserResponse;
 import com.chatapp.exception.AppException;
@@ -30,7 +29,7 @@ public class AuthService {
     private final RefreshTokenService refreshTokenService;
 
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
+    public AuthResult register(RegisterRequest request) {
         String fullName = request.fullName().trim();
         String username = request.username().trim();
         String email = request.email().trim().toLowerCase(Locale.ROOT);
@@ -54,7 +53,7 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse login(LoginRequest request) {
+    public AuthResult login(LoginRequest request) {
         String username = request.username().trim();
 
         try {
@@ -70,14 +69,14 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse refresh(RefreshTokenRequest request) {
-        User user = refreshTokenService.consumeToken(request.refreshToken()).getUser();
+    public AuthResult refresh(String rawRefreshToken) {
+        User user = refreshTokenService.consumeToken(rawRefreshToken).getUser();
         return createAuthResponse(user);
     }
 
     @Transactional
-    public void logout(RefreshTokenRequest request) {
-        refreshTokenService.revokeToken(request.refreshToken());
+    public void logout(String rawRefreshToken) {
+        refreshTokenService.revokeToken(rawRefreshToken);
     }
 
     @Transactional(readOnly = true)
@@ -90,9 +89,12 @@ public class AuthService {
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
     }
 
-    private AuthResponse createAuthResponse(User user) {
+    private AuthResult createAuthResponse(User user) {
         String accessToken = jwtService.generateAccessToken(user.getUsername());
         String refreshToken = refreshTokenService.createToken(user);
-        return new AuthResponse(accessToken, refreshToken, UserResponse.from(user));
+        return new AuthResult(new AuthResponse(accessToken, UserResponse.from(user)), refreshToken);
+    }
+
+    public record AuthResult(AuthResponse response, String refreshToken) {
     }
 }

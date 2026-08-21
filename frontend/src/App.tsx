@@ -4,18 +4,23 @@ import AuthPage from './pages/AuthPage';
 import ChatPage from './pages/ChatPage';
 import InviteJoinPage from './pages/InviteJoinPage';
 import { ROUTES } from './config/constants';
+import { useAuth } from './context/useAuth';
 import './App.css';
 
-function hasAuthSession() {
-  return Boolean(localStorage.getItem('refreshToken') && localStorage.getItem('user'));
+function AuthLoading() {
+  return null;
 }
 
 function GuestRoute() {
-  return hasAuthSession() ? <Navigate to={ROUTES.CHAT} replace /> : <AuthPage />;
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) return <AuthLoading />;
+  return isAuthenticated ? <Navigate to={ROUTES.CHAT} replace /> : <AuthPage />;
 }
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  return hasAuthSession() ? children : <Navigate to={ROUTES.HOME} replace />;
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) return <AuthLoading />;
+  return isAuthenticated ? children : <Navigate to={ROUTES.HOME} replace />;
 }
 
 function App() {

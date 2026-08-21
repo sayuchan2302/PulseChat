@@ -292,6 +292,5 @@ export interface ConversationSetting {
 
 export interface AuthResponse {
   token: string;
-  refreshToken: string;
   user: User;
 }

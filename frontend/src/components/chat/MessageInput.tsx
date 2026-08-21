@@ -34,6 +34,8 @@ export interface MessageInputProps {
   mentionCandidates: MentionCandidate[];
   mentionActiveIndex: number;
   onInsertMention: (candidate: MentionCandidate) => void;
+  slashCommandQuery: string | null;
+  onInsertSummaryCommand: () => void;
   emojiPickerRef: React.RefObject<HTMLDivElement | null>;
   onInsertEmoji: (emoji: string) => void;
 }
@@ -46,7 +48,8 @@ export function MessageInput(props: MessageInputProps) {
     emojiButtonRef, emojiPickerOpen, onToggleEmojiPicker, messageInputRef,
     messageInput, onMessageInputChange, onMessageInputKeyDown,
     onUpdateMessageInputSelection, selectedConversationName, mentionQuery,
-    mentionCandidates, mentionActiveIndex, onInsertMention, emojiPickerRef, onInsertEmoji,
+    mentionCandidates, mentionActiveIndex, onInsertMention, slashCommandQuery,
+    onInsertSummaryCommand, emojiPickerRef, onInsertEmoji,
   } = props;
 
   return (
@@ -152,6 +155,28 @@ export function MessageInput(props: MessageInputProps) {
                     </div>
                   </button>
                 ))}
+              </div>
+            </div>
+          ) : null}
+
+          {slashCommandQuery !== null ? (
+            <div className="mention-autocomplete-dropdown" role="listbox" aria-label="Slash commands">
+              <div className="mention-dropdown-header">Command</div>
+              <div className="mention-dropdown-list">
+                <button
+                  type="button"
+                  className="mention-dropdown-item active"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    onInsertSummaryCommand();
+                  }}
+                >
+                  <div className="mention-dropdown-avatar all">/</div>
+                  <div className="mention-dropdown-info">
+                    <span className="mention-dropdown-name">/summary</span>
+                    <span className="mention-dropdown-username">Summarize recent messages</span>
+                  </div>
+                </button>
               </div>
             </div>
           ) : null}

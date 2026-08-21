@@ -33,7 +33,8 @@ import type {
   UnreadCount,
   User,
 } from '../types';
-import { apiClient, clearAuthSession } from '../services/api';
+import { apiClient } from '../services/api';
+import { useAuth } from '../context/useAuth';
 import { wsService } from '../services/websocket';
 import { soundService } from '../services/soundService';
 import { dbService } from '../services/dbService';
@@ -212,6 +213,7 @@ function buildMessageListItems(
 
 export default function ChatPage() {
   const { isDark, toggleTheme } = useTheme();
+  const { user: authenticatedUser, logout, updateCurrentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [friends, setFriends] = useState<User[]>([]);
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
@@ -231,6 +233,7 @@ export default function ChatPage() {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionStartIndex, setMentionStartIndex] = useState<number>(-1);
   const [mentionActiveIndex, setMentionActiveIndex] = useState<number>(0);
+  const [slashCommandQuery, setSlashCommandQuery] = useState<string | null>(null);
   const [soundMuted, setSoundMuted] = useState(() => soundService.isMuted());
 
   useEffect(() => {
@@ -1778,22 +1781,16 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    const user = localStorage.getItem('user');
-    if (!user) {
-      navigate(ROUTES.HOME, { replace: true });
+    if (!authenticatedUser) {
       return;
     }
 
-    try {
-      const parsedUser = JSON.parse(user) as User;
-      setCurrentUser({ ...parsedUser, online: false });
-      currentUserIdRef.current = parsedUser.id;
-    } catch (error) {
-      console.error('Failed to read current user:', error);
-      clearAuthSession();
-      navigate(ROUTES.HOME, { replace: true });
-    }
-  }, [navigate]);
+    setCurrentUser((current) => ({
+      ...authenticatedUser,
+      online: current?.online ?? false,
+    }));
+    currentUserIdRef.current = authenticatedUser.id;
+  }, [authenticatedUser]);
 
   useEffect(() => () => {
     if (profileAvatarPreview.startsWith('blob:')) {
@@ -5181,6 +5178,22 @@ export default function ChatPage() {
     }
   }, [selectedRoom]);
 
+  const checkSlashCommandTrigger = useCallback((text: string, cursorPos: number) => {
+    if (!selectedRoom) {
+      setSlashCommandQuery(null);
+      return;
+    }
+
+    const textBeforeCursor = text.slice(0, cursorPos);
+    const match = textBeforeCursor.match(/^\/([a-z]*)$/i);
+    if (match && 'summary'.startsWith(match[1].toLowerCase())) {
+      setSlashCommandQuery(match[1]);
+      return;
+    }
+
+    setSlashCommandQuery(null);
+  }, [selectedRoom]);
+
   const insertMention = useCallback((candidate: { username: string }) => {
     if (mentionStartIndex < 0) return;
     const before = messageInput.slice(0, mentionStartIndex);
@@ -5202,10 +5215,25 @@ export default function ChatPage() {
     });
   }, [mentionStartIndex, messageInput]);
 
+  const insertSummaryCommand = useCallback(() => {
+    const command = '/summary';
+    setMessageInput(command);
+    setSlashCommandQuery(null);
+
+    window.requestAnimationFrame(() => {
+      const input = messageInputRef.current;
+      if (input) {
+        input.focus();
+        input.setSelectionRange(command.length, command.length);
+      }
+    });
+  }, []);
+
   const handleMessageInputChange = (value: string) => {
     setMessageInput(value);
     const cursorPos = messageInputRef.current?.selectionStart ?? value.length;
     checkMentionTrigger(value, cursorPos);
+    checkSlashCommandTrigger(value, cursorPos);
     if (!selectedUser && !selectedRoom) {
       return;
     }
@@ -5422,6 +5450,23 @@ export default function ChatPage() {
         event.preventDefault();
         setMentionQuery(null);
         setMentionStartIndex(-1);
+        return;
+      }
+    }
+
+    if (slashCommandQuery !== null) {
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        insertSummaryCommand();
+        return;
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setSlashCommandQuery(null);
         return;
       }
     }
@@ -5750,7 +5795,7 @@ export default function ChatPage() {
 
     setCurrentUser(nextCurrentUser);
     currentUserIdRef.current = nextCurrentUser.id;
-    localStorage.setItem('user', JSON.stringify(nextCurrentUser));
+    updateCurrentUser(nextCurrentUser);
     setUsers((currentUsers) =>
       currentUsers.map((user) => applyProfileToUser(user, nextCurrentUser))
     );
@@ -5854,7 +5899,7 @@ export default function ChatPage() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (selectedUserIdRef.current !== null) {
       stopTyping(selectedUserIdRef.current);
     }
@@ -5866,15 +5911,8 @@ export default function ChatPage() {
     sendActiveCallCloseSignal();
     stopPreCallPreview();
 
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (refreshToken) {
-      void apiClient.post('/auth/logout', { refreshToken }).catch((error) => {
-        console.error('Failed to revoke refresh token:', error);
-      });
-    }
-
     wsService.disconnect();
-    clearAuthSession();
+    await logout();
     navigate(ROUTES.HOME, { replace: true });
   };
 
@@ -7724,65 +7762,12 @@ export default function ChatPage() {
     );
   };
 
-  const renderConversationSettingsSection = (target: ConversationTarget) => {
-    const pinned = target.type === 'user' ? Boolean(target.user.pinned) : Boolean(target.room.pinned);
-    const muted = target.type === 'user' ? Boolean(target.user.muted) : Boolean(target.room.muted);
-    const archived = target.type === 'user' ? Boolean(target.user.archived) : Boolean(target.room.archived);
-    const pendingKey =
-      target.type === 'user'
-        ? `user-${target.user.id}`
-        : `room-${target.room.id}`;
-    const pending = conversationSettingPendingKey === pendingKey;
-
-    return (
-      <section className="details-section" aria-labelledby="conversation-controls-title">
-        <div className="details-section-heading">
-          <h4 id="conversation-controls-title">Conversation</h4>
-          {pinned ? <span>Pinned</span> : null}
-        </div>
-        <div className="details-control-list">
-          <button
-            type="button"
-            className={`details-control-btn ${pinned ? 'active' : ''}`}
-            disabled={pending}
-            onClick={() => void handleUpdateConversationSetting(target, { pinned: !pinned })}
-          >
-            <PinIcon className="details-control-icon" />
-            <span>{pinned ? 'Unpin chat' : 'Pin chat'}</span>
-          </button>
-          <button
-            type="button"
-            className={`details-control-btn ${muted ? 'active' : ''}`}
-            disabled={pending}
-            onClick={() => void handleUpdateConversationSetting(target, { muted: !muted })}
-          >
-            <MutedIcon className="details-control-icon" />
-            <span>{muted ? 'Unmute notifications' : 'Mute notifications'}</span>
-          </button>
-          <button
-            type="button"
-            className={`details-control-btn ${archived ? 'active' : ''}`}
-            disabled={pending}
-            onClick={() => void handleUpdateConversationSetting(target, { archived: !archived })}
-          >
-            <ArchiveIcon className="details-control-icon" />
-            <span>{archived ? 'Unarchive chat' : 'Archive chat'}</span>
-          </button>
-        </div>
-        {conversationSettingsError ? (
-          <div className="details-error">{conversationSettingsError}</div>
-        ) : null}
-      </section>
-    );
-  };
-
   const renderConversationDetails = () => {
     return (
       <DetailsSidebar
         selectedUser={selectedUser}
         selectedRoom={selectedRoom}
         handleCloseConversationDetails={handleCloseConversationDetails}
-        renderConversationSettingsSection={renderConversationSettingsSection}
         renderSharedContentSections={renderSharedContentSections}
         currentUserCanManageSelectedRoom={currentUserCanManageSelectedRoom}
         groupAvatarUploading={groupAvatarUploading}
@@ -7843,7 +7828,7 @@ export default function ChatPage() {
           }
         }}
         onOpenProfileEditor={handleOpenProfileEditor}
-        onLogout={handleLogout}
+        onLogout={() => void handleLogout()}
       />
 
       <div className={`chat-container ${mainView === 'chat' && selectedConversationOpen ? 'conversation-open' : ''}`}>
@@ -8079,6 +8064,8 @@ export default function ChatPage() {
                 mentionCandidates={mentionCandidates}
                 mentionActiveIndex={mentionActiveIndex}
                 onInsertMention={insertMention}
+                slashCommandQuery={slashCommandQuery}
+                onInsertSummaryCommand={insertSummaryCommand}
                 emojiPickerRef={emojiPickerRef}
                 onInsertEmoji={handleInsertEmoji}
               />
