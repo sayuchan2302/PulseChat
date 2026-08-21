@@ -1,5 +1,7 @@
 import {
   type ChangeEvent,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -66,6 +68,7 @@ import {
   EmojiIcon, MediaIcon, DocumentIcon, DownloadIcon, PaperclipIcon,
   ReplyIcon, CopyIcon, ForwardIcon, RecallIcon, MoreIcon,
   PinIcon, MutedIcon, ArchiveIcon, ChevronDownIcon,
+  ArrowLeftIcon,
 } from '../icons/ChatIcons';
 import {
   toDeliveredMessage, appendOrReconcileMessage,
@@ -132,9 +135,8 @@ import {
 } from '../utils/renderUtils';
 import VoiceRecorderButton from '../components/VoiceRecorderButton';
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer';
-import MediaLightbox, { type LightboxMediaItem } from '../components/chat/MediaLightbox';
-import GroupSeenByModal from '../components/chat/GroupSeenByModal';
-import ReactionSummaryModal, { type ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
+import type { LightboxMediaItem } from '../components/chat/MediaLightbox';
+import type { ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
 import './ChatPage.css';
 
 const PRIVATE_MESSAGE_DESTINATION = '/app/chat.send';
@@ -142,6 +144,10 @@ const GROUP_MESSAGE_DESTINATION_PREFIX = '/app/rooms';
 const TYPING_DESTINATION = '/app/chat.typing';
 const READ_RECEIPT_DESTINATION = '/app/chat.read';
 const CALL_SIGNAL_DESTINATION = '/app/calls.signal';
+
+const MediaLightbox = lazy(() => import('../components/chat/MediaLightbox'));
+const GroupSeenByModal = lazy(() => import('../components/chat/GroupSeenByModal'));
+const ReactionSummaryModal = lazy(() => import('../components/chat/ReactionSummaryModal'));
 
 const UNKNOWN_CALL_PERMISSIONS: CallPermissionSnapshot = {
   microphone: 'unknown',
@@ -4622,6 +4628,49 @@ export default function ChatPage() {
     setDetailsOpen(false);
   };
 
+  const handleReturnToConversationList = () => {
+    setDetailsOpen(false);
+    navigateIfNeeded(getChatRoute());
+  };
+
+  useEffect(() => {
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) {
+        return;
+      }
+
+      if (lightboxState) {
+        setLightboxState(null);
+      } else if (groupSeenModalMessage) {
+        setGroupSeenModalMessage(null);
+      } else if (reactionModalGroups) {
+        setReactionModalGroups(null);
+      } else if (mediaViewerMessage) {
+        setMediaViewerMessage(null);
+      } else if (forwardingMessage) {
+        setForwardingMessage(null);
+      } else if (inviteModalOpen) {
+        setInviteModalOpen(false);
+      } else if (detailsOpen) {
+        setDetailsOpen(false);
+      } else if (profileMenuOpen) {
+        setProfileMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleEscapeKey);
+    return () => window.removeEventListener('keydown', handleEscapeKey);
+  }, [
+    detailsOpen,
+    forwardingMessage,
+    groupSeenModalMessage,
+    inviteModalOpen,
+    lightboxState,
+    mediaViewerMessage,
+    profileMenuOpen,
+    reactionModalGroups,
+  ]);
+
   const handleOpenCreateGroup = () => {
     navigateIfNeeded(getChatRoute());
     setMainView('chat');
@@ -8865,7 +8914,7 @@ export default function ChatPage() {
         </nav>
       </header>
 
-      <div className="chat-container">
+      <div className={`chat-container ${mainView === 'chat' && selectedConversationOpen ? 'conversation-open' : ''}`}>
         <aside className="sidebar">
           <div className="sidebar-header">
             <div className="sidebar-title-row">
@@ -8935,6 +8984,15 @@ export default function ChatPage() {
           ) : selectedConversationOpen ? (
             <>
               <div className="chat-area-header">
+                <button
+                  type="button"
+                  className="mobile-chat-list-btn"
+                  onClick={handleReturnToConversationList}
+                  aria-label="Back to chat list"
+                  title="Back to chats"
+                >
+                  <ArrowLeftIcon className="mobile-chat-list-icon" />
+                </button>
                 <div className="selected-user">
                   {selectedRoom ? (
                     <div className="user-avatar room-avatar">
@@ -9476,7 +9534,11 @@ export default function ChatPage() {
             </>
           ) : (
             <div className="no-chat-selected">
-              <p>Select a friend or group to start chatting</p>
+              <span className="no-chat-selected-icon" aria-hidden="true">
+                <FriendsIcon className="no-chat-selected-icon-svg" />
+              </span>
+              <strong>Choose a conversation</strong>
+              <p>Select a friend or group to start chatting.</p>
             </div>
           )}
         </main>
@@ -9887,27 +9949,33 @@ export default function ChatPage() {
       ) : null}
 
       {lightboxState ? (
-        <MediaLightbox
-          items={lightboxState.items}
-          currentIndex={lightboxState.index}
-          onClose={() => setLightboxState(null)}
-          onSelectIndex={(idx) => setLightboxState((prev) => (prev ? { ...prev, index: idx } : null))}
-        />
+        <Suspense fallback={null}>
+          <MediaLightbox
+            items={lightboxState.items}
+            currentIndex={lightboxState.index}
+            onClose={() => setLightboxState(null)}
+            onSelectIndex={(idx) => setLightboxState((prev) => (prev ? { ...prev, index: idx } : null))}
+          />
+        </Suspense>
       ) : null}
 
       {groupSeenModalMessage ? (
-        <GroupSeenByModal
-          message={groupSeenModalMessage.message}
-          seenUsers={groupSeenModalMessage.seenUsers}
-          onClose={() => setGroupSeenModalMessage(null)}
-        />
+        <Suspense fallback={null}>
+          <GroupSeenByModal
+            message={groupSeenModalMessage.message}
+            seenUsers={groupSeenModalMessage.seenUsers}
+            onClose={() => setGroupSeenModalMessage(null)}
+          />
+        </Suspense>
       ) : null}
 
       {reactionModalGroups ? (
-        <ReactionSummaryModal
-          reactionGroups={reactionModalGroups}
-          onClose={() => setReactionModalGroups(null)}
-        />
+        <Suspense fallback={null}>
+          <ReactionSummaryModal
+            reactionGroups={reactionModalGroups}
+            onClose={() => setReactionModalGroups(null)}
+          />
+        </Suspense>
       ) : null}
     </div>
   );

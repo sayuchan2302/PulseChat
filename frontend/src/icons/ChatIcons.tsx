@@ -379,3 +379,12 @@ export function ChevronDownIcon({ className }: HeaderIconProps) {
         </svg>
     );
 }
+
+export function ArrowLeftIcon({ className }: HeaderIconProps) {
+    return (
+        <svg className={className} {...SVG_BASE}>
+            <path d="m15 18-6-6 6-6" />
+            <path d="M9 12h11" />
+        </svg>
+    );
+}
