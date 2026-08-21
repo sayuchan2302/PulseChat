@@ -12,8 +12,8 @@ export interface MessageItemProps {
     selectedUser: User | null;
     selectedRoom: ChatRoom | null;
     unreadDividerRef: React.RefObject<HTMLDivElement | null>;
-    latestSeenOutgoingMessageId: number;
-    latestOutgoingMessageId: number | string;
+    latestSeenOutgoingMessageId: number | null;
+    latestOutgoingMessageId: number | string | null;
     latestRoomSeenByByMessageId: Record<number, User[]>;
     seenByLoadingMessageIds: number[];
     detailsOpen: boolean;
@@ -146,7 +146,7 @@ export function MessageItem({
             className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${message.deliveryStatus ?? ''
                 } ${groupedWithPrevious ? 'grouped-with-previous' : ''} ${groupedWithNext ? 'grouped-with-next' : ''
                 } ${hasVisibleMessageTime ? 'has-visible-time' : ''} ${isMessageSearchMatch ? 'message-search-match' : ''
-                } ${highlightedMessageId === message.id ? 'highlighted message-highlight-pulse' : ''} ${isMentioned ? 'message-mentioned' : ''
+                } ${highlightedMessageId === message.id ? 'highlighted' : ''} ${isMentioned ? 'message-mentioned' : ''
                 }`}
         >
             {showSender ? (
@@ -172,11 +172,12 @@ export function MessageItem({
                         )}
                     </div>
                 ) : null}
+                {isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
                 <div className="message-bubble-wrap">
                     {renderMessageBody(message)}
-                    {renderMessageActions(message, isSentByCurrentUser)}
                     {renderMessageReactions(message)}
                 </div>
+                {!isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
             </div>
             {hasVisibleMessageTime ? (
                 <div className="message-time">

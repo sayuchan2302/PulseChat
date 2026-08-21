@@ -46,9 +46,6 @@ export interface DetailsSidebarProps {
     renderDetailsMemberItem: (member: User) => React.ReactNode;
     handleDeleteSelectedGroup: () => Promise<void>;
     handleLeaveSelectedGroup: () => Promise<void>;
-    chatWallpaper?: 'default' | 'ocean' | 'space' | 'sunset' | 'cyber';
-    setChatWallpaper?: (wallpaper: 'default' | 'ocean' | 'space' | 'sunset' | 'cyber') => void;
-    onUpdateRoomPermissions?: (permissions: { onlyAdminsCanSend?: boolean; onlyAdminsCanEditGroup?: boolean; onlyAdminsCanPin?: boolean }) => void;
 }
 
 export function DetailsSidebar({
@@ -85,7 +82,6 @@ export function DetailsSidebar({
     renderDetailsMemberItem,
     handleDeleteSelectedGroup,
     handleLeaveSelectedGroup,
-    onUpdateRoomPermissions,
 }: DetailsSidebarProps) {
     if (selectedUser) {
         return (
@@ -277,33 +273,6 @@ export function DetailsSidebar({
                                 🔗 Group Invite Link
                             </button>
 
-                            <div className="details-permissions-group">
-                                <h5>Group Permissions</h5>
-                                <label className="details-permission-toggle">
-                                    <span>🔒 Only Admins can send messages</span>
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedRoom.permissions?.onlyAdminsCanSend ?? false}
-                                        onChange={(e) => onUpdateRoomPermissions?.({ onlyAdminsCanSend: e.target.checked })}
-                                    />
-                                </label>
-                                <label className="details-permission-toggle">
-                                    <span>✏️ Only Admins can edit group info</span>
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedRoom.permissions?.onlyAdminsCanEditGroup ?? false}
-                                        onChange={(e) => onUpdateRoomPermissions?.({ onlyAdminsCanEditGroup: e.target.checked })}
-                                    />
-                                </label>
-                                <label className="details-permission-toggle">
-                                    <span>📌 Only Admins can pin messages</span>
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedRoom.permissions?.onlyAdminsCanPin ?? false}
-                                        onChange={(e) => onUpdateRoomPermissions?.({ onlyAdminsCanPin: e.target.checked })}
-                                    />
-                                </label>
-                            </div>
                         </div>
                     ) : (
                         <div className="details-row">

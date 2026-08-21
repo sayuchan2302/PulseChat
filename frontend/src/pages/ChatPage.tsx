@@ -49,7 +49,7 @@ import {
   MAX_AVATAR_SIZE_BYTES, MAX_AVATAR_SIZE_MB,
   ACCEPTED_AVATAR_TYPES, AVATAR_ACCEPT, MEDIA_ACCEPT,
   USER_SKELETON_KEYS, MESSAGE_SKELETON_KEYS,
-  CONVERSATION_FILTERS, QUICK_REACTION_EMOJIS, EMOJI_CATEGORIES,
+  CONVERSATION_FILTERS, QUICK_REACTION_EMOJIS,
 } from '../constants/chatConstants';
 import type {
   ChatMessage, ActiveCall, CallConnectionState,
@@ -61,27 +61,24 @@ import type {
   PendingReadConversation, ChatBrowserNotification, ConversationTarget,
 } from '../types/chat.types';
 import {
-  SoundIcon, MuteIcon, SunIcon, MoonIcon, FriendsIcon, FriendRequestIcon,
-  RefreshIcon, GroupPlusIcon, ProfileIcon, BellIcon, InfoIcon,
-  MinimizeIcon, ExpandIcon, PhoneIcon, VideoCallIcon, ScreenShareIcon,
-  MicIcon, MicOffIcon, VideoOffIcon, SearchIcon, JumpIcon, CloseIcon,
-  EmojiIcon, MediaIcon, DocumentIcon, DownloadIcon, PaperclipIcon,
+  FriendsIcon, FriendRequestIcon, RefreshIcon,
+  PhoneIcon, VideoCallIcon,
+  JumpIcon, CloseIcon,
+  DocumentIcon, DownloadIcon, PaperclipIcon,
   ReplyIcon, CopyIcon, ForwardIcon, RecallIcon, MoreIcon,
   PinIcon, MutedIcon, ArchiveIcon, ChevronDownIcon,
-  ArrowLeftIcon,
 } from '../icons/ChatIcons';
 import {
   toDeliveredMessage, appendOrReconcileMessage,
   mergeKnownMessageUpdate, appendOptimisticMessage, mergeServerMessagesWithPending,
-  isActiveConversationMessage, getMessageType, isCallMessage,
+  isActiveConversationMessage, getMessageType,
   applyReadReceipt, getUnreadDividerCandidateId,
   markOptimisticMessageSending, markOptimisticMessageFailed,
-  getDeliveryStatusLabel, getGroupedMessageReactions, hasCurrentUserReaction,
-  canUseMessageActions, getMessagePreviewContent, getMessageSearchSnippet,
+  getGroupedMessageReactions, hasCurrentUserReaction,
+  canUseMessageActions, getMessagePreviewContent,
   messageMatchesSearchQuery, getMediaPayloadFromMessage, createReplyFromMessage,
   getPendingMediaType, cloudinaryResultToMedia,
   createOptimisticMessage, createOptimisticRoomMessage,
-  getMessageSenderName, getMessageSenderUser,
   getLatestSeenOutgoingMessageId, getLatestOutgoingMessageId,
   isSharedMediaMessage, mergeSharedContentPage, prependSharedContentItem,
   updateKnownSharedContentItem, shouldGroupAdjacentMessages,
@@ -104,7 +101,7 @@ import {
   isTypingFromSelectedUser, getTypingIndicatorLabel,
   mergeUnreadCounts, incrementUnreadCount, resetUnreadCount, resetRoomUnreadCount,
   shouldShowUsername, getRoomInitial,
-  sortParticipantsForDetails, shouldOpenConversationDetailsByDefault, matchesFriendSearch,
+  shouldOpenConversationDetailsByDefault, matchesFriendSearch,
 } from '../utils/userUtils';
 import {
   hasPrivateConversation,
@@ -130,11 +127,20 @@ import {
   getUserChatRoute, getRoomChatRoute, parseChatRoute,
 } from '../utils/routeUtils';
 import {
-  renderHighlightedSearchText, renderLinkedText,
-  renderLinkPreviewCard, renderUserAvatar, renderRoomAvatar,
+  renderLinkedText,
+  renderLinkPreviewCard, renderUserAvatar,
 } from '../utils/renderUtils';
-import VoiceRecorderButton from '../components/VoiceRecorderButton';
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer';
+import AppHeader from '../components/chat/AppHeader';
+import ActiveCallOverlay from '../components/chat/ActiveCallOverlay';
+import ConversationHeader from '../components/chat/ConversationHeader';
+import ConversationSidebar from '../components/chat/ConversationSidebar';
+import DetailsSidebar from '../components/chat/DetailsSidebar';
+import ForwardPickerBody from '../components/chat/ForwardPickerBody';
+import MessageItem from '../components/chat/MessageItem';
+import MessageInput from '../components/chat/MessageInput';
+import PreCallSetupModal from '../components/chat/PreCallSetupModal';
+import SearchSidebar from '../components/chat/SearchSidebar';
 import type { LightboxMediaItem } from '../components/chat/MediaLightbox';
 import type { ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
 import './ChatPage.css';
@@ -202,85 +208,6 @@ function buildMessageListItems(
   });
 
   return items;
-}
-
-function ForwardPickerBody({
-  friends,
-  rooms,
-  onSelect,
-}: {
-  friends: User[];
-  rooms: ChatRoom[];
-  onSelect: (targetUserId: number | null, targetRoomId: number | null) => void;
-}) {
-  const [query, setQuery] = useState('');
-
-  const lowerQuery = query.toLowerCase();
-
-  const filteredFriends = friends.filter(
-    (u) =>
-      (u.fullName ?? u.username).toLowerCase().includes(lowerQuery) ||
-      u.username.toLowerCase().includes(lowerQuery),
-  );
-  const filteredRooms = rooms.filter((r) =>
-    r.name.toLowerCase().includes(lowerQuery),
-  );
-
-  return (
-    <>
-      <div className="forward-picker-search-wrap">
-        <input
-          className="forward-picker-search"
-          type="text"
-          placeholder="Search people or groups…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          autoFocus
-        />
-      </div>
-      <div className="forward-picker-list">
-        {filteredFriends.length === 0 && filteredRooms.length === 0 ? (
-          <div className="forward-picker-empty">No results</div>
-        ) : null}
-        {filteredFriends.map((u) => (
-          <button
-            key={`dm-${u.id}`}
-            type="button"
-            className="forward-picker-item"
-            onClick={() => onSelect(u.id, null)}
-          >
-            <div className="forward-picker-avatar">
-              {u.avatar ? (
-                <img src={u.avatar} alt={u.username} />
-              ) : (
-                <span>{(u.fullName ?? u.username).charAt(0).toUpperCase()}</span>
-              )}
-            </div>
-            <div className="forward-picker-name">
-              <span>{u.fullName ?? u.username}</span>
-              <small>@{u.username}</small>
-            </div>
-          </button>
-        ))}
-        {filteredRooms.map((r) => (
-          <button
-            key={`room-${r.id}`}
-            type="button"
-            className="forward-picker-item"
-            onClick={() => onSelect(null, r.id)}
-          >
-            <div className="forward-picker-avatar group">
-              <span>{r.name.charAt(0).toUpperCase()}</span>
-            </div>
-            <div className="forward-picker-name">
-              <span>{r.name}</span>
-              <small>{r.participants.length} members</small>
-            </div>
-          </button>
-        ))}
-      </div>
-    </>
-  );
 }
 
 export default function ChatPage() {
@@ -5954,13 +5881,6 @@ export default function ChatPage() {
 
   const currentUserDisplayName = getUserDisplayName(currentUser) || 'Profile';
   const currentUserOnline = Boolean(currentUser?.online);
-  const activeCallPeerName = getUserDisplayName(activeCall?.peer ?? null);
-  const activeCallIsVideo = activeCall?.type === 'VIDEO';
-  const activeCallTimerLabel = activeCall?.status === 'connected'
-    ? formatCallTimer(callElapsedSeconds)
-    : '';
-  const preCallPeerName = getUserDisplayName(preCallSetup?.target ?? null);
-  const preCallIsVideo = preCallSetup?.type === 'VIDEO';
   const preCallCanStart = Boolean(
     preCallSetup &&
     preCallPreviewStream &&
@@ -6545,592 +6465,79 @@ export default function ChatPage() {
     );
   };
 
-  const renderPreCallSetupModal = () => {
-    if (!preCallSetup) {
-      return null;
-    }
+  const renderPreCallSetupModal = () => (
+    <PreCallSetupModal
+      preCallSetup={preCallSetup}
+      previewStream={preCallPreviewStream}
+      previewVideoRef={preCallPreviewVideoRef}
+      previewLoading={preCallPreviewLoading}
+      submitting={preCallSubmitting}
+      canStart={preCallCanStart}
+      error={preCallError}
+      micMuted={micMuted}
+      cameraOff={cameraOff}
+      audioInputDevices={audioInputDevices}
+      videoInputDevices={videoInputDevices}
+      selectedAudioInputId={selectedAudioInputId}
+      selectedVideoInputId={selectedVideoInputId}
+      callDevicesLoading={callDevicesLoading}
+      callDeviceError={callDeviceError}
+      getMediaDeviceLabel={getMediaDeviceLabel}
+      renderUserAvatar={renderUserAvatar}
+      renderCallPermissionStatus={renderCallPermissionStatus}
+      onClose={handleClosePreCallSetup}
+      onToggleMic={handlePreCallToggleMic}
+      onToggleCamera={handlePreCallToggleCamera}
+      onAudioInputChange={handlePreCallAudioInputChange}
+      onVideoInputChange={handlePreCallVideoInputChange}
+      onRetryPreview={handlePreCallRetryPreview}
+      onStart={handleConfirmStartCall}
+    />
+  );
 
-    const hasSelectedAudioDevice = audioInputDevices.some(
-      (device) => device.deviceId === selectedAudioInputId
-    );
-    const hasSelectedVideoDevice = videoInputDevices.some(
-      (device) => device.deviceId === selectedVideoInputId
-    );
-    const title = `${preCallIsVideo ? 'Video' : 'Audio'} call`;
-
-    return (
-      <div className="modal-backdrop pre-call-backdrop" onClick={handleClosePreCallSetup}>
-        <div
-          className="pre-call-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="pre-call-title"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div className="pre-call-header">
-            <div>
-              <h3 id="pre-call-title">{title}</h3>
-              <p>{preCallPeerName}</p>
-            </div>
-            <button
-              type="button"
-              className="modal-close-btn"
-              onClick={handleClosePreCallSetup}
-              aria-label="Close call setup"
-              disabled={preCallSubmitting}
-            >
-              ×
-            </button>
-          </div>
-
-          <div className="pre-call-preview">
-            {preCallPreviewLoading ? (
-              <div className="pre-call-preview-placeholder">
-                {renderUserAvatar(preCallSetup.target, 'user-avatar pre-call-avatar')}
-                <span>Checking devices...</span>
-              </div>
-            ) : preCallIsVideo && preCallPreviewStream && !cameraOff ? (
-              <video
-                ref={preCallPreviewVideoRef}
-                className="pre-call-video-preview"
-                autoPlay
-                muted
-                playsInline
-              />
-            ) : (
-              <div className="pre-call-preview-placeholder">
-                {preCallIsVideo && cameraOff ? (
-                  <span className="pre-call-camera-off">
-                    <VideoOffIcon className="call-action-icon" />
-                  </span>
-                ) : (
-                  renderUserAvatar(preCallSetup.target, 'user-avatar pre-call-avatar')
-                )}
-                <span>{preCallIsVideo && cameraOff ? 'Camera is off' : 'Ready to call'}</span>
-              </div>
-            )}
-          </div>
-
-          {renderCallPermissionStatus(preCallSetup.type)}
-
-          <div className="pre-call-quick-actions" aria-label="Call setup controls">
-            <button
-              type="button"
-              className={`call-round-btn ${micMuted ? 'active' : ''}`}
-              onClick={handlePreCallToggleMic}
-              disabled={preCallPreviewLoading || preCallSubmitting}
-              aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
-              title={micMuted ? 'Unmute' : 'Mute'}
-            >
-              {micMuted ? (
-                <MicOffIcon className="call-action-icon" />
-              ) : (
-                <MicIcon className="call-action-icon" />
-              )}
-            </button>
-            {preCallIsVideo ? (
-              <button
-                type="button"
-                className={`call-round-btn ${cameraOff ? 'active' : ''}`}
-                onClick={handlePreCallToggleCamera}
-                disabled={preCallPreviewLoading || preCallSubmitting}
-                aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'}
-                title={cameraOff ? 'Camera on' : 'Camera off'}
-              >
-                {cameraOff ? (
-                  <VideoOffIcon className="call-action-icon" />
-                ) : (
-                  <VideoCallIcon className="call-action-icon" />
-                )}
-              </button>
-            ) : null}
-          </div>
-
-          <div className="call-device-controls pre-call-device-controls" aria-label="Pre-call devices">
-            <label className="call-device-field">
-              <span>Mic</span>
-              <select
-                className="call-device-select"
-                value={selectedAudioInputId}
-                onChange={handlePreCallAudioInputChange}
-                disabled={preCallPreviewLoading || preCallSubmitting}
-              >
-                <option value="">Default microphone</option>
-                {selectedAudioInputId && !hasSelectedAudioDevice ? (
-                  <option value={selectedAudioInputId}>Selected microphone</option>
-                ) : null}
-                {audioInputDevices.map((device, index) => (
-                  <option key={device.deviceId || `pre-audio-${index}`} value={device.deviceId}>
-                    {getMediaDeviceLabel(device, index)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {preCallIsVideo ? (
-              <label className="call-device-field">
-                <span>Camera</span>
-                <select
-                  className="call-device-select"
-                  value={selectedVideoInputId}
-                  onChange={handlePreCallVideoInputChange}
-                  disabled={preCallPreviewLoading || preCallSubmitting}
-                >
-                  <option value="">Default camera</option>
-                  {selectedVideoInputId && !hasSelectedVideoDevice ? (
-                    <option value={selectedVideoInputId}>Selected camera</option>
-                  ) : null}
-                  {videoInputDevices.map((device, index) => (
-                    <option key={device.deviceId || `pre-video-${index}`} value={device.deviceId}>
-                      {getMediaDeviceLabel(device, index)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-
-            {callDevicesLoading ? (
-              <span className="call-device-helper">Refreshing device list...</span>
-            ) : null}
-            {callDeviceError ? <span className="call-device-error">{callDeviceError}</span> : null}
-          </div>
-
-          {preCallError ? (
-            <div className="pre-call-error">
-              <span>{preCallError}</span>
-              <button type="button" onClick={handlePreCallRetryPreview}>
-                Retry
-              </button>
-            </div>
-          ) : null}
-
-          <div className="pre-call-actions">
-            <button
-              type="button"
-              className="secondary-btn"
-              onClick={handleClosePreCallSetup}
-              disabled={preCallSubmitting}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="send-btn"
-              onClick={() => void handleConfirmStartCall()}
-              disabled={!preCallCanStart}
-            >
-              {preCallSubmitting ? 'Calling...' : 'Start call'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderCallOverlay = () => {
-    if (!activeCall) {
-      return null;
-    }
-
-    const isIncomingRinging = activeCall.direction === 'incoming' && activeCall.status === 'ringing';
-    const isOutgoingRinging = activeCall.direction === 'outgoing' && activeCall.status === 'ringing';
-    const hasSelectedAudioDevice = audioInputDevices.some(
-      (device) => device.deviceId === selectedAudioInputId
-    );
-    const hasSelectedVideoDevice = videoInputDevices.some(
-      (device) => device.deviceId === selectedVideoInputId
-    );
-    const canShowDeviceControls = Boolean(
-      localCallStream && activeCall.status !== 'ringing' && activeCall.status !== 'ending'
-    );
-    const canRetryActiveCall = Boolean(
-      !isIncomingRinging &&
-      activeCall.status !== 'ending' &&
-      (callConnectionState === 'failed' || callConnectionState === 'closed')
-    );
-    const canToggleScreenShare = Boolean(
-      activeCallIsVideo &&
-      !isIncomingRinging &&
-      activeCall.status !== 'ringing' &&
-      activeCall.status !== 'ending' &&
-      localCallStream &&
-      callConnectionState !== 'failed' &&
-      callConnectionState !== 'closed'
-    );
-    const screenShareLabel = screenSharing
-      ? 'You are sharing your screen'
-      : remoteScreenSharing
-        ? `${activeCallPeerName} is sharing screen`
-        : '';
-    const screenShareButtonTitle = screenSharing ? 'Stop sharing screen' : 'Share screen';
-    const statusLabel = isIncomingRinging
-      ? `Incoming ${activeCall.type === 'VIDEO' ? 'video' : 'audio'} call`
-      : isOutgoingRinging
-        ? 'Ringing...'
-        : callConnectionState === 'reconnecting'
-          ? 'Reconnecting...'
-          : callConnectionState === 'failed'
-            ? 'Connection failed'
-            : activeCall.status === 'connected'
-              ? `Connected${activeCallTimerLabel ? ` · ${activeCallTimerLabel}` : ''}`
-              : activeCall.status === 'ending'
-                ? 'Ending call'
-                : 'Connecting...';
-    const canMinimizeCall = !isIncomingRinging && activeCall.status !== 'ending';
-    const callOverlayClassName = `call-overlay ${callMinimized ? 'minimized' : ''}`;
-
-    if (callMinimized && canMinimizeCall) {
-      return (
-        <div className={callOverlayClassName}>
-          <audio ref={remoteAudioRef} autoPlay playsInline />
-          <div
-            className={`call-mini ${activeCallIsVideo ? 'video' : 'audio'} ${activeCall.status} ${callConnectionState}`}
-            role="region"
-            aria-label="Minimized active call"
-          >
-            <button
-              type="button"
-              className="call-mini-main"
-              onClick={handleRestoreActiveCall}
-              aria-label={`Restore call with ${activeCallPeerName}`}
-            >
-              {renderUserAvatar(activeCall.peer, 'user-avatar call-mini-avatar')}
-              <span className="call-mini-copy">
-                <strong>{activeCallPeerName}</strong>
-                <span>
-                  <span className={`call-status-dot ${callConnectionState}`} aria-hidden="true" />
-                  {statusLabel}
-                </span>
-                {screenShareLabel ? (
-                  <span className="call-mini-sharing">
-                    <ScreenShareIcon className="call-mini-share-icon" />
-                    {screenShareLabel}
-                  </span>
-                ) : null}
-              </span>
-            </button>
-
-            <div className="call-mini-actions" aria-label="Minimized call controls">
-              {!activeCallConversationOpen ? (
-                <button
-                  type="button"
-                  className="call-mini-btn"
-                  onClick={handleOpenActiveCallConversation}
-                  aria-label="Open active call chat"
-                  title="Open chat"
-                >
-                  <JumpIcon className="call-action-icon" />
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className={`call-mini-btn ${micMuted ? 'active' : ''}`}
-                onClick={handleToggleMic}
-                disabled={!localCallStream}
-                aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
-                title={micMuted ? 'Unmute' : 'Mute'}
-              >
-                {micMuted ? (
-                  <MicOffIcon className="call-action-icon" />
-                ) : (
-                  <MicIcon className="call-action-icon" />
-                )}
-              </button>
-              {activeCallIsVideo ? (
-                <button
-                  type="button"
-                  className={`call-mini-btn sharing ${screenSharing ? 'active' : ''}`}
-                  onClick={() => {
-                    void (screenSharing ? handleStopScreenShare() : handleStartScreenShare());
-                  }}
-                  disabled={!screenSharing && !canToggleScreenShare}
-                  aria-label={screenShareButtonTitle}
-                  title={screenShareButtonTitle}
-                >
-                  <ScreenShareIcon className="call-action-icon" />
-                </button>
-              ) : null}
-              {activeCallIsVideo ? (
-                <button
-                  type="button"
-                  className={`call-mini-btn ${cameraOff ? 'active' : ''}`}
-                  onClick={handleToggleCamera}
-                  disabled={!localCallStream || screenSharing}
-                  aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'}
-                  title={
-                    screenSharing
-                      ? 'Stop sharing screen before changing camera'
-                      : cameraOff
-                        ? 'Camera on'
-                        : 'Camera off'
-                  }
-                >
-                  {cameraOff ? (
-                    <VideoOffIcon className="call-action-icon" />
-                  ) : (
-                    <VideoCallIcon className="call-action-icon" />
-                  )}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="call-mini-btn"
-                onClick={handleRestoreActiveCall}
-                aria-label="Expand active call"
-                title="Expand call"
-              >
-                <ExpandIcon className="call-action-icon" />
-              </button>
-              <button
-                type="button"
-                className="call-mini-btn end"
-                onClick={handleEndCall}
-                aria-label="End call"
-                title="End call"
-              >
-                <PhoneIcon className="call-action-icon" />
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className={callOverlayClassName} role="dialog" aria-modal="false" aria-label="Active call">
-        <audio ref={remoteAudioRef} autoPlay playsInline />
-        <div
-          className={`call-card ${activeCallIsVideo ? 'video' : 'audio'} ${activeCall.direction} ${activeCall.status} ${callConnectionState}`}
-        >
-          <div className="call-header-row">
-            <div className="call-identity">
-              {renderUserAvatar(activeCall.peer, 'user-avatar call-avatar')}
-              <div>
-                <strong>{activeCallPeerName}</strong>
-                <span className="call-status-row">
-                  <span className={`call-status-dot ${callConnectionState}`} aria-hidden="true" />
-                  {statusLabel}
-                </span>
-                <span className="call-type-chip">
-                  {activeCall.type === 'VIDEO' ? 'Video call' : 'Audio call'}
-                </span>
-              </div>
-            </div>
-            <div className="call-header-actions">
-              {!activeCallConversationOpen ? (
-                <button
-                  type="button"
-                  className="call-open-chat-btn"
-                  onClick={handleOpenActiveCallConversation}
-                >
-                  Open chat
-                </button>
-              ) : null}
-              {canMinimizeCall ? (
-                <button
-                  type="button"
-                  className="call-header-icon-btn"
-                  onClick={handleMinimizeActiveCall}
-                  aria-label="Minimize active call"
-                  title="Minimize"
-                >
-                  <MinimizeIcon className="call-action-icon" />
-                </button>
-              ) : null}
-            </div>
-          </div>
-
-          {activeCallIsVideo && activeCall.status !== 'ringing' ? (
-            <div className="call-video-stage">
-              {remoteCallStream ? (
-                <video ref={remoteVideoRef} className="call-remote-video" autoPlay playsInline />
-              ) : (
-                <div className="call-video-placeholder">
-                  {renderUserAvatar(activeCall.peer, 'user-avatar call-video-avatar')}
-                  <span>Waiting for video...</span>
-                </div>
-              )}
-              {localCallStream ? (
-                cameraOff && !screenSharing ? (
-                  <div className="call-local-video-placeholder" title="Camera is off">
-                    <VideoOffIcon className="call-action-icon" />
-                  </div>
-                ) : (
-                  <video
-                    ref={localVideoRef}
-                    className={`call-local-video ${screenSharing ? 'screen' : ''}`}
-                    autoPlay
-                    muted
-                    playsInline
-                  />
-                )
-              ) : null}
-              {screenShareLabel ? (
-                <div className="call-share-indicator">
-                  <ScreenShareIcon className="call-share-indicator-icon" />
-                  <span>{screenShareLabel}</span>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className={`call-audio-stage ${activeCall.status}`}>
-              <div className="call-audio-avatar-shell">
-                {renderUserAvatar(activeCall.peer, 'user-avatar call-stage-avatar')}
-              </div>
-              {activeCallTimerLabel ? <span>{activeCallTimerLabel}</span> : null}
-            </div>
-          )}
-
-          {callError ? (
-            <div className="call-error">
-              <span>{callError}</span>
-              {canRetryActiveCall ? (
-                <button type="button" onClick={handleRetryActiveCall}>
-                  Retry
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-
-          {screenShareError ? (
-            <div className="call-error call-share-error">
-              <span>{screenShareError}</span>
-            </div>
-          ) : null}
-
-          {canShowDeviceControls ? (
-            <div className="call-device-controls" aria-label="Call devices">
-              {renderCallPermissionStatus(activeCall.type)}
-
-              <label className="call-device-field">
-                <span>Mic</span>
-                <select
-                  className="call-device-select"
-                  value={selectedAudioInputId}
-                  onChange={handleAudioInputChange}
-                  disabled={callDevicesLoading}
-                >
-                  <option value="">Default microphone</option>
-                  {selectedAudioInputId && !hasSelectedAudioDevice ? (
-                    <option value={selectedAudioInputId}>Selected microphone</option>
-                  ) : null}
-                  {audioInputDevices.map((device, index) => (
-                    <option key={device.deviceId || `audio-${index}`} value={device.deviceId}>
-                      {getMediaDeviceLabel(device, index)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {activeCallIsVideo ? (
-                <label className="call-device-field">
-                  <span>Camera</span>
-                  <select
-                    className="call-device-select"
-                    value={selectedVideoInputId}
-                    onChange={handleVideoInputChange}
-                    disabled={callDevicesLoading || screenSharing}
-                  >
-                    <option value="">Default camera</option>
-                    {selectedVideoInputId && !hasSelectedVideoDevice ? (
-                      <option value={selectedVideoInputId}>Selected camera</option>
-                    ) : null}
-                    {videoInputDevices.map((device, index) => (
-                      <option key={device.deviceId || `video-${index}`} value={device.deviceId}>
-                        {getMediaDeviceLabel(device, index)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-
-              {callDevicesLoading ? (
-                <span className="call-device-helper">Loading devices...</span>
-              ) : null}
-              {callDeviceError ? <span className="call-device-error">{callDeviceError}</span> : null}
-            </div>
-          ) : null}
-
-          <div className="call-actions">
-            {isIncomingRinging ? (
-              <>
-                <button type="button" className="call-action-btn accept" onClick={handleAcceptCall}>
-                  <PhoneIcon className="call-action-icon" />
-                  <span>Accept</span>
-                </button>
-                <button type="button" className="call-action-btn end" onClick={handleRejectCall}>
-                  <CloseIcon className="call-action-icon" />
-                  <span>Decline</span>
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className={`call-round-btn ${micMuted ? 'active' : ''}`}
-                  onClick={handleToggleMic}
-                  disabled={!localCallStream}
-                  aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
-                  title={micMuted ? 'Unmute' : 'Mute'}
-                >
-                  {micMuted ? (
-                    <MicOffIcon className="call-action-icon" />
-                  ) : (
-                    <MicIcon className="call-action-icon" />
-                  )}
-                </button>
-                {activeCallIsVideo ? (
-                  <>
-                    <button
-                      type="button"
-                      className={`call-round-btn sharing ${screenSharing ? 'active' : ''}`}
-                      onClick={() => {
-                        void (screenSharing ? handleStopScreenShare() : handleStartScreenShare());
-                      }}
-                      disabled={!screenSharing && !canToggleScreenShare}
-                      aria-label={screenShareButtonTitle}
-                      title={screenShareButtonTitle}
-                    >
-                      <ScreenShareIcon className="call-action-icon" />
-                    </button>
-                    <button
-                      type="button"
-                      className={`call-round-btn ${cameraOff ? 'active' : ''}`}
-                      onClick={handleToggleCamera}
-                      disabled={!localCallStream || screenSharing}
-                      aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'}
-                      title={
-                        screenSharing
-                          ? 'Stop sharing screen before changing camera'
-                          : cameraOff
-                            ? 'Camera on'
-                            : 'Camera off'
-                      }
-                    >
-                      {cameraOff ? (
-                        <VideoOffIcon className="call-action-icon" />
-                      ) : (
-                        <VideoCallIcon className="call-action-icon" />
-                      )}
-                    </button>
-                  </>
-                ) : null}
-                <button
-                  type="button"
-                  className="call-round-btn end"
-                  onClick={handleEndCall}
-                  aria-label="End call"
-                  title="End call"
-                >
-                  <PhoneIcon className="call-action-icon" />
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const renderCallOverlay = () => (
+    <ActiveCallOverlay
+      activeCall={activeCall}
+      callMinimized={callMinimized}
+      callConnectionState={callConnectionState}
+      callElapsedSeconds={callElapsedSeconds}
+      localCallStream={localCallStream}
+      remoteCallStream={remoteCallStream}
+      remoteAudioRef={remoteAudioRef}
+      remoteVideoRef={remoteVideoRef}
+      localVideoRef={localVideoRef}
+      isConversationOpen={activeCallConversationOpen}
+      micMuted={micMuted}
+      cameraOff={cameraOff}
+      screenSharing={screenSharing}
+      remoteScreenSharing={remoteScreenSharing}
+      screenShareError={screenShareError}
+      callError={callError}
+      audioInputDevices={audioInputDevices}
+      videoInputDevices={videoInputDevices}
+      selectedAudioInputId={selectedAudioInputId}
+      selectedVideoInputId={selectedVideoInputId}
+      callDevicesLoading={callDevicesLoading}
+      callDeviceError={callDeviceError}
+      formatCallTimer={formatCallTimer}
+      getMediaDeviceLabel={getMediaDeviceLabel}
+      renderUserAvatar={renderUserAvatar}
+      renderCallPermissionStatus={renderCallPermissionStatus}
+      onRestore={handleRestoreActiveCall}
+      onMinimize={handleMinimizeActiveCall}
+      onOpenConversation={handleOpenActiveCallConversation}
+      onToggleMic={handleToggleMic}
+      onToggleCamera={handleToggleCamera}
+      onStartScreenShare={handleStartScreenShare}
+      onStopScreenShare={handleStopScreenShare}
+      onEnd={handleEndCall}
+      onAccept={handleAcceptCall}
+      onReject={handleRejectCall}
+      onRetry={handleRetryActiveCall}
+      onAudioInputChange={handleAudioInputChange}
+      onVideoInputChange={handleVideoInputChange}
+    />
+  );
 
   const renderFriendshipAction = (user: User) => {
     if (!hasUserSearch) {
@@ -7939,144 +7346,28 @@ export default function ChatPage() {
       : selectedRoom?.name || 'conversation';
 
     return (
-      <aside
-        id="conversation-search-sidebar"
-        className="details-sidebar search-sidebar"
-        aria-label="Search in conversation"
-      >
-        <div className="details-header search-sidebar-header">
-          <div className="search-sidebar-title-group">
-            <h3>Search Messages</h3>
-            <span className="search-sidebar-subtitle">{conversationName}</span>
-          </div>
-          <button
-            type="button"
-            className="details-close-btn"
-            onClick={handleCloseConversationDetails}
-            aria-label="Close search"
-            title="Close search"
-          >
-            <CloseIcon className="details-close-icon" />
-          </button>
-        </div>
-
-        <div className="search-sidebar-body">
-          <form
-            className="search-sidebar-form"
-            role="search"
-            onSubmit={handleMessageSearchSubmit}
-          >
-            <div className="search-sidebar-input-box">
-              <SearchIcon className="search-sidebar-input-icon" />
-              <input
-                ref={messageSearchInputRef}
-                type="search"
-                value={messageSearchQuery}
-                onChange={(event) => handleMessageSearchChange(event.target.value)}
-                onKeyDown={handleMessageSearchInputKeyDown}
-                placeholder="Search in conversation..."
-                aria-label="Search in conversation"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              {messageSearchQuery ? (
-                <button
-                  type="button"
-                  className="search-sidebar-clear-btn"
-                  onClick={handleClearMessageSearch}
-                  aria-label="Clear search"
-                  title="Clear search"
-                >
-                  ✕
-                </button>
-              ) : null}
-            </div>
-          </form>
-
-          {!messageSearchSubmitted || !query ? (
-            <div className="search-sidebar-empty-state">
-              <div className="search-sidebar-empty-icon">🔍</div>
-              <p className="search-sidebar-empty-heading">Search in conversation</p>
-              <p className="search-sidebar-empty-hint">Type keywords and press <strong>Enter</strong> to search.</p>
-            </div>
-          ) : showInitialSearchLoading ? (
-            <div className="search-sidebar-loading-state">
-              <div className="search-sidebar-spinner" />
-              <span>Searching messages...</span>
-            </div>
-          ) : messageSearchError && messageSearchItems.length === 0 ? (
-            <div className="search-sidebar-error-state">
-              <span>{messageSearchError}</span>
-              <button
-                type="button"
-                className="shared-content-retry-btn"
-                onClick={() => void loadMessageSearch({ reset: true, query })}
-              >
-                Retry
-              </button>
-            </div>
-          ) : messageSearchItems.length === 0 ? (
-            <div className="search-sidebar-empty-state">
-              <div className="search-sidebar-empty-icon">💬</div>
-              <p className="search-sidebar-empty-heading">No results found</p>
-              <p className="search-sidebar-empty-hint">No messages matching &ldquo;{query}&rdquo;</p>
-            </div>
-          ) : (
-            <div className="search-sidebar-results-wrap">
-              <div className="search-sidebar-results-bar">
-                <span>{messageSearchItems.length}{messageSearchHasMore ? '+' : ''} matching messages</span>
-              </div>
-              <div className="search-sidebar-results-list">
-                {messageSearchItems.map((message) => {
-                  const senderName = getMessageSenderName(message, selectedRoom, findKnownUserById);
-                  const senderUser = findKnownUserById(message.senderId);
-                  const isActive = message.id === activeMessageSearchId;
-                  const snippet = getMessageSearchSnippet(message, query);
-
-                  return (
-                    <button
-                      key={message.id}
-                      type="button"
-                      className={`search-result-card ${isActive ? 'active' : ''}`}
-                      onClick={() => void handleJumpToSearchResult(message.id)}
-                    >
-                      <div className="search-result-avatar-wrap">
-                        {senderUser ? (
-                          renderUserAvatar(senderUser, 'user-avatar small-avatar')
-                        ) : (
-                          <div className="user-avatar small-avatar search-fallback-avatar">
-                            {senderName.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                      </div>
-                      <div className="search-result-content">
-                        <div className="search-result-header">
-                          <span className="search-result-sender">{senderName}</span>
-                          <span className="search-result-time">{formatMessageTime(message.timestamp)}</span>
-                        </div>
-                        <div className="search-result-snippet">
-                          {renderHighlightedSearchText(snippet, query)}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {messageSearchHasMore ? (
-                <button
-                  type="button"
-                  className="shared-content-load-btn search-sidebar-load-more"
-                  disabled={messageSearchLoading}
-                  onClick={() => void loadMessageSearch()}
-                >
-                  {messageSearchLoading ? 'Loading...' : 'Load more results'}
-                </button>
-              ) : null}
-            </div>
-          )}
-        </div>
-      </aside>
+      <SearchSidebar
+        conversationName={conversationName}
+        handleCloseConversationDetails={handleCloseConversationDetails}
+        handleMessageSearchSubmit={handleMessageSearchSubmit}
+        messageSearchInputRef={messageSearchInputRef}
+        messageSearchQuery={messageSearchQuery}
+        handleMessageSearchChange={handleMessageSearchChange}
+        handleMessageSearchInputKeyDown={handleMessageSearchInputKeyDown}
+        handleClearMessageSearch={handleClearMessageSearch}
+        messageSearchSubmitted={messageSearchSubmitted}
+        query={query}
+        showInitialSearchLoading={showInitialSearchLoading}
+        messageSearchError={messageSearchError}
+        messageSearchItems={messageSearchItems}
+        messageSearchHasMore={messageSearchHasMore}
+        messageSearchLoading={messageSearchLoading}
+        loadMessageSearch={loadMessageSearch}
+        selectedRoom={selectedRoom}
+        findKnownUserById={findKnownUserById}
+        activeMessageSearchId={activeMessageSearchId}
+        handleJumpToSearchResult={handleJumpToSearchResult}
+      />
     );
   };
 
@@ -8487,494 +7778,90 @@ export default function ChatPage() {
   };
 
   const renderConversationDetails = () => {
-    if (selectedUser) {
-      return (
-        <aside
-          id="conversation-details"
-          className="details-sidebar"
-          aria-label="Conversation details"
-        >
-          <div className="details-header">
-            <h3>Details</h3>
-            <button
-              type="button"
-              className="details-close-btn"
-              onClick={handleCloseConversationDetails}
-              aria-label="Close conversation details"
-              title="Close details"
-            >
-              <CloseIcon className="details-close-icon" />
-            </button>
-          </div>
-
-          <div className="details-profile">
-            {renderUserAvatar(selectedUser, 'user-avatar details-avatar')}
-            <h4>{getUserDisplayName(selectedUser)}</h4>
-            {shouldShowUsername(selectedUser) ? <span>@{selectedUser.username}</span> : null}
-            <span className={`details-status ${selectedUser.online ? 'online' : 'offline'}`}>
-              {getPresenceLabel(selectedUser)}
-            </span>
-            {selectedUser.bio?.trim() ? <p className="details-bio">{selectedUser.bio}</p> : null}
-          </div>
-
-          <section className="details-section" aria-labelledby="private-details-title">
-            <h4 id="private-details-title">Account</h4>
-            <div className="details-row">
-              <span>Username</span>
-              <strong>@{selectedUser.username}</strong>
-            </div>
-            <div className="details-row">
-              <span>Friendship</span>
-              <strong>Friend</strong>
-            </div>
-          </section>
-
-          {renderConversationSettingsSection({ type: 'user', user: selectedUser })}
-          {renderSharedContentSections()}
-        </aside>
-      );
-    }
-
-    if (selectedRoom) {
-      const sortedParticipants = sortParticipantsForDetails(selectedRoom.participants);
-
-      return (
-        <aside
-          id="conversation-details"
-          className="details-sidebar"
-          aria-label="Conversation details"
-        >
-          <div className="details-header">
-            <h3>Details</h3>
-            <button
-              type="button"
-              className="details-close-btn"
-              onClick={handleCloseConversationDetails}
-              aria-label="Close conversation details"
-              title="Close details"
-            >
-              <CloseIcon className="details-close-icon" />
-            </button>
-          </div>
-
-          <div className="details-profile">
-            <div className="details-room-avatar-container">
-              {renderRoomAvatar(selectedRoom, 'user-avatar room-avatar details-avatar')}
-              {currentUserCanManageSelectedRoom ? (
-                <label className="details-avatar-upload-overlay" title="Change group avatar">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    style={{ display: 'none' }}
-                    disabled={groupAvatarUploading || groupSettingsSaving}
-                    onChange={(e) => void handleGroupAvatarChange(e)}
-                  />
-                  <span>{groupAvatarUploading ? '...' : '📷'}</span>
-                </label>
-              ) : null}
-            </div>
-            {isEditingGroupName ? (
-              <form
-                className="details-group-name-inline-form"
-                onSubmit={(e) => void handleUpdateGroupSettingsName(e)}
-              >
-                <input
-                  type="text"
-                  className="details-group-name-inline-input"
-                  value={groupSettingsName}
-                  onChange={(event) => {
-                    setGroupSettingsError('');
-                    setGroupSettingsName(event.target.value);
-                  }}
-                  maxLength={100}
-                  disabled={groupSettingsSaving}
-                  autoFocus
-                  placeholder="Group name..."
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setIsEditingGroupName(false);
-                      setGroupSettingsName(selectedRoom.name);
-                    }
-                  }}
-                />
-                <div className="details-group-name-inline-actions">
-                  <button
-                    type="submit"
-                    className="details-group-name-btn save"
-                    disabled={!canSaveGroupSettingsName || groupSettingsSaving}
-                    title="Save group name"
-                    aria-label="Save group name"
-                  >
-                    {groupSettingsPendingAction === 'rename' ? '⏳' : '✓'}
-                  </button>
-                  <button
-                    type="button"
-                    className="details-group-name-btn cancel"
-                    disabled={groupSettingsSaving}
-                    onClick={() => {
-                      setIsEditingGroupName(false);
-                      setGroupSettingsName(selectedRoom.name);
-                    }}
-                    title="Cancel"
-                    aria-label="Cancel"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <div className="details-group-name-row">
-                <h4>{selectedRoom.name}</h4>
-                {currentUserCanManageSelectedRoom ? (
-                  <button
-                    type="button"
-                    className="details-group-name-edit-btn"
-                    onClick={() => {
-                      setGroupSettingsName(selectedRoom.name);
-                      setGroupSettingsError('');
-                      setIsEditingGroupName(true);
-                    }}
-                    title="Edit group name"
-                    aria-label="Edit group name"
-                  >
-                    ✏️
-                  </button>
-                ) : null}
-              </div>
-            )}
-            {currentUserMemberRole ? (
-              <span className={`details-role-badge ${isCurrentUserOwner ? 'owner-badge' : isCurrentUserModerator ? 'mod-badge' : 'member-badge'}`}>
-                {isCurrentUserOwner ? '👑 Owner' : isCurrentUserModerator ? '🛡️ Moderator' : 'Member'}
-              </span>
-            ) : null}
-            <span className="details-member-count-label">{selectedRoom.participants.length} members</span>
-          </div>
-
-          <section className="details-section" aria-labelledby="group-settings-title">
-            <div className="details-section-heading">
-              <h4 id="group-settings-title">Group Management</h4>
-              {currentUserCanManageSelectedRoom ? <span>{isCurrentUserOwner ? 'Owner' : 'Moderator'}</span> : null}
-            </div>
-
-            {currentUserCanManageSelectedRoom ? (
-              <div className="details-group-management-stack">
-                <button
-                  type="button"
-                  className="details-action-btn secondary details-invite-btn"
-                  onClick={() => void handleOpenInviteModal()}
-                >
-                  🔗 Group Invite Link
-                </button>
-              </div>
-            ) : (
-              <div className="details-row">
-                <span>Owner</span>
-                <strong>{selectedRoomOwnerName || 'Owner'}</strong>
-              </div>
-            )}
-
-            {groupSettingsError ? (
-              <div className="details-error">{groupSettingsError}</div>
-            ) : null}
-          </section>
-
-          {renderSharedContentSections()}
-          {renderConversationSettingsSection({ type: 'room', room: selectedRoom })}
-
-          {currentUserCanManageSelectedRoom ? (
-            <section className="details-section" aria-labelledby="add-members-title">
-              <div className="details-section-heading">
-                <h4 id="add-members-title">Add Members</h4>
-                {selectedAddMemberIds.length > 0 ? <span>{selectedAddMemberIds.length}</span> : null}
-              </div>
-
-              {addMemberCandidates.length === 0 ? (
-                <div className="details-empty-text">All friends are already in this group.</div>
-              ) : (
-                <div className="details-add-member-list">
-                  {addMemberCandidates.map((friend) => (
-                    <label key={friend.id} className="details-add-member-option">
-                      <input
-                        type="checkbox"
-                        checked={selectedAddMemberIds.includes(friend.id)}
-                        disabled={groupSettingsSaving}
-                        onChange={() => handleToggleAddRoomMember(friend.id)}
-                      />
-                      {renderUserAvatar(friend, 'user-avatar small-avatar')}
-                      <span className="details-add-member-copy">
-                        <strong>{getUserDisplayName(friend)}</strong>
-                        <small>@{friend.username}</small>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-
-              <button
-                type="button"
-                className="details-action-btn"
-                disabled={!canAddRoomMembers}
-                onClick={() => void handleAddRoomMembers()}
-              >
-                {groupSettingsPendingAction === 'add' ? 'Adding...' : 'Add to group'}
-              </button>
-            </section>
-          ) : null}
-
-          <section className="details-section" aria-labelledby="group-members-title">
-            <button
-              type="button"
-              className="details-section-toggle-btn"
-              onClick={() => setGroupMembersExpanded((current) => !current)}
-              aria-expanded={groupMembersExpanded}
-              aria-controls="group-members-list"
-            >
-              <div className="details-section-heading">
-                <h4 id="group-members-title">Members</h4>
-                <span>{selectedRoom.participants.length}</span>
-              </div>
-              <ChevronDownIcon className={`details-toggle-icon ${groupMembersExpanded ? 'expanded' : ''}`} />
-            </button>
-            {groupMembersExpanded ? (
-              <div id="group-members-list" className="details-member-list">
-                {sortedParticipants.map(renderDetailsMemberItem)}
-              </div>
-            ) : null}
-          </section>
-
-          <section className="details-section details-danger-zone" aria-labelledby="leave-group-title">
-            <h4 id="leave-group-title">{isCurrentUserOwner ? 'Danger Zone' : 'Leave Group'}</h4>
-            {isCurrentUserOwner ? (
-              <button
-                type="button"
-                className="details-action-btn danger"
-                disabled={groupSettingsSaving}
-                onClick={() => void handleDeleteSelectedGroup()}
-              >
-                {groupSettingsPendingAction === 'delete-room' ? 'Dissolving...' : 'Dissolve Group'}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className={`details-action-btn ${isCurrentUserOwner ? 'ghost-danger' : 'danger'}`}
-              disabled={groupSettingsSaving}
-              onClick={() => void handleLeaveSelectedGroup()}
-            >
-              {groupSettingsPendingAction === 'leave' ? 'Leaving...' : 'Leave Group'}
-            </button>
-          </section>
-        </aside>
-      );
-    }
-
-    return null;
+    return (
+      <DetailsSidebar
+        selectedUser={selectedUser}
+        selectedRoom={selectedRoom}
+        handleCloseConversationDetails={handleCloseConversationDetails}
+        renderConversationSettingsSection={renderConversationSettingsSection}
+        renderSharedContentSections={renderSharedContentSections}
+        currentUserCanManageSelectedRoom={currentUserCanManageSelectedRoom}
+        groupAvatarUploading={groupAvatarUploading}
+        groupSettingsSaving={groupSettingsSaving}
+        handleGroupAvatarChange={handleGroupAvatarChange}
+        isEditingGroupName={isEditingGroupName}
+        handleUpdateGroupSettingsName={handleUpdateGroupSettingsName}
+        groupSettingsName={groupSettingsName}
+        setGroupSettingsError={setGroupSettingsError}
+        setGroupSettingsName={setGroupSettingsName}
+        canSaveGroupSettingsName={canSaveGroupSettingsName}
+        groupSettingsPendingAction={groupSettingsPendingAction}
+        setIsEditingGroupName={setIsEditingGroupName}
+        currentUserMemberRole={currentUserMemberRole}
+        isCurrentUserOwner={isCurrentUserOwner}
+        isCurrentUserModerator={isCurrentUserModerator}
+        handleOpenInviteModal={handleOpenInviteModal}
+        selectedRoomOwnerName={selectedRoomOwnerName}
+        groupSettingsError={groupSettingsError}
+        selectedAddMemberIds={selectedAddMemberIds}
+        addMemberCandidates={addMemberCandidates}
+        handleToggleAddRoomMember={handleToggleAddRoomMember}
+        canAddRoomMembers={canAddRoomMembers}
+        handleAddRoomMembers={handleAddRoomMembers}
+        groupMembersExpanded={groupMembersExpanded}
+        setGroupMembersExpanded={setGroupMembersExpanded}
+        renderDetailsMemberItem={renderDetailsMemberItem}
+        handleDeleteSelectedGroup={handleDeleteSelectedGroup}
+        handleLeaveSelectedGroup={handleLeaveSelectedGroup}
+      />
+    );
   };
 
   return (
     <div className="chat-page">
-      <header className="chat-header">
-        <div className="header-left">
-          <h2>Chat App</h2>
-        </div>
-        <nav className="header-right" aria-label="Account navigation">
-          <button
-            type="button"
-            className="header-icon-btn theme-toggle-btn"
-            onClick={toggleTheme}
-            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {isDark ? <SunIcon className="header-icon" /> : <MoonIcon className="header-icon" />}
-          </button>
-
-          <button
-            type="button"
-            className={`header-icon-btn ${mainView === 'friends' ? 'active' : ''}`}
-            onClick={handleOpenFriendsPanel}
-            aria-pressed={mainView === 'friends'}
-            aria-label="Friends list"
-            title="Friends list"
-          >
-            <FriendsIcon className="header-icon" />
-          </button>
-
-          <div className="friend-request-menu">
-            <button
-              type="button"
-              className={`header-icon-btn ${soundMuted ? 'muted' : ''}`}
-              onClick={() => soundService.toggleMuted()}
-              aria-label={soundMuted ? 'Unmute sounds' : 'Mute sounds'}
-              title={soundMuted ? 'Sounds muted (click to unmute)' : 'Sounds active (click to mute)'}
-            >
-              {soundMuted ? <MuteIcon className="header-icon" /> : <SoundIcon className="header-icon" />}
-            </button>
-
-            <button
-              type="button"
-              className={`header-icon-btn ${mainView === 'requests' ? 'active' : ''}`}
-              onClick={handleOpenRequestsPanel}
-              aria-pressed={mainView === 'requests'}
-              aria-label={`Friend requests, ${friendRequestBadgeCount} pending`}
-              title="Friend requests"
-            >
-              <FriendRequestIcon className="header-icon" />
-              {friendRequestBadgeCount > 0 ? (
-                <span className="request-badge">{friendRequestBadgeCount}</span>
-              ) : null}
-            </button>
-          </div>
-
-          <div className="profile-menu">
-            <button
-              type="button"
-              className={`header-icon-btn profile-icon-btn ${profileMenuOpen ? 'active' : ''}`}
-              onClick={handleToggleProfileMenu}
-              aria-expanded={profileMenuOpen}
-              aria-haspopup="menu"
-              aria-label={`Profile menu for ${currentUserDisplayName}`}
-              title="Profile"
-            >
-              <ProfileIcon className="header-icon" />
-              <span
-                className={`profile-presence-dot ${currentUserOnline ? 'online' : 'offline'}`}
-                aria-hidden="true"
-              />
-            </button>
-
-            {profileMenuOpen ? (
-              <div className="profile-dropdown" role="menu">
-                <div className="profile-summary">
-                  {renderUserAvatar(currentUser, 'user-avatar small-avatar')}
-                  <div className="profile-copy">
-                    <strong>{currentUserDisplayName}</strong>
-                    {currentUser?.username ? <span>@{currentUser.username}</span> : null}
-                  </div>
-                </div>
-                <span
-                  className={`account-status ${currentUserOnline ? 'online' : 'offline'}`}
-                  aria-live="polite"
-                  title={currentUserOnline ? 'Online' : 'Offline'}
-                >
-                  <span className="account-status-dot" aria-hidden="true" />
-                  {currentUserOnline ? 'Online' : 'Offline'}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => soundService.toggleMuted()}
-                  className="profile-sound-btn"
-                  role="menuitem"
-                >
-                  {soundMuted ? <MuteIcon className="profile-notification-icon" /> : <SoundIcon className="profile-notification-icon" />}
-                  <span>{soundMuted ? 'Sounds: Muted' : 'Sounds: Enabled'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (browserNotificationPermission === 'granted') {
-                      soundService.playNotificationSound();
-                    } else {
-                      void requestBrowserNotificationPermission();
-                    }
-                  }}
-                  className="profile-notification-btn"
-                  role="menuitem"
-                  disabled={
-                    !isBrowserNotificationSupported() ||
-                    browserNotificationPermission === 'denied'
-                  }
-                  title={
-                    browserNotificationPermission === 'granted'
-                      ? 'Play notification sound'
-                      : getBrowserNotificationStatusLabel(browserNotificationPermission)
-                  }
-                >
-                  <BellIcon className="profile-notification-icon" />
-                  <span>{getBrowserNotificationStatusLabel(browserNotificationPermission)}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleOpenProfileEditor}
-                  className="profile-edit-btn"
-                  role="menuitem"
-                >
-                  Edit profile
-                </button>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="profile-logout-btn"
-                  role="menuitem"
-                >
-                  Logout
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </nav>
-      </header>
+      <AppHeader
+        isDark={isDark}
+        mainView={mainView}
+        soundMuted={soundMuted}
+        friendRequestBadgeCount={friendRequestBadgeCount}
+        profileMenuOpen={profileMenuOpen}
+        currentUser={currentUser}
+        currentUserDisplayName={currentUserDisplayName}
+        currentUserOnline={currentUserOnline}
+        browserNotificationPermission={browserNotificationPermission}
+        browserNotificationStatusLabel={getBrowserNotificationStatusLabel(browserNotificationPermission)}
+        isBrowserNotificationAvailable={isBrowserNotificationSupported()}
+        onToggleTheme={toggleTheme}
+        onOpenFriends={handleOpenFriendsPanel}
+        onToggleSound={() => soundService.toggleMuted()}
+        onOpenRequests={handleOpenRequestsPanel}
+        onToggleProfileMenu={handleToggleProfileMenu}
+        onBrowserNotificationAction={() => {
+          if (browserNotificationPermission === 'granted') {
+            soundService.playNotificationSound();
+          } else {
+            void requestBrowserNotificationPermission();
+          }
+        }}
+        onOpenProfileEditor={handleOpenProfileEditor}
+        onLogout={handleLogout}
+      />
 
       <div className={`chat-container ${mainView === 'chat' && selectedConversationOpen ? 'conversation-open' : ''}`}>
-        <aside className="sidebar">
-          <div className="sidebar-header">
-            <div className="sidebar-title-row">
-              <h3>Chats</h3>
-              <button
-                type="button"
-                className="new-group-btn"
-                onClick={handleOpenCreateGroup}
-                aria-label="Create group"
-                title="Create group"
-              >
-                <GroupPlusIcon className="new-group-icon" />
-              </button>
-            </div>
-            <div className="user-search" role="search">
-              <input
-                type="search"
-                value={userSearchQuery}
-                onChange={(event) => handleUserSearchChange(event.target.value)}
-                className="user-search-input"
-                placeholder="Search username to add"
-                aria-label="Search users by username"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              {userSearchQuery ? (
-                <button
-                  type="button"
-                  className="user-search-clear"
-                  onClick={handleClearUserSearch}
-                  aria-label="Clear user search"
-                >
-                  ×
-                </button>
-              ) : null}
-            </div>
-            {!hasUserSearch ? (
-              <div className="conversation-filter" role="tablist" aria-label="Conversation filter">
-                {CONVERSATION_FILTERS.map((filter) => (
-                  <button
-                    key={filter.value}
-                    type="button"
-                    role="tab"
-                    className={`conversation-filter-btn ${conversationFilter === filter.value ? 'active' : ''}`}
-                    aria-selected={conversationFilter === filter.value}
-                    onClick={() => setConversationFilter(filter.value)}
-                  >
-                    {filter.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {conversationSettingsError ? (
-              <div className="conversation-settings-error">{conversationSettingsError}</div>
-            ) : null}
-          </div>
-          <div className="user-list" aria-busy={sidebarBusy} aria-label="Chat list">
-            {hasUserSearch ? renderSidebarSearchList() : renderSidebarChatList()}
-          </div>
-        </aside>
+        <ConversationSidebar
+          userSearchQuery={userSearchQuery}
+          onUserSearchChange={handleUserSearchChange}
+          onClearUserSearch={handleClearUserSearch}
+          hasUserSearch={hasUserSearch}
+          conversationFilters={CONVERSATION_FILTERS}
+          conversationFilter={conversationFilter}
+          onConversationFilterChange={setConversationFilter}
+          conversationSettingsError={conversationSettingsError}
+          sidebarBusy={sidebarBusy}
+          onOpenCreateGroup={handleOpenCreateGroup}
+        >
+          {hasUserSearch ? renderSidebarSearchList() : renderSidebarChatList()}
+        </ConversationSidebar>
 
         <main className={`chat-area ${mainView !== 'chat' ? 'main-view-open' : ''}`}>
           {mainView === 'friends' ? (
@@ -8983,88 +7870,18 @@ export default function ChatPage() {
             renderRequestsPanel()
           ) : selectedConversationOpen ? (
             <>
-              <div className="chat-area-header">
-                <button
-                  type="button"
-                  className="mobile-chat-list-btn"
-                  onClick={handleReturnToConversationList}
-                  aria-label="Back to chat list"
-                  title="Back to chats"
-                >
-                  <ArrowLeftIcon className="mobile-chat-list-icon" />
-                </button>
-                <div className="selected-user">
-                  {selectedRoom ? (
-                    <div className="user-avatar room-avatar">
-                      {getRoomInitial(selectedRoom)}
-                    </div>
-                  ) : (
-                    renderUserAvatar(selectedUser)
-                  )}
-                  <div className="selected-user-copy">
-                    <div className="user-name">{selectedConversationName}</div>
-                    {selectedRoom ? (
-                      <div className="user-meta">
-                        <span className="user-status">
-                          {selectedRoom.participants.length} members
-                        </span>
-                      </div>
-                    ) : selectedUser ? (
-                      <div className="user-meta">
-                        <span className={`user-status ${selectedUser.online ? 'online' : 'offline'}`}>
-                          {getPresenceLabel(selectedUser)}
-                        </span>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="conversation-header-actions">
-                  {selectedUser ? (
-                    <>
-                      <button
-                        type="button"
-                        className="conversation-call-btn"
-                        onClick={() => handleStartCall('AUDIO')}
-                        disabled={!canStartPrivateCall}
-                        aria-label={`Start audio call with ${getUserDisplayName(selectedUser)}`}
-                        title="Audio call"
-                      >
-                        <PhoneIcon className="conversation-call-icon" />
-                      </button>
-                      <button
-                        type="button"
-                        className="conversation-call-btn"
-                        onClick={() => handleStartCall('VIDEO')}
-                        disabled={!canStartPrivateCall}
-                        aria-label={`Start video call with ${getUserDisplayName(selectedUser)}`}
-                        title="Video call"
-                      >
-                        <VideoCallIcon className="conversation-call-icon" />
-                      </button>
-                    </>
-                  ) : null}
-                  <button
-                    type="button"
-                    className={`conversation-search-toggle ${detailsOpen && rightSidebarTab === 'search' ? 'active' : ''}`}
-                    onClick={handleToggleMessageSearch}
-                    aria-label={detailsOpen && rightSidebarTab === 'search' ? 'Close message search' : 'Search in conversation'}
-                    title="Search in conversation"
-                  >
-                    <SearchIcon className="conversation-search-icon" />
-                  </button>
-                  <button
-                    type="button"
-                    className={`conversation-details-toggle ${detailsOpen && rightSidebarTab === 'details' ? 'active' : ''}`}
-                    onClick={handleToggleConversationDetails}
-                    aria-label={detailsOpen && rightSidebarTab === 'details' ? 'Hide conversation details' : 'Show conversation details'}
-                    aria-expanded={detailsOpen && rightSidebarTab === 'details'}
-                    aria-controls="conversation-details"
-                    title={detailsOpen && rightSidebarTab === 'details' ? 'Hide details' : 'Show details'}
-                  >
-                    <InfoIcon className="conversation-details-icon" />
-                  </button>
-                </div>
-              </div>
+              <ConversationHeader
+                selectedUser={selectedUser}
+                selectedRoom={selectedRoom}
+                selectedConversationName={selectedConversationName}
+                canStartPrivateCall={canStartPrivateCall}
+                detailsOpen={detailsOpen}
+                rightSidebarTab={rightSidebarTab}
+                onBackToChatList={handleReturnToConversationList}
+                onStartCall={handleStartCall}
+                onToggleMessageSearch={handleToggleMessageSearch}
+                onToggleConversationDetails={handleToggleConversationDetails}
+              />
 
               {pinnedMessage ? (
                 <div className="pinned-message-banner">
@@ -9172,165 +7989,33 @@ export default function ChatPage() {
                         {olderMessagesLoading ? 'Loading older messages...' : 'Load older messages'}
                       </button>
                     ) : null}
-                    {messageListItems.map((item) => {
-                      if (item.type === 'date') {
-                        return (
-                          <div key={item.key} className="message-date-divider">
-                            <span>{item.label}</span>
-                          </div>
-                        );
-                      }
-
-                      if (item.type === 'unread') {
-                        return (
-                          <div
-                            key={item.key}
-                            ref={unreadDividerRef}
-                            className="message-unread-divider"
-                          >
-                            <span>Unread messages</span>
-                          </div>
-                        );
-                      }
-
-                      const { message, groupedWithPrevious, groupedWithNext, showSender } = item;
-                      const isSentByCurrentUser = message.senderId === currentUser?.id;
-                      const hasVisibleMessageTime =
-                        !groupedWithNext || message.deliveryStatus === 'failed';
-                      const isLatestSeenOutgoingMessage =
-                        Boolean(selectedUser) &&
-                        isSentByCurrentUser &&
-                        message.id > 0 &&
-                        message.id === latestSeenOutgoingMessageId;
-                      const isLatestOutgoingMessage =
-                        isSentByCurrentUser &&
-                        (message.id > 0
-                          ? message.id === latestOutgoingMessageId
-                          : message.clientId === latestOutgoingMessageId);
-                      const deliveryStatusLabel = isSentByCurrentUser
-                        ? getDeliveryStatusLabel(
-                          message,
-                          selectedUser,
-                          isLatestSeenOutgoingMessage,
-                          isLatestOutgoingMessage
-                        )
-                        : '';
-                      const groupSeenByUsers =
-                        selectedRoom && isSentByCurrentUser && message.id > 0 && !message.recalled
-                          ? latestRoomSeenByByMessageId[message.id] ?? []
-                          : [];
-                      const groupSeenByLoading =
-                        selectedRoom &&
-                        isSentByCurrentUser &&
-                        message.id > 0 &&
-                        !message.recalled &&
-                        groupSeenByUsers.length === 0 &&
-                        seenByLoadingMessageIds.includes(message.id);
-                      const isMessageSearchMatch = Boolean(
-                        detailsOpen &&
-                        rightSidebarTab === 'search' &&
-                        messageSearchQuery.trim() &&
-                        messageSearchResultIds.has(message.id)
-                      );
-                      const isCallEventMessage = isCallMessage(message);
-
-                      if (isCallEventMessage) {
-                        return (
-                          <div
-                            key={item.key}
-                            data-message-id={message.id > 0 ? message.id : undefined}
-                            className={`message call-system ${isMessageSearchMatch ? 'message-search-match' : ''} ${highlightedMessageId === message.id ? 'highlighted' : ''}`}
-                          >
-                            {renderCallMessageBody(message)}
-                          </div>
-                        );
-                      }
-
-                      const isMentioned = Boolean(
-                        !isSentByCurrentUser && (
-                          (currentUser && message.mentionedUserIds?.includes(currentUser.id)) ||
-                          (currentUser && message.mentionedUsernames?.includes(currentUser.username)) ||
-                          (selectedRoom && message.content && /@all\b/i.test(message.content))
-                        )
-                      );
-                      const senderUser = !isSentByCurrentUser
-                        ? getMessageSenderUser(message, selectedUser, selectedRoom, findKnownUserById)
-                        : null;
-
-                      return (
-                        <div
-                          key={item.key}
-                          data-message-id={message.id > 0 ? message.id : undefined}
-                          className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${message.deliveryStatus ?? ''} ${groupedWithPrevious ? 'grouped-with-previous' : ''} ${groupedWithNext ? 'grouped-with-next' : ''} ${hasVisibleMessageTime ? 'has-visible-time' : ''} ${isMessageSearchMatch ? 'message-search-match' : ''} ${highlightedMessageId === message.id ? 'highlighted' : ''} ${isMentioned ? 'message-mentioned' : ''}`}
-                        >
-                          {showSender ? (
-                            <div className="message-sender">
-                              {getMessageSenderName(message, selectedRoom, findKnownUserById)}
-                            </div>
-                          ) : null}
-                          <div className="message-bubble-row">
-                            {!isSentByCurrentUser && senderUser ? (
-                              <div className="message-sender-avatar-wrap">
-                                {!groupedWithNext ? (
-                                  <button
-                                    type="button"
-                                    className="message-avatar-btn"
-                                    onClick={() => handleOpenUserProfile(senderUser)}
-                                    title={getUserDisplayName(senderUser)}
-                                    aria-label={`View profile of ${getUserDisplayName(senderUser)}`}
-                                  >
-                                    {renderUserAvatar(senderUser, 'user-avatar message-bubble-avatar')}
-                                  </button>
-                                ) : (
-                                  <div className="message-avatar-spacer" aria-hidden="true" />
-                                )}
-                              </div>
-                            ) : null}
-                            {isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
-                            <div className="message-bubble-wrap">
-                              {renderMessageBody(message)}
-                              {renderMessageReactions(message)}
-                            </div>
-                            {!isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
-                          </div>
-                          {hasVisibleMessageTime ? (
-                            <div className="message-time">
-                              <span>{formatMessageTime(message.timestamp)}</span>
-                              {isSentByCurrentUser ? (
-                                <>
-                                  {deliveryStatusLabel ? (
-                                    <span className={`message-read-status ${message.deliveryStatus ?? ''}`}>
-                                      {deliveryStatusLabel}
-                                    </span>
-                                  ) : null}
-                                  {message.deliveryStatus === 'failed' ? (
-                                    <button
-                                      type="button"
-                                      className="message-retry-btn"
-                                      onClick={() => handleRetryMessage(message)}
-                                    >
-                                      Retry
-                                    </button>
-                                  ) : null}
-                                </>
-                              ) : null}
-                            </div>
-                          ) : null}
-                          {isLatestSeenOutgoingMessage ? (
-                            <div className="message-seen-avatar-row">
-                              {renderUserAvatar(selectedUser, 'user-avatar message-seen-avatar')}
-                            </div>
-                          ) : null}
-                          {groupSeenByUsers.length > 0 ? (
-                            renderGroupSeenBy(message, groupSeenByUsers)
-                          ) : groupSeenByLoading ? (
-                            <div className="message-seen-by-row loading" aria-label="Loading seen by">
-                              <span className="message-seen-by-loading-dot" />
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
+                    {messageListItems.map((item) => (
+                      <MessageItem
+                        key={item.key}
+                        item={item}
+                        currentUser={currentUser}
+                        selectedUser={selectedUser}
+                        selectedRoom={selectedRoom}
+                        unreadDividerRef={unreadDividerRef}
+                        latestSeenOutgoingMessageId={latestSeenOutgoingMessageId}
+                        latestOutgoingMessageId={latestOutgoingMessageId}
+                        latestRoomSeenByByMessageId={latestRoomSeenByByMessageId}
+                        seenByLoadingMessageIds={seenByLoadingMessageIds}
+                        detailsOpen={detailsOpen}
+                        rightSidebarTab={rightSidebarTab}
+                        messageSearchQuery={messageSearchQuery}
+                        messageSearchResultIds={messageSearchResultIds}
+                        highlightedMessageId={highlightedMessageId}
+                        renderCallMessageBody={renderCallMessageBody}
+                        findKnownUserById={findKnownUserById}
+                        handleOpenUserProfile={handleOpenUserProfile}
+                        renderMessageActions={renderMessageActions}
+                        renderMessageBody={renderMessageBody}
+                        renderMessageReactions={renderMessageReactions}
+                        handleRetryMessage={handleRetryMessage}
+                        renderGroupSeenBy={renderGroupSeenBy}
+                      />
+                    ))}
                   </>
                 )}
                 {!messagesLoading && typingIndicatorLabel ? (
@@ -9339,198 +8024,37 @@ export default function ChatPage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              <form onSubmit={handleSendMessage} className="message-input-form">
-                <input
-                  ref={mediaFileInputRef}
-                  type="file"
-                  className="media-file-input"
-                  accept={MEDIA_ACCEPT}
-                  onChange={handleMediaFileChange}
-                />
-                <input
-                  ref={docFileInputRef}
-                  type="file"
-                  className="media-file-input"
-                  accept="*/*"
-                  onChange={handleMediaFileChange}
-                />
-
-                {activeReplyPreview ? (
-                  <div className="replying-composer-preview">
-                    <div className="replying-composer-copy">
-                      <span>Replying to {activeReplyPreview.senderName}</span>
-                      <p>{activeReplyPreview.content}</p>
-                    </div>
-                    <button
-                      type="button"
-                      className="replying-composer-close"
-                      onClick={handleCancelReply}
-                      aria-label="Cancel reply"
-                      title="Cancel reply"
-                    >
-                      <CloseIcon className="replying-composer-close-icon" />
-                    </button>
-                  </div>
-                ) : null}
-
-                {pendingMedia || mediaError ? (
-                  <div className="pending-media-wrap">
-                    {pendingMedia ? (
-                      <div className="pending-media-preview">
-                        {pendingMedia.type === 'FILE' ? (
-                          <div className={`pending-media-file-badge ${getFileBadgeColor(getFileExtension(pendingMedia.file.name))}`}>
-                            <DocumentIcon className="pending-file-icon" />
-                            <span className="pending-file-ext">{getFileExtension(pendingMedia.file.name)}</span>
-                          </div>
-                        ) : pendingMedia.resourceType === 'image' ? (
-                          <img src={pendingMedia.previewUrl} alt="Selected media preview" />
-                        ) : (
-                          <video src={pendingMedia.previewUrl} muted preload="metadata" />
-                        )}
-                        <div className="pending-media-copy">
-                          <strong>{pendingMedia.file.name}</strong>
-                          <span>{mediaUploading ? 'Uploading...' : `${formatFileSize(pendingMedia.file.size)} • Ready to send`}</span>
-                        </div>
-                        <button
-                          type="button"
-                          className="pending-media-remove"
-                          onClick={clearPendingMedia}
-                          disabled={mediaUploading}
-                          aria-label="Remove selected media"
-                        >
-                          <CloseIcon className="pending-media-remove-icon" />
-                        </button>
-                      </div>
-                    ) : null}
-                    {mediaError ? <div className="media-error-text">{mediaError}</div> : null}
-                  </div>
-                ) : null}
-
-                <div className="message-input-row">
-                  <div className="message-composer">
-                    <button
-                      type="button"
-                      className="composer-icon-btn"
-                      onClick={handleOpenMediaPicker}
-                      disabled={mediaUploading}
-                      aria-label="Attach image or video"
-                      title="Attach photo/video"
-                    >
-                      <MediaIcon className="composer-icon" />
-                    </button>
-                    <button
-                      type="button"
-                      className="composer-icon-btn"
-                      onClick={handleOpenDocPicker}
-                      disabled={mediaUploading}
-                      aria-label="Attach file or document"
-                      title="Attach file"
-                    >
-                      <PaperclipIcon className="composer-icon" />
-                    </button>
-                    <VoiceRecorderButton
-                      disabled={mediaUploading}
-                      onRecorded={handleVoiceRecorded}
-                    />
-                    <button
-                      ref={emojiButtonRef}
-                      type="button"
-                      className={`composer-icon-btn emoji-toggle-btn ${emojiPickerOpen ? 'active' : ''}`}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={handleToggleEmojiPicker}
-                      disabled={mediaUploading}
-                      aria-label={emojiPickerOpen ? 'Close emoji picker' : 'Open emoji picker'}
-                      aria-expanded={emojiPickerOpen}
-                      aria-controls="emoji-picker-panel"
-                      aria-haspopup="dialog"
-                      title="Emoji"
-                    >
-                      <EmojiIcon className="composer-icon" />
-                    </button>
-                    <textarea
-                      ref={messageInputRef}
-                      value={messageInput}
-                      onChange={(e) => handleMessageInputChange(e.target.value)}
-                      onKeyDown={handleMessageInputKeyDown}
-                      onKeyUp={updateMessageInputSelection}
-                      onClick={updateMessageInputSelection}
-                      onSelect={updateMessageInputSelection}
-                      placeholder={`Message ${selectedConversationName}`}
-                      className="message-input"
-                      rows={1}
-                      disabled={mediaUploading}
-                    />
-
-                    {mentionQuery !== null && mentionCandidates.length > 0 ? (
-                      <div className="mention-autocomplete-dropdown" role="listbox" aria-label="Mention members">
-                        <div className="mention-dropdown-header">Mention member</div>
-                        <div className="mention-dropdown-list">
-                          {mentionCandidates.map((c, idx) => (
-                            <button
-                              key={`${c.id}-${c.username}`}
-                              type="button"
-                              className={`mention-dropdown-item ${idx === mentionActiveIndex ? 'active' : ''}`}
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                insertMention(c);
-                              }}
-                            >
-                              <div className={`mention-dropdown-avatar ${c.isAll ? 'all' : ''}`}>
-                                {c.isAll ? '@' : c.username.charAt(0).toUpperCase()}
-                              </div>
-                              <div className="mention-dropdown-info">
-                                <span className="mention-dropdown-name">{c.fullName}</span>
-                                <span className="mention-dropdown-username">@{c.username}</span>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {emojiPickerOpen ? (
-                      <div
-                        ref={emojiPickerRef}
-                        id="emoji-picker-panel"
-                        className="emoji-picker-panel"
-                        role="dialog"
-                        aria-label="Emoji picker"
-                      >
-                        <div className="emoji-picker-header">Emoji</div>
-                        <div className="emoji-category-list">
-                          {EMOJI_CATEGORIES.map((category) => (
-                            <section key={category.name} className="emoji-category">
-                              <div className="emoji-category-title">{category.name}</div>
-                              <div className="emoji-grid">
-                                {category.emojis.map((emoji) => (
-                                  <button
-                                    key={`${category.name}-${emoji.symbol}`}
-                                    type="button"
-                                    className="emoji-option-btn"
-                                    onMouseDown={(event) => event.preventDefault()}
-                                    onClick={() => handleInsertEmoji(emoji.symbol)}
-                                    aria-label={`Insert ${emoji.label}`}
-                                    title={emoji.label}
-                                  >
-                                    {emoji.symbol}
-                                  </button>
-                                ))}
-                              </div>
-                            </section>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                  <button
-                    type="submit"
-                    className="send-btn"
-                    disabled={(!messageInput.trim() && !pendingMedia) || mediaUploading}
-                  >
-                    {mediaUploading ? 'Uploading' : 'Send'}
-                  </button>
-                </div>
-              </form>
+              <MessageInput
+                onSubmit={handleSendMessage}
+                mediaFileInputRef={mediaFileInputRef}
+                docFileInputRef={docFileInputRef}
+                mediaAccept={MEDIA_ACCEPT}
+                onFileChange={handleMediaFileChange}
+                replyPreview={activeReplyPreview}
+                onCancelReply={handleCancelReply}
+                pendingMedia={pendingMedia}
+                mediaError={mediaError}
+                mediaUploading={mediaUploading}
+                onClearPendingMedia={clearPendingMedia}
+                onOpenMediaPicker={handleOpenMediaPicker}
+                onOpenDocumentPicker={handleOpenDocPicker}
+                onVoiceRecorded={handleVoiceRecorded}
+                emojiButtonRef={emojiButtonRef}
+                emojiPickerOpen={emojiPickerOpen}
+                onToggleEmojiPicker={handleToggleEmojiPicker}
+                messageInputRef={messageInputRef}
+                messageInput={messageInput}
+                onMessageInputChange={handleMessageInputChange}
+                onMessageInputKeyDown={handleMessageInputKeyDown}
+                onUpdateMessageInputSelection={updateMessageInputSelection}
+                selectedConversationName={selectedConversationName}
+                mentionQuery={mentionQuery}
+                mentionCandidates={mentionCandidates}
+                mentionActiveIndex={mentionActiveIndex}
+                onInsertMention={insertMention}
+                emojiPickerRef={emojiPickerRef}
+                onInsertEmoji={handleInsertEmoji}
+              />
             </>
           ) : (
             <div className="no-chat-selected">
