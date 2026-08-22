@@ -36,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -89,7 +90,7 @@ public class MessageService {
                 before,
                 PageRequest.of(0, pageSize + 1));
 
-        return toMessagePage(messages, pageSize);
+        return toMessagePage(filterClearedMessages(messages, privateClearedAt(participants)), pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -112,7 +113,7 @@ public class MessageService {
                 before,
                 PageRequest.of(0, pageSize + 1));
 
-        return toMessagePage(messages, pageSize);
+        return toMessagePage(filterClearedMessages(messages, roomClearedAt(currentUsername, roomId)), pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -132,7 +133,7 @@ public class MessageService {
                 before,
                 PageRequest.of(0, pageSize + 1));
 
-        return toGalleryMessagePage(messages, pageSize);
+        return toGalleryMessagePage(filterClearedMessages(messages, privateClearedAt(participants)), pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -151,7 +152,7 @@ public class MessageService {
                 before,
                 PageRequest.of(0, pageSize + 1));
 
-        return toGalleryMessagePage(messages, pageSize);
+        return toGalleryMessagePage(filterClearedMessages(messages, privateClearedAt(participants)), pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -165,7 +166,7 @@ public class MessageService {
                 before,
                 PageRequest.of(0, pageSize + 1));
 
-        return toGalleryMessagePage(messages, pageSize);
+        return toGalleryMessagePage(filterClearedMessages(messages, roomClearedAt(currentUsername, roomId)), pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -178,7 +179,7 @@ public class MessageService {
                 before,
                 PageRequest.of(0, pageSize + 1));
 
-        return toGalleryMessagePage(messages, pageSize);
+        return toGalleryMessagePage(filterClearedMessages(messages, roomClearedAt(currentUsername, roomId)), pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -203,7 +204,7 @@ public class MessageService {
                 before,
                 PageRequest.of(0, pageSize + 1));
 
-        return toGalleryMessagePage(messages, pageSize);
+        return toGalleryMessagePage(filterClearedMessages(messages, privateClearedAt(participants)), pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -226,7 +227,7 @@ public class MessageService {
                 before,
                 PageRequest.of(0, pageSize + 1));
 
-        return toGalleryMessagePage(messages, pageSize);
+        return toGalleryMessagePage(filterClearedMessages(messages, roomClearedAt(currentUsername, roomId)), pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -242,21 +243,23 @@ public class MessageService {
                 participants.otherUser().getId(),
                 messageId)
                 .orElseThrow(() -> new AppException(ErrorCode.MESSAGE_NOT_FOUND));
+        LocalDateTime clearedAt = privateClearedAt(participants);
+        requireVisibleAfterClear(anchorMessage, clearedAt);
 
         int pageSize = normalizePageSize(size);
         return loadMessagesAroundAnchor(
                 anchorMessage,
                 pageSize,
-                (anchorId, pageable) -> messageRepository.findConversationMessagesBefore(
+                (anchorId, pageable) -> filterClearedMessages(messageRepository.findConversationMessagesBefore(
                         participants.currentUser().getId(),
                         participants.otherUser().getId(),
                         anchorId,
-                        pageable),
-                (anchorId, pageable) -> messageRepository.findConversationMessagesAfter(
+                        pageable), clearedAt),
+                (anchorId, pageable) -> filterClearedMessages(messageRepository.findConversationMessagesAfter(
                         participants.currentUser().getId(),
                         participants.otherUser().getId(),
                         anchorId,
-                        pageable));
+                        pageable), clearedAt));
     }
 
     @Transactional(readOnly = true)
@@ -268,13 +271,17 @@ public class MessageService {
         chatRoomService.findGroupRoomForMember(currentUsername, roomId);
         Message anchorMessage = messageRepository.findRoomMessageById(roomId, messageId)
                 .orElseThrow(() -> new AppException(ErrorCode.MESSAGE_NOT_FOUND));
+        LocalDateTime clearedAt = roomClearedAt(currentUsername, roomId);
+        requireVisibleAfterClear(anchorMessage, clearedAt);
 
         int pageSize = normalizePageSize(size);
         return loadMessagesAroundAnchor(
                 anchorMessage,
                 pageSize,
-                (anchorId, pageable) -> messageRepository.findRoomMessagesBefore(roomId, anchorId, pageable),
-                (anchorId, pageable) -> messageRepository.findRoomMessagesAfter(roomId, anchorId, pageable));
+                (anchorId, pageable) -> filterClearedMessages(
+                        messageRepository.findRoomMessagesBefore(roomId, anchorId, pageable), clearedAt),
+                (anchorId, pageable) -> filterClearedMessages(
+                        messageRepository.findRoomMessagesAfter(roomId, anchorId, pageable), clearedAt));
     }
 
     @Transactional
@@ -914,6 +921,37 @@ public class MessageService {
         }
 
         return new PrivateConversationParticipants(currentUser, otherUser);
+    }
+
+    private LocalDateTime privateClearedAt(PrivateConversationParticipants participants) {
+        return conversationSettingRepository
+                .findByUserIdAndTargetUserId(participants.currentUser().getId(), participants.otherUser().getId())
+                .map(ConversationSetting::getClearedAt)
+                .orElse(null);
+    }
+
+    private LocalDateTime roomClearedAt(String currentUsername, Long roomId) {
+        User currentUser = userService.findByUsername(currentUsername);
+        return conversationSettingRepository
+                .findByUserIdAndChatRoomId(currentUser.getId(), roomId)
+                .map(ConversationSetting::getClearedAt)
+                .orElse(null);
+    }
+
+    private List<Message> filterClearedMessages(List<Message> messages, LocalDateTime clearedAt) {
+        if (clearedAt == null) {
+            return messages;
+        }
+
+        return messages.stream()
+                .filter(message -> message.getTimestamp() != null && message.getTimestamp().isAfter(clearedAt))
+                .toList();
+    }
+
+    private void requireVisibleAfterClear(Message message, LocalDateTime clearedAt) {
+        if (clearedAt != null && (message.getTimestamp() == null || !message.getTimestamp().isAfter(clearedAt))) {
+            throw new AppException(ErrorCode.MESSAGE_NOT_FOUND);
+        }
     }
 
     private int normalizePageSize(Integer size) {

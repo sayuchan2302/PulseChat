@@ -39,6 +39,7 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/rooms/join/preview/**").permitAll()
                         .requestMatchers("/auth/**", "/ws/**", "/uploads/**", "/error").permitAll()
                         .anyRequest().authenticated()
                 )

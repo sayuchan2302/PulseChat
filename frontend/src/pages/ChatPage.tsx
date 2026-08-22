@@ -68,7 +68,7 @@ import {
   JumpIcon, CloseIcon,
   DocumentIcon, DownloadIcon, PaperclipIcon,
   ReplyIcon, CopyIcon, ForwardIcon, RecallIcon, MoreIcon,
-  PinIcon, MutedIcon, ArchiveIcon, ChevronDownIcon, ProfileIcon, MediaIcon,
+  PinIcon, MutedIcon, ArchiveIcon, TrashIcon, ChevronDownIcon, ProfileIcon, MediaIcon,
 } from '../icons/ChatIcons';
 import {
   toDeliveredMessage, appendOrReconcileMessage,
@@ -271,6 +271,7 @@ export default function ChatPage() {
   const [openConversationMenuKey, setOpenConversationMenuKey] = useState<string | null>(null);
   const [conversationSettingPendingKey, setConversationSettingPendingKey] = useState<string | null>(null);
   const [conversationSettingsError, setConversationSettingsError] = useState('');
+  const [conversationDeleteTarget, setConversationDeleteTarget] = useState<ConversationTarget | null>(null);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
@@ -3081,6 +3082,27 @@ export default function ChatPage() {
           if (incomingMessage.chatRoomId) {
             const isActiveRoomMessage = incomingMessage.chatRoomId === selectedRoomIdForMessage;
 
+            if (!roomsRef.current.some((room) => room.id === incomingMessage.chatRoomId)) {
+              void apiClient
+                .get<ChatRoom>(`/rooms/${incomingMessage.chatRoomId}`)
+                .then((response) => {
+                  if (!active) {
+                    return;
+                  }
+
+                  const withPreview = applyRoomPreviewToRoom(response.data, incomingMessage);
+                  const restoredRoom = {
+                    ...withPreview,
+                    unreadCount:
+                      isIncomingFromOther && !isActiveRoomMessage
+                        ? (withPreview.unreadCount ?? 0) + 1
+                        : withPreview.unreadCount ?? 0,
+                  };
+                  setRooms((currentRooms) => appendOrUpdateRoom(currentRooms, restoredRoom));
+                })
+                .catch((error) => console.error('Failed to restore group conversation:', error));
+            }
+
             setRooms((currentRooms) =>
               applyRoomPreviewToRooms(
                 currentRooms,
@@ -4563,6 +4585,8 @@ export default function ChatPage() {
 
       if (lightboxState) {
         setLightboxState(null);
+      } else if (conversationDeleteTarget && conversationSettingPendingKey === null) {
+        setConversationDeleteTarget(null);
       } else if (groupSeenModalMessage) {
         setGroupSeenModalMessage(null);
       } else if (reactionModalGroups) {
@@ -4587,6 +4611,8 @@ export default function ChatPage() {
   }, [
     detailsOpen,
     addMembersModalOpen,
+    conversationDeleteTarget,
+    conversationSettingPendingKey,
     forwardingMessage,
     groupSeenModalMessage,
     inviteModalOpen,
@@ -5028,12 +5054,23 @@ export default function ChatPage() {
     }
   };
 
-  const handleCopyInviteLink = async () => {
-    if (!groupInviteData?.inviteUrl && !groupInviteData?.inviteCode && !selectedRoom?.inviteCode) return;
+  const getGroupInviteUrl = () => {
     const code = groupInviteData?.inviteCode || selectedRoom?.inviteCode;
-    const url =
-      groupInviteData?.inviteUrl ||
-      `${window.location.origin}/invite/${code}`;
+    const relativeOrAbsoluteUrl = groupInviteData?.inviteUrl?.trim() ||
+      (code ? `/invite/${encodeURIComponent(code)}` : '');
+    if (!relativeOrAbsoluteUrl) {
+      return '';
+    }
+
+    return new URL(relativeOrAbsoluteUrl, window.location.origin).toString();
+  };
+
+  const handleCopyInviteLink = async () => {
+    const url = getGroupInviteUrl();
+    if (!url) {
+      return;
+    }
+
     try {
       await navigator.clipboard.writeText(url);
       setInviteCopied(true);
@@ -6783,6 +6820,46 @@ export default function ChatPage() {
     }
   };
 
+  const handleDeleteConversation = async () => {
+    if (!conversationDeleteTarget) {
+      return;
+    }
+
+    const target = conversationDeleteTarget;
+    const targetKey = target.type === 'user' ? `user-${target.user.id}` : `room-${target.room.id}`;
+    const endpoint = target.type === 'user'
+      ? `/conversation-settings/private/${target.user.id}`
+      : `/conversation-settings/rooms/${target.room.id}`;
+
+    setConversationSettingPendingKey(targetKey);
+    setConversationSettingsError('');
+
+    try {
+      await apiClient.delete(endpoint);
+      setOpenConversationMenuKey(null);
+      setConversationDeleteTarget(null);
+
+      if (target.type === 'user') {
+        setUsers((currentUsers) => currentUsers.filter((user) => user.id !== target.user.id));
+        if (selectedUserIdRef.current === target.user.id) {
+          clearSelectedConversation();
+          navigateIfNeeded(getChatRoute());
+        }
+      } else {
+        setRooms((currentRooms) => currentRooms.filter((room) => room.id !== target.room.id));
+        if (selectedRoomIdRef.current === target.room.id) {
+          clearSelectedConversation();
+          navigateIfNeeded(getChatRoute());
+        }
+      }
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+      setConversationSettingsError('Unable to delete this conversation.');
+    } finally {
+      setConversationSettingPendingKey(null);
+    }
+  };
+
   const renderUserIdentity = (user: User, showConversationPreview = false) => {
     const sidebarTime = showConversationPreview ? formatSidebarTime(user.lastMessageAt) : '';
 
@@ -6908,6 +6985,20 @@ export default function ChatPage() {
             >
               <ArchiveIcon className="conversation-menu-item-icon" />
               {archived ? 'Unarchive' : 'Archive'}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="danger"
+              disabled={pending}
+              onClick={() => {
+                setConversationSettingsError('');
+                setConversationDeleteTarget(target);
+                setOpenConversationMenuKey(null);
+              }}
+            >
+              <TrashIcon className="conversation-menu-item-icon" />
+              Delete
             </button>
           </div>
         ) : null}
@@ -8513,6 +8604,59 @@ export default function ChatPage() {
         </div>
       ) : null}
 
+      {conversationDeleteTarget ? (
+        <div
+          className="modal-backdrop delete-conversation-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-conversation-title"
+          aria-describedby="delete-conversation-description"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && conversationSettingPendingKey === null) {
+              setConversationDeleteTarget(null);
+            }
+          }}
+        >
+          <div className="delete-conversation-modal">
+            <div className="delete-conversation-icon" aria-hidden="true">
+              <TrashIcon />
+            </div>
+            <h3 id="delete-conversation-title">Delete chat?</h3>
+            <p id="delete-conversation-description">
+              This removes your conversation with{' '}
+              <strong>
+                {conversationDeleteTarget.type === 'user'
+                  ? getUserDisplayName(conversationDeleteTarget.user)
+                  : conversationDeleteTarget.room.name}
+              </strong>{' '}
+              from this account only. Other people will still see it, and new messages will appear normally.
+            </p>
+            {conversationSettingsError ? (
+              <div className="delete-conversation-error" role="alert">{conversationSettingsError}</div>
+            ) : null}
+            <div className="delete-conversation-actions">
+              <button
+                type="button"
+                className="secondary-btn"
+                autoFocus
+                disabled={conversationSettingPendingKey !== null}
+                onClick={() => setConversationDeleteTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="delete-conversation-btn"
+                disabled={conversationSettingPendingKey !== null}
+                onClick={() => void handleDeleteConversation()}
+              >
+                {conversationSettingPendingKey !== null ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* Forward Picker Modal */}
       {forwardingMessage ? (
         <div
@@ -8593,10 +8737,7 @@ export default function ChatPage() {
                     <input
                       type="text"
                       readOnly
-                      value={
-                        groupInviteData?.inviteUrl ||
-                        `${window.location.origin}/invite/${groupInviteData?.inviteCode || selectedRoom.inviteCode || ''}`
-                      }
+                      value={getGroupInviteUrl()}
                       className="invite-link-input"
                     />
                     <button

@@ -154,6 +154,24 @@ class ChatRoomServiceTest {
     }
 
     @Test
+    void previewGroupByInviteReturnsPublicGroupDetails() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice);
+        room.setInviteCode("invite-code");
+        room.setInviteCodeEnabled(true);
+        room.setOwner(sayu);
+        when(chatRoomRepository.findByInviteCode("invite-code")).thenReturn(Optional.of(room));
+
+        com.chatapp.dto.response.GroupPreviewResponse response = chatRoomService.previewGroupByInvite("invite-code");
+
+        assertEquals(10L, response.roomId());
+        assertEquals("Study group", response.name());
+        assertEquals(2, response.memberCount());
+        assertEquals("sayu", response.ownerUsername());
+    }
+
+    @Test
     void updateGroupRequiresOwner() {
         User sayu = user(1L, "sayu");
         User alice = user(2L, "alice");

@@ -12,6 +12,7 @@ public record ConversationSettingResponse(
         Boolean pinned,
         Boolean muted,
         Boolean archived,
+        LocalDateTime clearedAt,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
@@ -24,6 +25,7 @@ public record ConversationSettingResponse(
                 Boolean.TRUE.equals(setting.getPinned()),
                 Boolean.TRUE.equals(setting.getMuted()),
                 Boolean.TRUE.equals(setting.getArchived()),
+                setting.getClearedAt(),
                 setting.getCreatedAt(),
                 setting.getUpdatedAt()
         );

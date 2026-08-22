@@ -8,6 +8,8 @@ import com.chatapp.model.ChatRoom;
 import com.chatapp.model.ConversationSetting;
 import com.chatapp.model.User;
 import com.chatapp.repository.ConversationSettingRepository;
+import com.chatapp.repository.ChatRoomReadStateRepository;
+import com.chatapp.repository.MessageRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -17,6 +19,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -29,10 +33,13 @@ class ConversationSettingServiceTest {
     private ConversationSettingRepository conversationSettingRepository;
 
     @Mock
-    private UserService userService;
+    private MessageRepository messageRepository;
 
     @Mock
-    private FriendshipService friendshipService;
+    private ChatRoomReadStateRepository chatRoomReadStateRepository;
+
+    @Mock
+    private UserService userService;
 
     @Mock
     private ChatRoomService chatRoomService;
@@ -41,12 +48,11 @@ class ConversationSettingServiceTest {
     private ConversationSettingService conversationSettingService;
 
     @Test
-    void updatePrivateSettingSavesPartialPatchForAcceptedFriend() {
+    void updatePrivateSettingSavesPartialPatchForDirectUserWithoutFriendship() {
         User currentUser = user(1L, "sayu");
-        User friend = user(2L, "thinh");
+        User directUser = user(2L, "thinh");
         when(userService.findByUsername("sayu")).thenReturn(currentUser);
-        when(userService.findById(2L)).thenReturn(friend);
-        when(friendshipService.areFriends(currentUser, friend)).thenReturn(true);
+        when(userService.findById(2L)).thenReturn(directUser);
         when(conversationSettingRepository.findByUserIdAndTargetUserId(1L, 2L))
                 .thenReturn(Optional.empty());
         when(conversationSettingRepository.saveAndFlush(any(ConversationSetting.class)))
@@ -70,23 +76,21 @@ class ConversationSettingServiceTest {
     }
 
     @Test
-    void updatePrivateSettingRequiresAcceptedFriendship() {
+    void updatePrivateSettingRejectsSelfConversation() {
         User currentUser = user(1L, "sayu");
-        User otherUser = user(2L, "thinh");
         when(userService.findByUsername("sayu")).thenReturn(currentUser);
-        when(userService.findById(2L)).thenReturn(otherUser);
-        when(friendshipService.areFriends(currentUser, otherUser)).thenReturn(false);
+        when(userService.findById(1L)).thenReturn(currentUser);
 
         AppException exception = assertThrows(
                 AppException.class,
                 () -> conversationSettingService.updatePrivateSetting(
                         "sayu",
-                        2L,
+                        1L,
                         new UpdateConversationSettingRequest(true, null, null)
                 )
         );
 
-        assertEquals(ErrorCode.FRIENDSHIP_REQUIRED, exception.getErrorCode());
+        assertEquals(ErrorCode.SELF_CONVERSATION_NOT_ALLOWED, exception.getErrorCode());
         verify(conversationSettingRepository, never()).saveAndFlush(any(ConversationSetting.class));
     }
 
@@ -120,6 +124,54 @@ class ConversationSettingServiceTest {
         assertEquals(false, response.pinned());
         assertEquals(true, response.muted());
         assertEquals(true, response.archived());
+    }
+
+    @Test
+    void deletePrivateConversationCreatesAUserOnlyClearMarker() {
+        User currentUser = user(1L, "sayu");
+        User directUser = user(2L, "thinh");
+        when(userService.findByUsername("sayu")).thenReturn(currentUser);
+        when(userService.findById(2L)).thenReturn(directUser);
+        when(conversationSettingRepository.findByUserIdAndTargetUserId(1L, 2L))
+                .thenReturn(Optional.empty());
+
+        conversationSettingService.deletePrivateConversation("sayu", 2L);
+
+        org.mockito.ArgumentCaptor<ConversationSetting> captor = org.mockito.ArgumentCaptor
+                .forClass(ConversationSetting.class);
+        verify(conversationSettingRepository).saveAndFlush(captor.capture());
+        ConversationSetting setting = captor.getValue();
+        assertEquals(currentUser, setting.getUser());
+        assertEquals(directUser, setting.getTargetUser());
+        assertNotNull(setting.getClearedAt());
+        assertFalse(setting.getPinned());
+        assertFalse(setting.getMuted());
+        assertFalse(setting.getArchived());
+        verify(messageRepository).markConversationAsRead(2L, 1L);
+    }
+
+    @Test
+    void deleteRoomConversationCreatesAUserOnlyClearMarker() {
+        User currentUser = user(1L, "sayu");
+        ChatRoom room = new ChatRoom();
+        room.setId(10L);
+        room.setType(ChatRoom.RoomType.GROUP);
+        room.addMember(currentUser);
+        when(userService.findByUsername("sayu")).thenReturn(currentUser);
+        when(chatRoomService.findGroupRoomForMember(currentUser, 10L)).thenReturn(room);
+        when(conversationSettingRepository.findByUserIdAndChatRoomId(1L, 10L))
+                .thenReturn(Optional.empty());
+
+        conversationSettingService.deleteRoomConversation("sayu", 10L);
+
+        org.mockito.ArgumentCaptor<ConversationSetting> captor = org.mockito.ArgumentCaptor
+                .forClass(ConversationSetting.class);
+        verify(conversationSettingRepository).saveAndFlush(captor.capture());
+        ConversationSetting setting = captor.getValue();
+        assertEquals(currentUser, setting.getUser());
+        assertEquals(room, setting.getChatRoom());
+        assertNotNull(setting.getClearedAt());
+        verify(chatRoomReadStateRepository).saveAndFlush(any());
     }
 
     private User user(Long id, String username) {

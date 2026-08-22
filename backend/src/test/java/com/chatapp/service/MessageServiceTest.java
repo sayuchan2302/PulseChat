@@ -15,6 +15,7 @@ import com.chatapp.model.Message.MessageType;
 import com.chatapp.model.MessageReaction;
 import com.chatapp.model.User;
 import com.chatapp.repository.ChatRoomReadStateRepository;
+import com.chatapp.repository.ConversationSettingRepository;
 import com.chatapp.repository.MessageRepository;
 import com.chatapp.repository.MessageReactionRepository;
 import org.junit.jupiter.api.Test;
@@ -51,6 +52,9 @@ class MessageServiceTest {
 
         @Mock
         private ChatRoomReadStateRepository chatRoomReadStateRepository;
+
+        @Mock
+        private ConversationSettingRepository conversationSettingRepository;
 
         @Mock
         private UserService userService;
@@ -109,6 +113,7 @@ class MessageServiceTest {
         void getRoomMessagesReturnsDefaultPageWithoutCursorWhenNoMoreMessages() {
                 ChatRoom room = room(10L, "Team");
                 User sender = user(1L, "sayu");
+                when(userService.findByUsername("sayu")).thenReturn(sender);
                 when(chatRoomService.findGroupRoomForMember("sayu", room.getId())).thenReturn(room);
                 when(messageRepository.findRoomMessagePage(eq(room.getId()), eq(8L), any(Pageable.class)))
                                 .thenReturn(List.of(
@@ -210,6 +215,7 @@ class MessageServiceTest {
         void getRoomLinksReturnsNewestPageWithCursor() {
                 ChatRoom room = room(10L, "Team");
                 User sender = user(1L, "sayu");
+                when(userService.findByUsername("sayu")).thenReturn(sender);
                 when(chatRoomService.findGroupRoomForMember("sayu", room.getId())).thenReturn(room);
                 when(messageRepository.findRoomLinkPage(eq(room.getId()), eq(20L), any(Pageable.class)))
                                 .thenReturn(List.of(
@@ -343,6 +349,7 @@ class MessageServiceTest {
                 ChatRoom room = room(10L, "Team");
                 User sender = user(1L, "sayu");
                 Message anchor = roomMessage(15L, "anchor", sender, room);
+                when(userService.findByUsername("sayu")).thenReturn(sender);
                 when(chatRoomService.findGroupRoomForMember("sayu", room.getId())).thenReturn(room);
                 when(messageRepository.findRoomMessageById(room.getId(), anchor.getId()))
                                 .thenReturn(Optional.of(anchor));

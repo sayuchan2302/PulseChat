@@ -91,6 +91,9 @@ public class FriendshipService {
         Map<Long, ConversationSetting> settingsByContactId = findSettingsByFriendId(currentUser, contacts);
 
         return contacts.stream()
+                .filter(contact -> isVisibleToCurrentUser(
+                        latestMessagesByContactId.get(contact.getId()),
+                        settingsByContactId.get(contact.getId())))
                 .map(contact -> toConversationResponse(
                         currentUser,
                         contact,
@@ -379,6 +382,14 @@ public class FriendshipService {
         }
 
         return String.CASE_INSENSITIVE_ORDER.compare(firstResponse.username(), secondResponse.username());
+    }
+
+    private boolean isVisibleToCurrentUser(Message latestMessage, ConversationSetting setting) {
+        if (latestMessage == null || setting == null || setting.getClearedAt() == null) {
+            return true;
+        }
+
+        return latestMessage.getTimestamp() != null && latestMessage.getTimestamp().isAfter(setting.getClearedAt());
     }
 
     private String toFriendshipStatus(User currentUser, Friendship friendship) {

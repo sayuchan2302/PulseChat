@@ -82,6 +82,9 @@ public class ChatRoomService {
 
         return rooms
                 .stream()
+                .filter(room -> isVisibleToCurrentUser(
+                        latestMessagesByRoomId.get(room.getId()),
+                        settingsByRoomId.get(room.getId())))
                 .map(room -> ChatRoomResponse.from(
                         room,
                         latestMessagesByRoomId.get(room.getId()),
@@ -549,5 +552,13 @@ public class ChatRoomService {
                 : secondRoom.lastMessageAt();
 
         return secondActivityAt.compareTo(firstActivityAt);
+    }
+
+    private boolean isVisibleToCurrentUser(Message latestMessage, ConversationSetting setting) {
+        if (latestMessage == null || setting == null || setting.getClearedAt() == null) {
+            return true;
+        }
+
+        return latestMessage.getTimestamp() != null && latestMessage.getTimestamp().isAfter(setting.getClearedAt());
     }
 }

@@ -286,6 +286,7 @@ export interface ConversationSetting {
   pinned: boolean;
   muted: boolean;
   archived: boolean;
+  clearedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

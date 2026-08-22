@@ -31,7 +31,7 @@ export default function InviteJoinPage() {
         setError('');
 
         apiClient
-            .get<GroupPreviewResponse>(`/rooms/join/${inviteCode}/preview`)
+            .get<GroupPreviewResponse>(`/rooms/join/preview/${inviteCode}`)
             .then((res) => {
                 if (isMounted) {
                     setPreview(res.data);

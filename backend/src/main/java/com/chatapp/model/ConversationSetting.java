@@ -63,6 +63,9 @@ public class ConversationSetting {
         @Column(name = "pinned_message_id")
         private Long pinnedMessageId;
 
+        @Column(name = "cleared_at")
+        private LocalDateTime clearedAt;
+
         @CreationTimestamp
         @Column(updatable = false)
         private LocalDateTime createdAt;
