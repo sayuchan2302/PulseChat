@@ -16,21 +16,16 @@ import type {
   CallSignalPayload,
   CallType,
   ChatRoom,
-  CloudinaryUploadSignature,
   ConversationSetting,
   Friendship,
   FriendshipSummary,
   GroupInviteResponse,
   GroupMemberRole,
-  MediaAttachment,
   Message,
   MessagePage,
   MessageReply,
-  MessageSeenByResponse,
-  MessageType,
   ReadReceiptEvent,
   RoomReadReceiptEvent,
-  UnreadCount,
   User,
 } from '../types';
 import { apiClient } from '../services/api';
@@ -39,11 +34,27 @@ import { wsService } from '../services/websocket';
 import { soundService } from '../services/soundService';
 import { dbService } from '../services/dbService';
 import { useCallSession } from '../hooks/useCallSession';
+import { useChatRealtime, type ChatRealtimeHandlers } from '../hooks/useChatRealtime';
+import { useConversationDirectory } from '../hooks/useConversationDirectory';
+import { useMessageLoaders } from '../hooks/useMessageLoaders';
+import { useMessageActions } from '../hooks/useMessageActions';
+import { useMessageComposer } from '../hooks/useMessageComposer';
+import { useMediaPicker } from '../hooks/useMediaPicker';
+import { useMediaUpload } from '../hooks/useMediaUpload';
+import { useVoiceMessage } from '../hooks/useVoiceMessage';
+import { useMessageSending } from '../hooks/useMessageSending';
+import { useMessageHistory } from '../hooks/useMessageHistory';
+import { useMessageTransport } from '../hooks/useMessageTransport';
+import { useProfileEditor } from '../hooks/useProfileEditor';
+import { useGroupInvite } from '../hooks/useGroupInvite';
+import { useRealtimeEventHandlers } from '../hooks/useRealtimeEventHandlers';
+import { useMessageSearch } from '../hooks/useMessageSearch';
+import { useSharedContent } from '../hooks/useSharedContent';
 import { useTheme } from '../hooks/useTheme';
 import {
-  STOP_TYPING_DELAY_MS, USER_SEARCH_DEBOUNCE_MS, REMOTE_TYPING_VISIBLE_MS,
+  USER_SEARCH_DEBOUNCE_MS, REMOTE_TYPING_VISIBLE_MS,
   OPTIMISTIC_SEND_TIMEOUT_MS,
-  MESSAGE_PAGE_SIZE, SHARED_CONTENT_PAGE_SIZE, MESSAGE_SEARCH_PAGE_SIZE,
+  SHARED_CONTENT_PAGE_SIZE, MESSAGE_SEARCH_PAGE_SIZE,
   MESSAGE_AROUND_PAGE_SIZE, MESSAGE_JUMP_HIGHLIGHT_MS,
   LOAD_OLDER_SCROLL_THRESHOLD, READ_BOTTOM_THRESHOLD, AUTO_SCROLL_BOTTOM_THRESHOLD,
   BROWSER_NOTIFICATION_CLOSE_MS, CALL_RECONNECT_TIMEOUT_MS,
@@ -56,52 +67,50 @@ import {
 import type {
   ChatMessage, ActiveCall, CallConnectionState,
   CallPermissionSnapshot, PreCallSetup,
-  SendMessagePayload, SendRoomMessagePayload,
-  PendingMedia, CloudinaryUploadResult, LocalMediaUploadResult,
-  LoadOptions, SharedContentLoadOptions, MessageSearchLoadOptions,
-  MainView, ConversationFilter, SharedContentKind, MessageListItem, RoomSummaryResponse,
+  PendingMedia,
+  SharedContentLoadOptions, MessageSearchLoadOptions,
+  MainView, ConversationFilter, SharedContentKind, RoomSummaryResponse,
   PendingReadConversation, ChatBrowserNotification, ConversationTarget,
 } from '../types/chat.types';
 import {
   FriendsIcon, FriendRequestIcon, RefreshIcon,
   PhoneIcon, VideoCallIcon,
-  JumpIcon, CloseIcon,
+  CloseIcon,
   DocumentIcon, DownloadIcon, PaperclipIcon,
   ReplyIcon, CopyIcon, ForwardIcon, RecallIcon, MoreIcon,
-  PinIcon, MutedIcon, ArchiveIcon, TrashIcon, ChevronDownIcon, ProfileIcon, MediaIcon,
+  PinIcon, MutedIcon, ArchiveIcon, TrashIcon, ProfileIcon, MediaIcon,
 } from '../icons/ChatIcons';
 import {
   toDeliveredMessage, appendOrReconcileMessage,
-  mergeKnownMessageUpdate, appendOptimisticMessage, mergeServerMessagesWithPending,
+  mergeKnownMessageUpdate, mergeServerMessagesWithPending,
   isActiveConversationMessage, getMessageType,
   applyReadReceipt, getUnreadDividerCandidateId,
-  markOptimisticMessageSending, markOptimisticMessageFailed,
+  markOptimisticMessageFailed,
   getGroupedMessageReactions, hasCurrentUserReaction,
   canUseMessageActions, getMessagePreviewContent,
-  messageMatchesSearchQuery, getMediaPayloadFromMessage, createReplyFromMessage,
+  messageMatchesSearchQuery, createReplyFromMessage,
   getPendingMediaType, cloudinaryResultToMedia,
-  createOptimisticMessage, createOptimisticRoomMessage,
   getLatestSeenOutgoingMessageId, getLatestOutgoingMessageId,
   isSharedMediaMessage, mergeSharedContentPage, prependSharedContentItem,
-  updateKnownSharedContentItem, shouldGroupAdjacentMessages,
-  appendSeenByUser, createClientId, getCallEventLabel,
+  updateKnownSharedContentItem,
+  appendSeenByUser, getCallEventLabel,
   isMessagesContainerNearBottom, getMessagesContainerBottomScrollTop,
 } from '../utils/messageUtils';
 import {
-  getLocalDateKey, formatSidebarTime, formatMessageDateDivider,
+  formatSidebarTime,
   formatMessageTime, formatCallTimer,
   getMediaDeviceLabel,
 } from '../utils/formatUtils';
 import {
   getUserDisplayName, getUserAccountDisplayName, getUserInitial,
   getAvatarUrl, getMediaUrl,
-  applyPresenceToUser, applyProfileToUser, applyProfileToRoom,
+  applyProfileToUser, applyProfileToRoom,
   applyConversationSettingToUser, applyConversationSettingToRoom,
   applyFriendshipToProfileUser, mergeViewedProfileUser,
   canChatWithUser, getUserStatusClass, getFriendshipStatusLabel,
   getRelationshipLabel, getPresenceLabel,
-  isTypingFromSelectedUser, getTypingIndicatorLabel,
-  mergeUnreadCounts, incrementUnreadCount, resetUnreadCount, resetRoomUnreadCount,
+  getTypingIndicatorLabel,
+  incrementUnreadCount, resetUnreadCount, resetRoomUnreadCount,
   shouldShowUsername, getRoomInitial,
   shouldOpenConversationDetailsByDefault, matchesFriendSearch,
 } from '../utils/userUtils';
@@ -121,7 +130,7 @@ import {
 } from '../utils/callUtils';
 import {
   formatFileSize, getFileExtension, getFileBadgeColor, getDownloadFilename, getMediaSizeError,
-  getFileFormat, hasLinkPreview, isSharedLinkMessage, getLinkPreviewDomain,
+  getFileFormat, hasLinkPreview, isSharedLinkMessage,
 } from '../utils/mediaUtils';
 import {
   getChatRoute, getFriendsRoute, getRequestsRoute,
@@ -143,11 +152,12 @@ import MessageItem from '../components/chat/MessageItem';
 import MessageInput from '../components/chat/MessageInput';
 import PreCallSetupModal from '../components/chat/PreCallSetupModal';
 import SearchSidebar from '../components/chat/SearchSidebar';
+import SharedContentSections from '../components/chat/SharedContentSections';
 import type { LightboxMediaItem } from '../components/chat/MediaLightbox';
 import type { ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
+import { buildMessageListItems } from '../utils/messageListUtils';
 import './ChatPage.css';
 
-const PRIVATE_MESSAGE_DESTINATION = '/app/chat.send';
 const GROUP_MESSAGE_DESTINATION_PREFIX = '/app/rooms';
 const TYPING_DESTINATION = '/app/chat.typing';
 const READ_RECEIPT_DESTINATION = '/app/chat.read';
@@ -161,55 +171,6 @@ const UNKNOWN_CALL_PERMISSIONS: CallPermissionSnapshot = {
   microphone: 'unknown',
   camera: 'unknown',
 };
-
-function buildMessageListItems(
-  messages: ChatMessage[],
-  selectedRoom: ChatRoom | null,
-  currentUserId: number | null,
-  unreadDividerMessageId: number | null
-): MessageListItem[] {
-  const items: MessageListItem[] = [];
-  let previousDateKey = '';
-
-  messages.forEach((message, index) => {
-    const dateKey = getLocalDateKey(message.timestamp);
-    if (dateKey !== previousDateKey) {
-      items.push({
-        type: 'date',
-        key: `date-${dateKey}-${message.id}`,
-        label: formatMessageDateDivider(message.timestamp),
-      });
-      previousDateKey = dateKey;
-    }
-
-    if (unreadDividerMessageId !== null && message.id === unreadDividerMessageId) {
-      items.push({
-        type: 'unread',
-        key: `unread-${message.id}`,
-      });
-    }
-
-    const previousMessage = messages[index - 1];
-    const nextMessage = messages[index + 1];
-    const groupedWithPrevious = shouldGroupAdjacentMessages(previousMessage, message);
-    const groupedWithNext = shouldGroupAdjacentMessages(message, nextMessage);
-
-    items.push({
-      type: 'message',
-      key: `${message.clientId ?? message.id}`,
-      message,
-      groupedWithPrevious,
-      groupedWithNext,
-      showSender: Boolean(
-        selectedRoom &&
-        message.senderId !== currentUserId &&
-        !groupedWithPrevious
-      ),
-    });
-  });
-
-  return items;
-}
 
 export default function ChatPage() {
   const { isDark, toggleTheme } = useTheme();
@@ -305,30 +266,34 @@ export default function ChatPage() {
   const [inviteError, setInviteError] = useState('');
   const [groupMembersExpanded, setGroupMembersExpanded] = useState(false);
   const [rightSidebarTab, setRightSidebarTab] = useState<'details' | 'search'>('details');
-  const [messageSearchQuery, setMessageSearchQuery] = useState('');
-  const [messageSearchSubmitted, setMessageSearchSubmitted] = useState(false);
-  const messageSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const [messageSearchItems, setMessageSearchItems] = useState<ChatMessage[]>([]);
-  const [messageSearchLoading, setMessageSearchLoading] = useState(false);
-  const [messageSearchError, setMessageSearchError] = useState('');
-  const [messageSearchHasMore, setMessageSearchHasMore] = useState(false);
-  const [messageSearchNextBefore, setMessageSearchNextBefore] = useState<number | null>(null);
-  const [activeMessageSearchId, setActiveMessageSearchId] = useState<number | null>(null);
-  const [sharedMediaExpanded, setSharedMediaExpanded] = useState(false);
-  const [sharedFilesExpanded, setSharedFilesExpanded] = useState(false);
-  const [sharedLinksExpanded, setSharedLinksExpanded] = useState(false);
-  const [sharedMediaLoaded, setSharedMediaLoaded] = useState(false);
-  const [sharedLinksLoaded, setSharedLinksLoaded] = useState(false);
-  const [sharedMediaItems, setSharedMediaItems] = useState<ChatMessage[]>([]);
-  const [sharedLinkItems, setSharedLinkItems] = useState<ChatMessage[]>([]);
-  const [sharedMediaLoading, setSharedMediaLoading] = useState(false);
-  const [sharedLinksLoading, setSharedLinksLoading] = useState(false);
-  const [sharedMediaError, setSharedMediaError] = useState('');
-  const [sharedLinksError, setSharedLinksError] = useState('');
-  const [sharedMediaHasMore, setSharedMediaHasMore] = useState(false);
-  const [sharedLinksHasMore, setSharedLinksHasMore] = useState(false);
-  const [sharedMediaNextBefore, setSharedMediaNextBefore] = useState<number | null>(null);
-  const [sharedLinksNextBefore, setSharedLinksNextBefore] = useState<number | null>(null);
+  const {
+    messageSearchQuery, setMessageSearchQuery,
+    messageSearchSubmitted, setMessageSearchSubmitted,
+    messageSearchInputRef, messageSearchItems, setMessageSearchItems,
+    messageSearchLoading, setMessageSearchLoading,
+    messageSearchError, setMessageSearchError,
+    messageSearchHasMore, setMessageSearchHasMore,
+    messageSearchNextBefore, setMessageSearchNextBefore,
+    activeMessageSearchId, setActiveMessageSearchId,
+    clearMessageSearch,
+  } = useMessageSearch();
+  const {
+    sharedMediaExpanded, setSharedMediaExpanded,
+    sharedFilesExpanded, setSharedFilesExpanded,
+    sharedLinksExpanded, setSharedLinksExpanded,
+    sharedMediaLoaded, setSharedMediaLoaded,
+    sharedLinksLoaded, setSharedLinksLoaded,
+    sharedMediaItems, setSharedMediaItems,
+    sharedLinkItems, setSharedLinkItems,
+    sharedMediaLoading, setSharedMediaLoading,
+    sharedLinksLoading, setSharedLinksLoading,
+    sharedMediaError, setSharedMediaError,
+    sharedLinksError, setSharedLinksError,
+    sharedMediaHasMore, setSharedMediaHasMore,
+    sharedLinksHasMore, setSharedLinksHasMore,
+    sharedMediaNextBefore, setSharedMediaNextBefore,
+    sharedLinksNextBefore, setSharedLinksNextBefore,
+  } = useSharedContent();
   const [roomSeenByByMessageId, setRoomSeenByByMessageId] = useState<Record<number, User[]>>({});
   const [seenByLoadingMessageIds, setSeenByLoadingMessageIds] = useState<number[]>([]);
   const [seenByPopupMessageId, setSeenByPopupMessageId] = useState<number | null>(null);
@@ -415,6 +380,7 @@ export default function ChatPage() {
   const viewedProfileUsernameRef = useRef('');
   const optimisticMessageIdRef = useRef(0);
   const hasConnectedRef = useRef(false);
+  const realtimeActiveRef = useRef(false);
   const hasLoadedInitialUsersRef = useRef(false);
   const olderMessagesLoadingRef = useRef(false);
   const hasMoreMessagesRef = useRef(false);
@@ -1010,21 +976,30 @@ export default function ChatPage() {
     setSharedLinksHasMore(false);
     setSharedMediaNextBefore(null);
     setSharedLinksNextBefore(null);
-  }, []);
+  }, [
+    setSharedLinkItems,
+    setSharedLinksError,
+    setSharedLinksHasMore,
+    setSharedLinksLoaded,
+    setSharedLinksLoading,
+    setSharedLinksNextBefore,
+    setSharedLinksExpanded,
+    setSharedMediaError,
+    setSharedMediaHasMore,
+    setSharedMediaItems,
+    setSharedMediaLoaded,
+    setSharedMediaLoading,
+    setSharedMediaNextBefore,
+    setSharedMediaExpanded,
+  ]);
 
   const resetMessageSearchState = useCallback(() => {
     messageSearchQueryRef.current = '';
     messageSearchRequestedQueryRef.current = '';
-    setMessageSearchQuery('');
-    setMessageSearchItems([]);
-    setMessageSearchLoading(false);
-    setMessageSearchError('');
-    setMessageSearchHasMore(false);
-    setMessageSearchNextBefore(null);
+    clearMessageSearch();
     setActiveMessageSearchId(null);
     setHighlightedMessageId(null);
-    setMessageSearchSubmitted(false);
-  }, []);
+  }, [clearMessageSearch, setActiveMessageSearchId]);
 
   const clearMessageJumpEffects = useCallback(() => {
     if (messageJumpHighlightTimeoutRef.current) {
@@ -1100,7 +1075,7 @@ export default function ChatPage() {
         )
       );
     }
-  }, []);
+  }, [setMessageSearchItems, setSharedLinkItems, setSharedMediaItems]);
 
   const updateSharedContentFromMessage = useCallback((updatedMessage: Message) => {
     if (
@@ -1131,7 +1106,7 @@ export default function ChatPage() {
         )
       );
     }
-  }, []);
+  }, [setMessageSearchItems, setSharedLinkItems, setSharedMediaItems]);
 
   const getNextOptimisticMessageId = () => {
     optimisticMessageIdRef.current -= 1;
@@ -1161,329 +1136,53 @@ export default function ChatPage() {
     }
   };
 
-  const loadUsers = useCallback(async (options: LoadOptions = {}) => {
-    const search = (options.search ?? userSearchQueryRef.current).trim();
-    const isCurrentSearch = () => userSearchQueryRef.current.trim() === search;
-    const usersEndpoint = search ? '/friends/search' : '/conversations';
+  const {
+    loadUsers,
+    loadIncomingFriendRequests,
+    loadFriendSummary,
+    loadRooms,
+  } = useConversationDirectory({
+    userSearchQueryRef,
+    selectedUserIdRef,
+    selectedRoomIdRef,
+    canOpenDirectConversation,
+    resetMessagePagination,
+    navigate,
+    setUsers,
+    setFriends,
+    setRooms,
+    setSelectedUser,
+    setSelectedRoom,
+    setMessages,
+    setMessageInput,
+    setIncomingFriendRequests,
+    setFriendSummary,
+    setUsersLoading,
+    setRoomsLoading,
+    setFriendRequestsLoading,
+    setUsersError,
+    setRoomsError,
+    setFriendRequestsError,
+  });
 
-    if (!options.silent) {
-      setUsersLoading(true);
-    }
-    setUsersError('');
+  const { loadMessages, loadRoomMessages } = useMessageLoaders({
+    selectedUserIdRef,
+    selectedRoomIdRef,
+    resetMessagePagination,
+    applyMessagePagination,
+    applyPendingUnreadDivider,
+    setMessages,
+    setMessagesLoading,
+    setMessagesError,
+  });
 
-    try {
-      const [usersResponse, unreadCountsResponse, friendsResponse] = await Promise.all([
-        apiClient.get<User[]>(usersEndpoint, {
-          params: search ? { username: search } : undefined,
-        }),
-        apiClient.get<UnreadCount[]>('/messages/unread-counts'),
-        search ? Promise.resolve(null) : apiClient.get<User[]>('/friends'),
-      ]);
-      if (!isCurrentSearch()) {
-        return;
-      }
-
-      const nextUsers = mergeUnreadCounts(usersResponse.data, unreadCountsResponse.data);
-      setUsers(nextUsers);
-      if (friendsResponse) {
-        setFriends(mergeUnreadCounts(friendsResponse.data, unreadCountsResponse.data));
-      }
-
-      const selectedUserIdForUpdate = selectedUserIdRef.current;
-      if (selectedUserIdForUpdate !== null) {
-        const updatedSelectedUser = nextUsers.find((user) => user.id === selectedUserIdForUpdate);
-        if (updatedSelectedUser && canOpenDirectConversation(updatedSelectedUser)) {
-          setSelectedUser(updatedSelectedUser);
-        } else if (!search || updatedSelectedUser) {
-          selectedUserIdRef.current = null;
-          setSelectedUser(null);
-          resetMessagePagination();
-          setMessages([]);
-          setMessageInput('');
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load users:', error);
-      if (!options.silent && isCurrentSearch()) {
-        setUsersError('Unable to load friends.');
-      }
-    } finally {
-      if (!options.silent && isCurrentSearch()) {
-        setUsersLoading(false);
-      }
-    }
-  }, [canOpenDirectConversation, resetMessagePagination]);
-
-  const loadIncomingFriendRequests = useCallback(async (options: LoadOptions = {}) => {
-    if (!options.silent) {
-      setFriendRequestsLoading(true);
-    }
-    setFriendRequestsError('');
-
-    try {
-      const response = await apiClient.get<Friendship[]>('/friend-requests/incoming');
-      setIncomingFriendRequests(response.data);
-    } catch (error) {
-      console.error('Failed to load friend requests:', error);
-      if (!options.silent) {
-        setFriendRequestsError('Unable to load requests.');
-      }
-    } finally {
-      if (!options.silent) {
-        setFriendRequestsLoading(false);
-      }
-    }
-  }, []);
-
-  const loadFriendSummary = useCallback(async (options: LoadOptions = {}) => {
-    try {
-      const response = await apiClient.get<FriendshipSummary>('/friend-requests/summary');
-      setFriendSummary(response.data);
-    } catch (error) {
-      console.error('Failed to load friend request summary:', error);
-      if (!options.silent) {
-        setFriendSummary({ incomingCount: 0, outgoingCount: 0 });
-      }
-    }
-  }, []);
-
-  const loadRooms = useCallback(async (options: LoadOptions = {}) => {
-    if (!options.silent) {
-      setRoomsLoading(true);
-    }
-    setRoomsError('');
-
-    try {
-      const response = await apiClient.get<ChatRoom[]>('/rooms');
-      const nextRooms = sortRoomsByChatActivity(response.data);
-      setRooms(nextRooms);
-      if (
-        selectedRoomIdRef.current !== null &&
-        !nextRooms.some((room) => room.id === selectedRoomIdRef.current)
-      ) {
-        selectedRoomIdRef.current = null;
-        setSelectedRoom(null);
-        setMessages([]);
-        resetMessagePagination();
-        navigate(getChatRoute(), { replace: true });
-      } else {
-        setSelectedRoom((currentSelectedRoom) =>
-          currentSelectedRoom
-            ? nextRooms.find((room) => room.id === currentSelectedRoom.id) ?? currentSelectedRoom
-            : null
-        );
-      }
-    } catch (error) {
-      console.error('Failed to load rooms:', error);
-      if (!options.silent) {
-        setRoomsError('Unable to load groups.');
-      }
-    } finally {
-      if (!options.silent) {
-        setRoomsLoading(false);
-      }
-    }
-  }, [navigate, resetMessagePagination]);
-
-  const loadMessages = useCallback(async (userId: number, options: LoadOptions = {}) => {
-    if (!options.silent) {
-      resetMessagePagination();
-      setMessages([]);
-      setMessagesLoading(true);
-    }
-    setMessagesError('');
-
-    try {
-      const response = await apiClient.get<MessagePage>(`/messages/${userId}`, {
-        params: { size: MESSAGE_PAGE_SIZE },
-      });
-      if (selectedUserIdRef.current === userId) {
-        setMessages((currentMessages) =>
-          mergeServerMessagesWithPending(options.silent ? currentMessages : [], response.data.items)
-        );
-        if (!options.silent) {
-          applyMessagePagination(response.data);
-          applyPendingUnreadDivider(response.data.items, 'user', userId);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load messages:', error);
-      if (!options.silent && selectedUserIdRef.current === userId) {
-        setMessagesError('Unable to load messages.');
-      }
-    } finally {
-      if (!options.silent && selectedUserIdRef.current === userId) {
-        setMessagesLoading(false);
-      }
-    }
-  }, [applyMessagePagination, applyPendingUnreadDivider, resetMessagePagination]);
-
-  const loadRoomMessages = useCallback(async (roomId: number, options: LoadOptions = {}) => {
-    if (!options.silent) {
-      resetMessagePagination();
-      setMessages([]);
-      setMessagesLoading(true);
-    }
-    setMessagesError('');
-
-    try {
-      const response = await apiClient.get<MessagePage>(`/rooms/${roomId}/messages`, {
-        params: { size: MESSAGE_PAGE_SIZE },
-      });
-      if (selectedRoomIdRef.current === roomId) {
-        setMessages((currentMessages) =>
-          mergeServerMessagesWithPending(options.silent ? currentMessages : [], response.data.items)
-        );
-        if (!options.silent) {
-          applyMessagePagination(response.data);
-          applyPendingUnreadDivider(response.data.items, 'room', roomId);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load room messages:', error);
-      if (!options.silent && selectedRoomIdRef.current === roomId) {
-        setMessagesError('Unable to load group messages.');
-      }
-    } finally {
-      if (!options.silent && selectedRoomIdRef.current === roomId) {
-        setMessagesLoading(false);
-      }
-    }
-  }, [applyMessagePagination, applyPendingUnreadDivider, resetMessagePagination]);
-
-  const loadRoomMessageSeenBy = useCallback(async (roomId: number, messageId: number) => {
-    if (messageId <= 0 || roomSeenByLoadedMessageIdsRef.current.has(messageId)) {
-      return;
-    }
-
-    roomSeenByLoadedMessageIdsRef.current.add(messageId);
-    setSeenByLoadingMessageIds((currentIds) =>
-      currentIds.includes(messageId) ? currentIds : [...currentIds, messageId]
-    );
-
-    try {
-      const response = await apiClient.get<MessageSeenByResponse>(
-        `/rooms/${roomId}/messages/${messageId}/seen-by`
-      );
-      if (selectedRoomIdRef.current !== roomId) {
-        return;
-      }
-
-      const currentUserId = currentUserIdRef.current;
-      const seenBy = response.data.seenBy.filter((reader) => reader.id !== currentUserId);
-      setRoomSeenByByMessageId((currentSeenBy) => ({
-        ...currentSeenBy,
-        [messageId]: seenBy.reduce(
-          (readers, reader) => appendSeenByUser(readers, reader),
-          currentSeenBy[messageId] ?? []
-        ),
-      }));
-    } catch (error) {
-      console.error('Failed to load group message seen-by:', error);
-      roomSeenByLoadedMessageIdsRef.current.delete(messageId);
-    } finally {
-      setSeenByLoadingMessageIds((currentIds) =>
-        currentIds.filter((currentId) => currentId !== messageId)
-      );
-    }
-  }, []);
-
-  const visibleSentRoomMessageIds = useMemo(() => {
-    if (!selectedRoom || !currentUser) {
-      return [];
-    }
-
-    return messages
-      .filter((message) =>
-        message.id > 0 &&
-        message.chatRoomId === selectedRoom.id &&
-        message.senderId === currentUser.id &&
-        !message.recalled &&
-        message.deliveryStatus !== 'failed'
-      )
-      .slice(-12)
-      .map((message) => message.id);
-  }, [currentUser, messages, selectedRoom]);
-
-  useEffect(() => {
-    if (!selectedRoom) {
-      return;
-    }
-
-    visibleSentRoomMessageIds.forEach((messageId) => {
-      void loadRoomMessageSeenBy(selectedRoom.id, messageId);
-    });
-  }, [loadRoomMessageSeenBy, selectedRoom, visibleSentRoomMessageIds]);
-
-  const loadOlderMessages = useCallback(async () => {
-    if (
-      olderMessagesLoadingRef.current ||
-      !hasMoreMessagesRef.current ||
-      nextMessageBeforeRef.current === null
-    ) {
-      return;
-    }
-
-    const selectedUserIdForLoad = selectedUserIdRef.current;
-    const selectedRoomIdForLoad = selectedRoomIdRef.current;
-    if (selectedUserIdForLoad === null && selectedRoomIdForLoad === null) {
-      return;
-    }
-
-    const container = messagesContainerRef.current;
-    const previousScrollHeight = container?.scrollHeight ?? 0;
-    const previousScrollTop = container?.scrollTop ?? 0;
-    const before = nextMessageBeforeRef.current;
-
-    olderMessagesLoadingRef.current = true;
-    setOlderMessagesLoading(true);
-    setMessagesError('');
-
-    try {
-      const response =
-        selectedUserIdForLoad !== null
-          ? await apiClient.get<MessagePage>(`/messages/${selectedUserIdForLoad}`, {
-            params: { before, size: MESSAGE_PAGE_SIZE },
-          })
-          : await apiClient.get<MessagePage>(`/rooms/${selectedRoomIdForLoad}/messages`, {
-            params: { before, size: MESSAGE_PAGE_SIZE },
-          });
-
-      if (
-        selectedUserIdRef.current !== selectedUserIdForLoad ||
-        selectedRoomIdRef.current !== selectedRoomIdForLoad
-      ) {
-        return;
-      }
-
-      skipNextAutoScrollRef.current = true;
-      setMessages((currentMessages) =>
-        mergeServerMessagesWithPending(currentMessages, response.data.items)
-      );
-      applyMessagePagination(response.data);
-
-      window.requestAnimationFrame(() => {
-        const currentContainer = messagesContainerRef.current;
-        if (!currentContainer) {
-          return;
-        }
-
-        currentContainer.scrollTop =
-          currentContainer.scrollHeight - previousScrollHeight + previousScrollTop;
-      });
-    } catch (error) {
-      console.error('Failed to load older messages:', error);
-      if (
-        selectedUserIdRef.current === selectedUserIdForLoad &&
-        selectedRoomIdRef.current === selectedRoomIdForLoad
-      ) {
-        setMessagesError('Unable to load older messages.');
-      }
-    } finally {
-      olderMessagesLoadingRef.current = false;
-      setOlderMessagesLoading(false);
-    }
-  }, [applyMessagePagination]);
+  const { loadOlderMessages } = useMessageHistory({
+    currentUser, selectedRoom, messages, currentUserIdRef, selectedUserIdRef, selectedRoomIdRef,
+    roomSeenByLoadedMessageIdsRef, olderMessagesLoadingRef, hasMoreMessagesRef,
+    nextMessageBeforeRef, skipNextAutoScrollRef, messagesContainerRef, applyMessagePagination,
+    setMessages, setMessagesError, setOlderMessagesLoading, setRoomSeenByByMessageId,
+    setSeenByLoadingMessageIds,
+  });
 
   const loadSharedContent = useCallback(async (
     kind: SharedContentKind,
@@ -1582,6 +1281,18 @@ export default function ChatPage() {
     sharedMediaHasMore,
     sharedMediaLoading,
     sharedMediaNextBefore,
+    setSharedLinkItems,
+    setSharedLinksError,
+    setSharedLinksHasMore,
+    setSharedLinksLoaded,
+    setSharedLinksLoading,
+    setSharedLinksNextBefore,
+    setSharedMediaError,
+    setSharedMediaHasMore,
+    setSharedMediaItems,
+    setSharedMediaLoaded,
+    setSharedMediaLoading,
+    setSharedMediaNextBefore,
   ]);
 
   const loadMessageSearch = useCallback(async (options: MessageSearchLoadOptions = {}) => {
@@ -1654,7 +1365,17 @@ export default function ChatPage() {
         setMessageSearchLoading(false);
       }
     }
-  }, [messageSearchHasMore, messageSearchLoading, messageSearchNextBefore]);
+  }, [
+    messageSearchHasMore,
+    messageSearchLoading,
+    messageSearchNextBefore,
+    setActiveMessageSearchId,
+    setMessageSearchError,
+    setMessageSearchHasMore,
+    setMessageSearchItems,
+    setMessageSearchLoading,
+    setMessageSearchNextBefore,
+  ]);
 
   useEffect(() => {
     resetSharedContentState();
@@ -1726,7 +1447,7 @@ export default function ChatPage() {
     ) {
       setActiveMessageSearchId(messageSearchItems[0].id);
     }
-  }, [activeMessageSearchId, messageSearchItems]);
+  }, [activeMessageSearchId, messageSearchItems, setActiveMessageSearchId]);
 
   const markMessagesScrollIntent = useCallback(() => {
     hasUserInteractedWithMessagesRef.current = true;
@@ -3006,18 +2727,25 @@ export default function ChatPage() {
     };
   }, [sendActiveCallCloseSignal]);
 
-  useEffect(() => {
-    if (!currentUser?.id) {
-      return;
-    }
+  const realtimeEventHandlers = useRealtimeEventHandlers({
+    realtimeActiveRef, hasConnectedRef, currentUserIdRef, selectedUserIdRef, selectedRoomIdRef,
+    messagesContainerRef, isMessagesContainerNearBottom, readBottomThreshold: READ_BOTTOM_THRESHOLD,
+    setCurrentUser, setUsers, setFriends, setSelectedUser, setMessages, showRemoteTyping,
+    hideRemoteTyping, getBrowserAwareConnectionStatus, loadUsers, loadRooms,
+    loadIncomingFriendRequests, loadFriendSummary, loadMessages, loadRoomMessages,
+    markConversationAsRead, markRoomAsRead, applyRoomMembershipUpdate,
+    buildFriendshipNotification, notifyWithBrowserNotification, applyMessageUpdate,
+    applyRoomReadReceipt, handleCallSignal, clearTypingTimeout, clearRemoteTypingTimeout,
+    clearOptimisticSendTimeouts, sendActiveCallCloseSignal, stopCallMedia,
+  });
 
-    currentUserIdRef.current = currentUser.id;
-    let active = true;
-
-    wsService
-      .connect(
-        (incomingMessage) => {
-          if (!active) {
+  const realtimeHandlers = useMemo<ChatRealtimeHandlers>(() => ({
+    onConnect: () => {
+      realtimeActiveRef.current = true;
+      currentUserIdRef.current = currentUser?.id ?? null;
+    },
+    onMessage: (incomingMessage) => {
+          if (!realtimeActiveRef.current) {
             return;
           }
 
@@ -3086,7 +2814,7 @@ export default function ChatPage() {
               void apiClient
                 .get<ChatRoom>(`/rooms/${incomingMessage.chatRoomId}`)
                 .then((response) => {
-                  if (!active) {
+                  if (!realtimeActiveRef.current) {
                     return;
                   }
 
@@ -3149,7 +2877,7 @@ export default function ChatPage() {
             void apiClient
               .get<User>(`/users/${encodeURIComponent(incomingMessage.senderUsername)}`)
               .then((response) => {
-                if (!active) {
+                if (!realtimeActiveRef.current) {
                   return;
                 }
 
@@ -3218,199 +2946,20 @@ export default function ChatPage() {
             setFriends((currentFriends) => incrementUnreadCount(currentFriends, incomingMessage.senderId));
           }
         },
-        (presence) => {
-          if (!active) {
-            return;
-          }
-
-          setUsers((currentUsers) =>
-            currentUsers.map((user) => applyPresenceToUser(user, presence))
-          );
-          setFriends((currentFriends) =>
-            currentFriends.map((user) => applyPresenceToUser(user, presence))
-          );
-          setSelectedUser((currentSelectedUser) =>
-            currentSelectedUser ? applyPresenceToUser(currentSelectedUser, presence) : null
-          );
-          if (presence.userId === currentUserIdRef.current) {
-            setCurrentUser((currentAccount) =>
-              currentAccount ? applyPresenceToUser(currentAccount, presence) : null
-            );
-          }
-        },
-        (typing) => {
-          if (!active || typing.senderId === currentUserIdRef.current) {
-            return;
-          }
-
-          if (typing.roomId) {
-            if (typing.roomId !== selectedRoomIdRef.current) {
-              return;
-            }
-          } else if (!isTypingFromSelectedUser(typing, selectedUserIdRef.current)) {
-            return;
-          }
-
-          if (typing.typing) {
-            showRemoteTyping(typing.senderId);
-          } else {
-            hideRemoteTyping(typing.senderId);
-          }
-        },
-        (receipt) => {
-          if (!active) {
-            return;
-          }
-
-          setMessages((currentMessages) => applyReadReceipt(currentMessages, receipt));
-          if (receipt.readerId === currentUserIdRef.current) {
-            setUsers((currentUsers) => resetUnreadCount(currentUsers, receipt.senderId));
-            setFriends((currentFriends) => resetUnreadCount(currentFriends, receipt.senderId));
-          }
-        },
-        (status) => {
-          if (!active) {
-            return;
-          }
-
-          const browserAwareStatus = getBrowserAwareConnectionStatus(status);
-          const isOnline = browserAwareStatus === 'connected';
-          setCurrentUser((currentAccount) => {
-            if (!currentAccount || currentAccount.online === isOnline) {
-              return currentAccount;
-            }
-
-            return { ...currentAccount, online: isOnline };
-          });
-
-          if (!isOnline) {
-            return;
-          }
-
-          if (!hasConnectedRef.current) {
-            hasConnectedRef.current = true;
-            return;
-          }
-
-          const selectedUserIdForResync = selectedUserIdRef.current;
-          const selectedRoomIdForResync = selectedRoomIdRef.current;
-          Promise.all([
-            loadUsers({ silent: true }),
-            loadRooms({ silent: true }),
-            loadIncomingFriendRequests({ silent: true }),
-            loadFriendSummary({ silent: true }),
-            selectedUserIdForResync !== null
-              ? loadMessages(selectedUserIdForResync, { silent: true })
-              : selectedRoomIdForResync !== null
-                ? loadRoomMessages(selectedRoomIdForResync, { silent: true })
-                : Promise.resolve(),
-          ])
-            .then(() => {
-              if (
-                selectedUserIdForResync !== null &&
-                selectedUserIdRef.current === selectedUserIdForResync &&
-                isMessagesContainerNearBottom(messagesContainerRef.current, READ_BOTTOM_THRESHOLD)
-              ) {
-                void markConversationAsRead(selectedUserIdForResync);
-              } else if (
-                selectedRoomIdForResync !== null &&
-                selectedRoomIdRef.current === selectedRoomIdForResync &&
-                isMessagesContainerNearBottom(messagesContainerRef.current, READ_BOTTOM_THRESHOLD)
-              ) {
-                void markRoomAsRead(selectedRoomIdForResync);
-              }
-            })
-            .catch((error) => {
-              console.error('Failed to resync chat state:', error);
-            });
-        },
-        (room) => {
-          if (!active) {
-            return;
-          }
-
-          applyRoomMembershipUpdate(room);
-        },
-        (friendship) => {
-          if (!active) {
-            return;
-          }
-
-          const notification = buildFriendshipNotification(friendship);
-          if (notification) {
-            notifyWithBrowserNotification(notification);
-          }
-
-          void Promise.all([
-            loadUsers({ silent: true }),
-            loadIncomingFriendRequests({ silent: true }),
-            loadFriendSummary({ silent: true }),
-          ]);
-        },
-        (updatedMessage) => {
-          if (!active) {
-            return;
-          }
-
-          applyMessageUpdate(updatedMessage);
-        },
-        (roomReadReceipt) => {
-          if (!active) {
-            return;
-          }
-
-          applyRoomReadReceipt(roomReadReceipt);
-        },
-        (callSignal) => {
-          if (!active) {
-            return;
-          }
-
-          handleCallSignal(callSignal);
-        }
-      )
-      .catch((error) => {
-        console.error('Failed to connect WebSocket:', error);
-      });
-
-    return () => {
-      active = false;
-      hasConnectedRef.current = false;
-      clearTypingTimeout();
-      clearRemoteTypingTimeout();
-      clearOptimisticSendTimeouts();
-      sendActiveCallCloseSignal();
-      stopCallMedia();
-      wsService.disconnect();
-    };
-  }, [
+        ...realtimeEventHandlers,
+  }), [
     clearOptimisticSendTimeout,
-    clearOptimisticSendTimeouts,
-    clearRemoteTypingTimeout,
-    clearTypingTimeout,
     addIncomingSharedContent,
     addPendingUnreadMessage,
-    applyMessageUpdate,
-    applyRoomReadReceipt,
-    applyRoomMembershipUpdate,
-    buildFriendshipNotification,
     buildMessageNotification,
     currentUser?.id,
-    handleCallSignal,
-    hideRemoteTyping,
-    loadFriendSummary,
-    loadIncomingFriendRequests,
-    loadMessages,
-    loadRoomMessages,
-    loadRooms,
-    loadUsers,
     markConversationAsRead,
     markRoomAsRead,
     notifyWithBrowserNotification,
-    sendActiveCallCloseSignal,
-    showRemoteTyping,
-    stopCallMedia,
+    realtimeEventHandlers,
   ]);
+
+  useChatRealtime(currentUser?.id, realtimeHandlers);
 
   useLayoutEffect(() => {
     if (
@@ -3471,80 +3020,11 @@ export default function ChatPage() {
     unreadDividerMessageId,
   ]);
 
-  const sendOptimisticMessage = async (payload: SendMessagePayload) => {
-    const sentRealtime = wsService.sendMessage(PRIVATE_MESSAGE_DESTINATION, payload);
-    if (sentRealtime) {
-      scheduleOptimisticSendTimeout(payload.clientId);
-      return;
-    }
-
-    try {
-      const response = await apiClient.post<Message>('/messages', payload);
-      clearOptimisticSendTimeout(payload.clientId);
-      setMessages((currentMessages) => appendOrReconcileMessage(currentMessages, response.data));
-      setUsers((currentUsers) =>
-        applyConversationPreviewToUsers(
-          currentUsers,
-          response.data,
-          currentUserIdRef.current,
-          !userSearchQueryRef.current.trim()
-        )
-      );
-      setFriends((currentFriends) =>
-        applyConversationPreviewToUsers(currentFriends, response.data, currentUserIdRef.current, true)
-      );
-      setSelectedUser((currentSelectedUser) =>
-        currentSelectedUser
-          ? applyConversationPreviewToUser(currentSelectedUser, response.data, currentUserIdRef.current)
-          : null
-      );
-      addIncomingSharedContent(response.data);
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      clearOptimisticSendTimeout(payload.clientId);
-      setMessages((currentMessages) => markOptimisticMessageFailed(currentMessages, payload.clientId));
-    }
-  };
-
-  const sendOptimisticRoomMessage = async (roomId: number, payload: SendRoomMessagePayload) => {
-    const sentRealtime = wsService.sendMessage(
-      `${GROUP_MESSAGE_DESTINATION_PREFIX}/${roomId}/send`,
-      payload
-    );
-    if (sentRealtime) {
-      scheduleOptimisticSendTimeout(payload.clientId);
-      return;
-    }
-
-    try {
-      const response = await apiClient.post<Message>(`/rooms/${roomId}/messages`, payload);
-      clearOptimisticSendTimeout(payload.clientId);
-      setMessages((currentMessages) => appendOrReconcileMessage(currentMessages, response.data));
-      setRooms((currentRooms) =>
-        applyRoomPreviewToRooms(
-          currentRooms,
-          response.data,
-          currentUserIdRef.current,
-          selectedRoomIdRef.current
-        )
-      );
-      setSelectedRoom((currentSelectedRoom) => {
-        if (!currentSelectedRoom || currentSelectedRoom.id !== response.data.chatRoomId) {
-          return currentSelectedRoom;
-        }
-
-        return {
-          ...applyRoomPreviewToRoom(currentSelectedRoom, response.data),
-          unreadCount: 0,
-        };
-      });
-      addIncomingSharedContent(response.data);
-    } catch (error) {
-      console.error('Failed to send group message:', error);
-      clearOptimisticSendTimeout(payload.clientId);
-      setMessages((currentMessages) => markOptimisticMessageFailed(currentMessages, payload.clientId));
-    }
-  };
+  const { sendOptimisticMessage, sendOptimisticRoomMessage } = useMessageTransport({
+    currentUserIdRef, selectedRoomIdRef, userSearchQueryRef, clearOptimisticSendTimeout,
+    scheduleOptimisticSendTimeout, addIncomingSharedContent, setMessages, setUsers, setFriends,
+    setSelectedUser, setRooms, setSelectedRoom,
+  });
 
   const sendOutgoingCallInvite = useCallback((callType: CallType, targetUser: User) => {
     if (activeCallRef.current || !canChatWithUser(targetUser)) {
@@ -5015,741 +4495,62 @@ export default function ChatPage() {
     }
   };
 
-  const handleOpenInviteModal = async () => {
-    if (!selectedRoom) return;
-    setInviteModalOpen(true);
-    setInviteLoading(true);
-    setInviteError('');
-    setInviteCopied(false);
-
-    try {
-      const response = await apiClient.get<GroupInviteResponse>(
-        `/rooms/${selectedRoom.id}/invite-link`
-      );
-      setGroupInviteData(response.data);
-    } catch (error: any) {
-      console.error('Failed to fetch invite link:', error);
-      setInviteError(error.response?.data?.message || 'Unable to load invite link.');
-    } finally {
-      setInviteLoading(false);
-    }
-  };
-
-  const handleRevokeInviteLink = async () => {
-    if (!selectedRoom || inviteRevoking) return;
-    setInviteRevoking(true);
-    setInviteError('');
-    setInviteCopied(false);
-
-    try {
-      const response = await apiClient.post<GroupInviteResponse>(
-        `/rooms/${selectedRoom.id}/invite-link/revoke`
-      );
-      setGroupInviteData(response.data);
-    } catch (error: any) {
-      console.error('Failed to reset invite link:', error);
-      setInviteError(error.response?.data?.message || 'Unable to reset invite link.');
-    } finally {
-      setInviteRevoking(false);
-    }
-  };
-
-  const getGroupInviteUrl = () => {
-    const code = groupInviteData?.inviteCode || selectedRoom?.inviteCode;
-    const relativeOrAbsoluteUrl = groupInviteData?.inviteUrl?.trim() ||
-      (code ? `/invite/${encodeURIComponent(code)}` : '');
-    if (!relativeOrAbsoluteUrl) {
-      return '';
-    }
-
-    return new URL(relativeOrAbsoluteUrl, window.location.origin).toString();
-  };
-
-  const handleCopyInviteLink = async () => {
-    const url = getGroupInviteUrl();
-    if (!url) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(url);
-      setInviteCopied(true);
-      setTimeout(() => setInviteCopied(false), 2500);
-    } catch {
-      setInviteError('Failed to copy to clipboard.');
-    }
-  };
-
-  const handleReplyToMessage = (message: ChatMessage) => {
-    if (!canUseMessageActions(message)) {
-      return;
-    }
-
-    setReplyingToMessage(message);
-    setEmojiPickerOpen(false);
-    window.requestAnimationFrame(() => {
-      messageInputRef.current?.focus();
-    });
-  };
-
-  const handleCancelReply = () => {
-    setReplyingToMessage(null);
-  };
-
-  const handleCopyMessage = async (message: ChatMessage) => {
-    if (!message.content?.trim() || message.recalled) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(message.content);
-    } catch (error) {
-      console.error('Failed to copy message:', error);
-      setMessagesError('Unable to copy message.');
-    }
-  };
-
-  const handleReactToMessage = async (message: ChatMessage, emoji: string) => {
-    if (!canUseMessageActions(message) || !currentUser) {
-      return;
-    }
-
-    try {
-      const response = hasCurrentUserReaction(message, currentUser.id, emoji)
-        ? await apiClient.delete<Message>(`/messages/${message.id}/reactions`)
-        : await apiClient.post<Message>(`/messages/${message.id}/reactions`, { emoji });
-      applyMessageUpdate(response.data);
-    } catch (error) {
-      console.error('Failed to update message reaction:', error);
-      setMessagesError('Unable to update reaction.');
-    }
-  };
-
-  const handleRecallMessage = async (message: ChatMessage) => {
-    if (!canUseMessageActions(message) || message.senderId !== currentUser?.id) {
-      return;
-    }
-
-    try {
-      const response = await apiClient.patch<Message>(`/messages/${message.id}/recall`);
-      applyMessageUpdate(response.data);
-      if (replyingToMessage?.id === message.id) {
-        setReplyingToMessage(null);
-      }
-    } catch (error) {
-      console.error('Failed to recall message:', error);
-      setMessagesError('Unable to recall message.');
-    }
-  };
-
-  const handlePinMessage = useCallback(async (message: ChatMessage) => {
-    try {
-      if (selectedRoom) {
-        await apiClient.patch(`/rooms/${selectedRoom.id}/pin-message`, null, {
-          params: { messageId: message.id },
-        });
-        // Local state update – banner shows immediately
-        setPinnedMessage(message as unknown as Message);
-      } else if (selectedUser) {
-        await apiClient.patch(`/messages/dm/${selectedUser.id}/pin-message`, null, {
-          params: { messageId: message.id },
-        });
-        setPinnedMessage(message as unknown as Message);
-      }
-    } catch (error) {
-      console.error('Failed to pin message:', error);
-    }
-  }, [selectedRoom, selectedUser]);
-
-  const handleUnpinMessage = useCallback(async () => {
-    try {
-      if (selectedRoom) {
-        await apiClient.delete(`/rooms/${selectedRoom.id}/pin-message`);
-        setPinnedMessage(null);
-      } else if (selectedUser) {
-        await apiClient.delete(`/messages/dm/${selectedUser.id}/pin-message`);
-        setPinnedMessage(null);
-      }
-    } catch (error) {
-      console.error('Failed to unpin message:', error);
-    }
-  }, [selectedRoom, selectedUser]);
-
-  const handleForwardMessage = useCallback((message: ChatMessage) => {
-    if (message.recalled || message.type === 'CALL') return;
-    setForwardingMessage(message);
-  }, []);
-
-  const sendForwardMessage = useCallback(async (
-    targetUserId: number | null,
-    targetRoomId: number | null,
-  ) => {
-    if (!forwardingMessage) return;
-    try {
-      const response = await apiClient.post<Message>('/messages/forward', {
-        messageId: forwardingMessage.id,
-        targetUserId,
-        targetRoomId,
-      });
-      // If target is the current conversation, add to local messages
-      const msg = response.data;
-      if (
-        (targetUserId && selectedUser?.id === targetUserId) ||
-        (targetRoomId && selectedRoom?.id === targetRoomId)
-      ) {
-        applyMessageUpdate(msg);
-      }
-      setForwardingMessage(null);
-    } catch (error) {
-      console.error('Failed to forward message:', error);
-    }
-  }, [forwardingMessage, selectedUser, selectedRoom, applyMessageUpdate]);
-
-  const mentionCandidates = useMemo(() => {
-    if (!selectedRoom || mentionQuery === null) return [];
-    const q = mentionQuery.toLowerCase();
-    const list: { id: number | 'all'; username: string; fullName: string; isAll?: boolean }[] = [];
-
-    if ('all'.startsWith(q) || q === '') {
-      list.push({ id: 'all', username: 'all', fullName: 'All Members', isAll: true });
-    }
-
-    const currentUserId = currentUser?.id;
-    const filtered = (selectedRoom.participants || [])
-      .filter((p) => p.id !== currentUserId)
-      .filter(
-        (p) =>
-          p.username.toLowerCase().startsWith(q) ||
-          (p.fullName && p.fullName.toLowerCase().includes(q))
-      );
-
-    filtered.forEach((p) => {
-      list.push({
-        id: p.id,
-        username: p.username,
-        fullName: p.fullName || p.username,
-      });
-    });
-
-    return list;
-  }, [selectedRoom, mentionQuery, currentUser?.id]);
-
-  const checkMentionTrigger = useCallback((text: string, cursorPos: number) => {
-    if (!selectedRoom) {
-      setMentionQuery(null);
-      setMentionStartIndex(-1);
-      return;
-    }
-    const textBeforeCursor = text.slice(0, cursorPos);
-    const match = textBeforeCursor.match(/(?:^|\s)@([a-zA-Z0-9_.-]*)$/);
-    if (match) {
-      const query = match[1];
-      const atIndex = textBeforeCursor.length - match[0].length + (match[0].startsWith(' ') ? 1 : 0);
-      setMentionQuery(query);
-      setMentionStartIndex(atIndex);
-      setMentionActiveIndex(0);
-    } else {
-      setMentionQuery(null);
-      setMentionStartIndex(-1);
-    }
-  }, [selectedRoom]);
-
-  const checkSlashCommandTrigger = useCallback((text: string, cursorPos: number) => {
-    if (!selectedRoom) {
-      setSlashCommandQuery(null);
-      return;
-    }
-
-    const textBeforeCursor = text.slice(0, cursorPos);
-    const match = textBeforeCursor.match(/^\/([a-z]*)$/i);
-    if (match && 'summary'.startsWith(match[1].toLowerCase())) {
-      setSlashCommandQuery(match[1]);
-      return;
-    }
-
-    setSlashCommandQuery(null);
-  }, [selectedRoom]);
-
-  const insertMention = useCallback((candidate: { username: string }) => {
-    if (mentionStartIndex < 0) return;
-    const before = messageInput.slice(0, mentionStartIndex);
-    const cursorPos = messageInputRef.current?.selectionStart ?? messageInput.length;
-    const after = messageInput.slice(cursorPos);
-    const nextValue = `${before}@${candidate.username} ${after}`;
-    const nextCursor = before.length + candidate.username.length + 2;
-
-    setMessageInput(nextValue);
-    setMentionQuery(null);
-    setMentionStartIndex(-1);
-
-    window.requestAnimationFrame(() => {
-      const input = messageInputRef.current;
-      if (input) {
-        input.focus();
-        input.setSelectionRange(nextCursor, nextCursor);
-      }
-    });
-  }, [mentionStartIndex, messageInput]);
-
-  const insertSummaryCommand = useCallback(() => {
-    const command = '/summary';
-    setMessageInput(command);
-    setSlashCommandQuery(null);
-
-    window.requestAnimationFrame(() => {
-      const input = messageInputRef.current;
-      if (input) {
-        input.focus();
-        input.setSelectionRange(command.length, command.length);
-      }
-    });
-  }, []);
-
-  const handleMessageInputChange = (value: string) => {
-    setMessageInput(value);
-    const cursorPos = messageInputRef.current?.selectionStart ?? value.length;
-    checkMentionTrigger(value, cursorPos);
-    checkSlashCommandTrigger(value, cursorPos);
-    if (!selectedUser && !selectedRoom) {
-      return;
-    }
-
-    if (!value.trim()) {
-      if (selectedUser) {
-        stopTyping(selectedUser.id);
-      } else if (selectedRoom) {
-        stopRoomTyping(selectedRoom.id);
-      }
-      return;
-    }
-
-    if (selectedUser && canChatWithUser(selectedUser)) {
-      publishTyping(selectedUser.id, true);
-    } else if (selectedRoom) {
-      publishRoomTyping(selectedRoom.id, true);
-    }
-
-    clearTypingTimeout();
-    typingTimeoutRef.current = setTimeout(() => {
-      if (selectedUser && canChatWithUser(selectedUser)) {
-        publishTyping(selectedUser.id, false);
-      } else if (selectedRoom) {
-        publishRoomTyping(selectedRoom.id, false);
-      }
-      typingTimeoutRef.current = null;
-    }, STOP_TYPING_DELAY_MS);
-  };
-
-  const handleToggleEmojiPicker = () => {
-    updateMessageInputSelection();
-    setEmojiPickerOpen((currentOpen) => !currentOpen);
-  };
-
-  const handleInsertEmoji = (emoji: string) => {
-    updateMessageInputSelection();
-
-    const selectionStart = Math.min(messageInputSelectionRef.current.start, messageInput.length);
-    const selectionEnd = Math.min(
-      Math.max(messageInputSelectionRef.current.end, selectionStart),
-      messageInput.length
-    );
-    const nextValue =
-      messageInput.slice(0, selectionStart) + emoji + messageInput.slice(selectionEnd);
-    const nextCursorPosition = selectionStart + emoji.length;
-
-    messageInputSelectionRef.current = {
-      start: nextCursorPosition,
-      end: nextCursorPosition,
-    };
-    handleMessageInputChange(nextValue);
-
-    window.requestAnimationFrame(() => {
-      const input = messageInputRef.current;
-      if (!input) {
-        return;
-      }
-
-      input.focus();
-      input.setSelectionRange(nextCursorPosition, nextCursorPosition);
-    });
-  };
-
-  const handleOpenMediaPicker = () => {
-    setEmojiPickerOpen(false);
-    setMediaError('');
-    mediaFileInputRef.current?.click();
-  };
-
-  const handleOpenDocPicker = () => {
-    setEmojiPickerOpen(false);
-    setMediaError('');
-    docFileInputRef.current?.click();
-  };
-
-  const handleFileSelected = (file: File) => {
-    const pendingMediaType = getPendingMediaType(file);
-    if (!pendingMediaType) {
-      setMediaError('Unsupported file type.');
-      return;
-    }
-
-    const sizeError = getMediaSizeError(file, pendingMediaType);
-    if (sizeError) {
-      setMediaError(sizeError);
-      return;
-    }
-
-    setPendingMedia({
-      file,
-      previewUrl: URL.createObjectURL(file),
-      ...pendingMediaType,
-    });
-    setMediaError('');
-    setEmojiPickerOpen(false);
-  };
-
-  const handleMediaFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.currentTarget.files?.[0];
-    if (!file) {
-      return;
-    }
-    handleFileSelected(file);
-  };
-
-  const uploadToLocalMedia = async (file: File, duration?: number): Promise<MediaAttachment> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await apiClient.postForm<LocalMediaUploadResult>('/media/upload', formData);
-    const data = response.data;
-
-    return {
-      url: getMediaUrl(data.url),
-      publicId: data.publicId,
-      resourceType: data.resourceType,
-      format: data.format ?? getFileFormat(file),
-      bytes: data.bytes ?? file.size,
-      duration: duration ?? data.duration,
-    };
-  };
-
-  const uploadPendingMedia = async (media: PendingMedia): Promise<MediaAttachment> => {
-    try {
-      const signatureResponse = await apiClient.post<CloudinaryUploadSignature>(
-        '/media/upload-signature'
-      );
-      const signature = signatureResponse.data;
-
-      if (
-        !signature.cloudName ||
-        signature.cloudName === 'chat-app' ||
-        signature.apiKey === '933935263295315'
-      ) {
-        return await uploadToLocalMedia(media.file, media.mediaDuration);
-      }
-
-      const formData = new FormData();
-      formData.append('file', media.file);
-      formData.append('api_key', signature.apiKey);
-      formData.append('timestamp', String(signature.timestamp));
-      formData.append('signature', signature.signature);
-      formData.append('folder', signature.folder);
-
-      const uploadResponse = await fetch(signature.uploadUrl, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error('Cloudinary upload failed');
-      }
-
-      const uploadResult = (await uploadResponse.json()) as CloudinaryUploadResult;
-      if (
-        !uploadResult.secure_url ||
-        !uploadResult.public_id ||
-        uploadResult.resource_type !== media.resourceType
-      ) {
-        throw new Error('Cloudinary upload response is invalid');
-      }
-
-      return {
-        ...cloudinaryResultToMedia(uploadResult),
-        format: uploadResult.format ?? getFileFormat(media.file),
-        bytes: uploadResult.bytes ?? media.file.size,
-        duration: media.mediaDuration ?? uploadResult.duration,
-      };
-    } catch {
-      return await uploadToLocalMedia(media.file, media.mediaDuration);
-    }
-  };
-
-  const handleVoiceRecorded = useCallback((blob: Blob, durationSeconds: number) => {
-    const mimeType = blob.type || 'audio/webm';
-    const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm';
-    const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: mimeType });
-    const previewUrl = URL.createObjectURL(blob);
-    const pendingVoice: PendingMedia = {
-      file,
-      previewUrl,
-      type: 'AUDIO',
-      resourceType: 'video',
-      mediaDuration: durationSeconds,
-    };
-    setPendingMedia(pendingVoice);
-    setTimeout(() => {
-      const form = document.querySelector<HTMLFormElement>('.message-input-form');
-      form?.requestSubmit();
-    }, 50);
-  }, []);
-
-  const handleMessageInputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (mentionQuery !== null && mentionCandidates.length > 0) {
-      if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        setMentionActiveIndex((prev) => (prev + 1) % mentionCandidates.length);
-        return;
-      }
-      if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        setMentionActiveIndex((prev) => (prev - 1 + mentionCandidates.length) % mentionCandidates.length);
-        return;
-      }
-      if (event.key === 'Enter' || event.key === 'Tab') {
-        event.preventDefault();
-        const selected = mentionCandidates[mentionActiveIndex] || mentionCandidates[0];
-        if (selected) {
-          insertMention(selected);
-        }
-        return;
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setMentionQuery(null);
-        setMentionStartIndex(-1);
-        return;
-      }
-    }
-
-    if (slashCommandQuery !== null) {
-      if (event.key === 'Enter' || event.key === 'Tab') {
-        event.preventDefault();
-        insertSummaryCommand();
-        return;
-      }
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        event.preventDefault();
-        return;
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setSlashCommandQuery(null);
-        return;
-      }
-    }
-
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
-      return;
-    }
-
-    event.preventDefault();
-    event.currentTarget.form?.requestSubmit();
-  };
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const content = messageInput.trim();
-    const mediaToSend = pendingMedia;
-    if (
-      (!content && !mediaToSend) ||
-      mediaUploading ||
-      !currentUser ||
-      (!selectedUser && !selectedRoom)
-    ) {
-      return;
-    }
-
-    if (!mediaToSend && selectedRoom && /^\/summary$/i.test(content)) {
-      if (roomSummaryLoading) {
-        return;
-      }
-
-      const roomId = selectedRoom.id;
-      const requestId = ++roomSummaryRequestRef.current;
-
-      setMessageInput('');
-      setEmojiPickerOpen(false);
-      setReplyingToMessage(null);
-      setRoomSummary(null);
-      setRoomSummaryRoomId(roomId);
-      setRoomSummaryError('');
-      setRoomSummaryLoading(true);
-
-      try {
-        const response = await apiClient.post<RoomSummaryResponse>(`/rooms/${roomId}/summaries`);
-        if (roomSummaryRequestRef.current === requestId) {
-          setRoomSummary(response.data);
-        }
-      } catch (error) {
-        console.error('Failed to summarize room messages:', error);
-        if (roomSummaryRequestRef.current === requestId) {
-          const responseError = error as { response?: { data?: { message?: string } } };
-          setRoomSummaryError(responseError.response?.data?.message || 'Unable to summarize recent messages.');
-        }
-      } finally {
-        if (roomSummaryRequestRef.current === requestId) {
-          setRoomSummaryLoading(false);
-        }
-      }
-
-      return;
-    }
-
-    let mediaPayload: MediaAttachment | undefined;
-    const messageType: MessageType = mediaToSend ? mediaToSend.type : 'TEXT';
-    const replyTo = createReplyFromMessage(replyingToMessage);
-    const replyToMessageId = replyTo?.id;
-    if (mediaToSend) {
-      setMediaUploading(true);
-      setMediaError('');
-      try {
-        mediaPayload = await uploadPendingMedia(mediaToSend);
-      } catch (error) {
-        console.error('Failed to upload media:', error);
-        setMediaError('Unable to upload media. Please try again.');
-        setMediaUploading(false);
-        return;
-      }
-      setMediaUploading(false);
-    }
-
-    const clientId = createClientId();
-    setMessagesError('');
-    setMessageInput('');
-    setEmojiPickerOpen(false);
-    setReplyingToMessage(null);
-    clearPendingMedia();
-
-    if (selectedUser) {
-      const optimisticMessage = createOptimisticMessage(
-        getNextOptimisticMessageId(),
-        currentUser.id,
-        selectedUser.id,
-        content,
-        clientId,
-        messageType,
-        mediaPayload,
-        replyTo
-      );
-      const payload = {
-        receiverId: selectedUser.id,
-        content,
-        clientId,
-        replyToMessageId,
-        type: messageType,
-        media: mediaPayload,
-      };
-
-      stopTyping(selectedUser.id);
-      soundService.playMessageSentSound();
-      setMessages((currentMessages) => appendOptimisticMessage(currentMessages, optimisticMessage));
-      setUsers((currentUsers) =>
-        applyConversationPreviewToUsers(
-          currentUsers,
-          optimisticMessage,
-          currentUser.id,
-          !userSearchQueryRef.current.trim()
-        )
-      );
-      setFriends((currentFriends) =>
-        applyConversationPreviewToUsers(currentFriends, optimisticMessage, currentUser.id, true)
-      );
-      setSelectedUser((currentSelectedUser) =>
-        currentSelectedUser
-          ? applyConversationPreviewToUser(currentSelectedUser, optimisticMessage, currentUser.id)
-          : null
-      );
-      void sendOptimisticMessage(payload);
-      return;
-    }
-
-    if (selectedRoom) {
-      const optimisticMessage = createOptimisticRoomMessage(
-        getNextOptimisticMessageId(),
-        currentUser,
-        selectedRoom.id,
-        content,
-        clientId,
-        messageType,
-        mediaPayload,
-        replyTo
-      );
-      const payload = {
-        content,
-        clientId,
-        replyToMessageId,
-        type: messageType,
-        media: mediaPayload,
-      };
-
-      stopRoomTyping(selectedRoom.id);
-      soundService.playMessageSentSound();
-      setMessages((currentMessages) => appendOptimisticMessage(currentMessages, optimisticMessage));
-      setRooms((currentRooms) =>
-        applyRoomPreviewToRooms(
-          currentRooms,
-          optimisticMessage,
-          currentUser.id,
-          selectedRoom.id
-        )
-      );
-      setSelectedRoom((currentSelectedRoom) =>
-        currentSelectedRoom?.id === selectedRoom.id
-          ? {
-            ...applyRoomPreviewToRoom(currentSelectedRoom, optimisticMessage),
-            unreadCount: 0,
-          }
-          : currentSelectedRoom
-      );
-      void sendOptimisticRoomMessage(selectedRoom.id, payload);
-    }
-  };
-
-  const handleRetryMessage = (message: ChatMessage) => {
-    const clientId = message.clientId;
-    if (!clientId) {
-      return;
-    }
-
-    if (message.chatRoomId) {
-      const payload = {
-        content: message.content,
-        clientId,
-        replyToMessageId: message.replyTo?.id,
-        type: getMessageType(message),
-        media: getMediaPayloadFromMessage(message),
-      };
-
-      setMessages((currentMessages) => markOptimisticMessageSending(currentMessages, clientId));
-      void sendOptimisticRoomMessage(message.chatRoomId, payload);
-      return;
-    }
-
-    if (!message.receiverId) {
-      return;
-    }
-
-    const payload = {
-      receiverId: message.receiverId,
-      content: message.content,
-      clientId,
-      replyToMessageId: message.replyTo?.id,
-      type: getMessageType(message),
-      media: getMediaPayloadFromMessage(message),
-    };
-
-    setMessages((currentMessages) => markOptimisticMessageSending(currentMessages, clientId));
-    void sendOptimisticMessage(payload);
-  };
+  const {
+    handleOpenInviteModal,
+    handleRevokeInviteLink,
+    getGroupInviteUrl,
+    handleCopyInviteLink,
+  } = useGroupInvite({
+    selectedRoom, groupInviteData, inviteRevoking, setInviteModalOpen, setInviteLoading,
+    setInviteRevoking, setInviteError, setInviteCopied, setGroupInviteData,
+  });
+
+  const {
+    handleReplyToMessage, handleCancelReply, handleCopyMessage,
+    handleReactToMessage, handleRecallMessage, handlePinMessage,
+    handleUnpinMessage, handleForwardMessage, sendForwardMessage,
+  } = useMessageActions({
+    currentUser, selectedUser, selectedRoom, replyingToMessage, forwardingMessage,
+    messageInputRef, setReplyingToMessage, setForwardingMessage, setPinnedMessage,
+    setEmojiPickerOpen, setMessagesError, applyMessageUpdate,
+  });
+
+  const {
+    mentionCandidates, insertMention, insertSummaryCommand,
+    handleMessageInputChange, handleToggleEmojiPicker, handleInsertEmoji, handleMessageInputKeyDown: handleComposerKeyDown,
+  } = useMessageComposer({
+    selectedUser, selectedRoom, currentUser, messageInput, mentionQuery, mentionStartIndex, mentionActiveIndex,
+    messageInputRef, messageInputSelectionRef, typingTimeoutRef,
+    setMessageInput, setMentionQuery, setMentionStartIndex, setMentionActiveIndex,
+    setSlashCommandQuery, setEmojiPickerOpen, canChatWithUser, publishTyping,
+    publishRoomTyping, stopTyping, stopRoomTyping,
+  });
+
+  const {
+    handleOpenMediaPicker, handleOpenDocPicker, handleFileSelected, handleMediaFileChange,
+  } = useMediaPicker({
+    mediaFileInputRef, docFileInputRef, setEmojiPickerOpen, setMediaError, setPendingMedia,
+    getPendingMediaType, getMediaSizeError,
+  });
+
+  const { uploadPendingMedia } = useMediaUpload(
+    getMediaUrl, getFileFormat, cloudinaryResultToMedia,
+  );
+
+  const handleVoiceRecorded = useVoiceMessage(setPendingMedia);
+
+  const handleMessageInputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) =>
+    handleComposerKeyDown(event, slashCommandQuery);
+
+  const { handleSendMessage, handleRetryMessage } = useMessageSending({
+    currentUser, selectedUser, selectedRoom, messageInput, pendingMedia, mediaUploading,
+    replyingToMessage, roomSummaryLoading, roomSummaryRequestRef, userSearchQueryRef,
+    uploadPendingMedia, getNextOptimisticMessageId, clearPendingMedia, stopTyping, stopRoomTyping,
+    sendOptimisticMessage, sendOptimisticRoomMessage, setMessageInput, setEmojiPickerOpen,
+    setReplyingToMessage, setMediaUploading, setMediaError, setMessagesError, setMessages,
+    setUsers, setFriends, setSelectedUser, setRooms, setSelectedRoom, setRoomSummary,
+    setRoomSummaryRoomId, setRoomSummaryError, setRoomSummaryLoading,
+  });
 
   const handleMessageSearchChange = (value: string) => {
     messageSearchQueryRef.current = value;
@@ -5889,91 +4690,17 @@ export default function ChatPage() {
     );
   };
 
-  const handleOpenProfileEditor = () => {
-    setProfileFullName(currentUser?.fullName ?? '');
-    setProfileBio(currentUser?.bio ?? '');
-    setProfileAvatarFile(null);
-    setProfileAvatarPreview(getAvatarUrl(currentUser?.avatar));
-    setProfileError('');
-    setProfileMenuOpen(false);
-    setProfileEditorOpen(true);
-  };
-
-  const handleCloseProfileEditor = () => {
-    if (profileSaving) {
-      return;
-    }
-
-    setProfileEditorOpen(false);
-    setProfileAvatarFile(null);
-    setProfileAvatarPreview('');
-    setProfileBio('');
-    setProfileError('');
-  };
-
-  const handleProfileAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    if (!ACCEPTED_AVATAR_TYPES.includes(file.type)) {
-      setProfileAvatarFile(null);
-      setProfileError('Choose a JPG, PNG, GIF, or WebP image.');
-      event.currentTarget.value = '';
-      return;
-    }
-
-    if (file.size > MAX_AVATAR_SIZE_BYTES) {
-      setProfileAvatarFile(null);
-      setProfileError(`Avatar must be ${MAX_AVATAR_SIZE_MB}MB or smaller.`);
-      event.currentTarget.value = '';
-      return;
-    }
-
-    setProfileAvatarFile(file);
-    setProfileAvatarPreview(URL.createObjectURL(file));
-    setProfileError('');
-  };
-
-  const handleUpdateProfile = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const fullName = profileFullName.trim();
-
-    if (!fullName) {
-      setProfileError('Full name is required.');
-      return;
-    }
-
-    if (profileBio.trim().length > BIO_MAX_LENGTH) {
-      setProfileError(`Bio must be ${BIO_MAX_LENGTH} characters or fewer.`);
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append('fullName', fullName);
-    formData.append('bio', profileBio.trim());
-    if (profileAvatarFile) {
-      formData.append('avatar', profileAvatarFile);
-    }
-
-    setProfileSaving(true);
-    setProfileError('');
-
-    try {
-      const response = await apiClient.patch<User>('/users/me', formData);
-      applyUpdatedCurrentUserProfile(response.data);
-      setProfileEditorOpen(false);
-      setProfileAvatarFile(null);
-      setProfileAvatarPreview('');
-      setProfileBio('');
-    } catch (error) {
-      console.error('Failed to update profile:', error);
-      setProfileError('Unable to update profile.');
-    } finally {
-      setProfileSaving(false);
-    }
-  };
+  const {
+    handleOpenProfileEditor,
+    handleCloseProfileEditor,
+    handleProfileAvatarChange,
+    handleUpdateProfile,
+  } = useProfileEditor({
+    currentUser, profileFullName, profileBio, profileAvatarFile, profileSaving, getAvatarUrl,
+    applyUpdatedCurrentUserProfile, setProfileFullName, setProfileBio, setProfileAvatarFile,
+    setProfileAvatarPreview, setProfileSaving, setProfileError, setProfileMenuOpen,
+    setProfileEditorOpen,
+  });
 
   const handleLogout = async () => {
     if (selectedUserIdRef.current !== null) {
@@ -7642,359 +6369,27 @@ export default function ChatPage() {
     );
   };
 
-  const renderSharedMediaContent = () => {
-    const sharedPhotoVideoItems = sharedMediaItems.filter(
-      (message) => getMessageType(message) === 'IMAGE' || getMessageType(message) === 'VIDEO'
-    );
-
-    if (sharedMediaLoading && sharedPhotoVideoItems.length === 0) {
-      return (
-        <div className="shared-media-grid" aria-hidden="true">
-          {Array.from({ length: 6 }, (_, index) => (
-            <span key={`shared-media-skeleton-${index}`} className="shared-media-skeleton" />
-          ))}
-        </div>
-      );
-    }
-
-    if (sharedMediaError && sharedPhotoVideoItems.length === 0) {
-      return (
-        <div className="shared-content-state">
-          <span>{sharedMediaError}</span>
-          <button
-            type="button"
-            className="shared-content-retry-btn"
-            onClick={() => void loadSharedContent('media', { reset: true })}
-          >
-            Retry
-          </button>
-        </div>
-      );
-    }
-
-    if (sharedPhotoVideoItems.length === 0) {
-      return <div className="details-empty-text">No shared media yet.</div>;
-    }
-
-    return (
-      <>
-        <div className="shared-media-grid">
-          {sharedPhotoVideoItems.map((message) => {
-            const mediaUrl = getMediaUrl(message.mediaUrl);
-            if (!mediaUrl) {
-              return null;
-            }
-
-            const isVideo = getMessageType(message) === 'VIDEO';
-            return (
-              <div key={message.id} className="shared-media-card">
-                <button
-                  type="button"
-                  className="shared-media-item"
-                  onClick={() => setMediaViewerMessage(message)}
-                  aria-label={isVideo ? 'Open video preview' : 'Open image preview'}
-                  title={isVideo ? 'Video' : 'Photo'}
-                >
-                  {isVideo ? (
-                    <>
-                      <video src={mediaUrl} muted playsInline preload="metadata" />
-                      <span className="shared-media-play" aria-hidden="true" />
-                    </>
-                  ) : (
-                    <img src={mediaUrl} alt={message.content || 'Shared image'} loading="lazy" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="shared-media-jump-btn"
-                  onClick={() => void handleJumpToMessage(message.id)}
-                  aria-label="Go to message"
-                  title="Go to message"
-                >
-                  <JumpIcon className="shared-media-jump-icon" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        {sharedMediaError ? <div className="shared-content-inline-error">{sharedMediaError}</div> : null}
-
-        {sharedMediaHasMore ? (
-          <button
-            type="button"
-            className="shared-content-load-btn"
-            disabled={sharedMediaLoading}
-            onClick={() => void loadSharedContent('media')}
-          >
-            {sharedMediaLoading ? 'Loading' : 'Load more'}
-          </button>
-        ) : null}
-      </>
-    );
-  };
-
-  const renderSharedFilesContent = () => {
-    const sharedFileItems = sharedMediaItems.filter(
-      (message) => getMessageType(message) === 'FILE'
-    );
-
-    if (sharedMediaLoading && sharedFileItems.length === 0) {
-      return (
-        <div className="shared-file-list" aria-hidden="true">
-          {Array.from({ length: 3 }, (_, index) => (
-            <span key={`shared-file-skeleton-${index}`} className="shared-link-skeleton" />
-          ))}
-        </div>
-      );
-    }
-
-    if (sharedMediaError && sharedFileItems.length === 0) {
-      return (
-        <div className="shared-content-state">
-          <span>{sharedMediaError}</span>
-          <button
-            type="button"
-            className="shared-content-retry-btn"
-            onClick={() => void loadSharedContent('media', { reset: true })}
-          >
-            Retry
-          </button>
-        </div>
-      );
-    }
-
-    if (sharedFileItems.length === 0) {
-      return <div className="details-empty-text">No shared files yet.</div>;
-    }
-
-    return (
-      <>
-        <div className="shared-file-list">
-          {sharedFileItems.map((message) => {
-            const mediaUrl = getMediaUrl(message.mediaUrl);
-            if (!mediaUrl) {
-              return null;
-            }
-
-            const ext = getFileExtension(message.mediaFormat || message.content || mediaUrl);
-            const fileName = message.content?.trim() || `attachment.${ext.toLowerCase()}`;
-            const badgeClass = getFileBadgeColor(ext);
-            const sizeLabel = formatFileSize(message.mediaBytes);
-
-            return (
-              <div key={message.id} className="shared-file-row">
-                <a
-                  className="shared-file-item"
-                  href={mediaUrl}
-                  download={fileName}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={`Download ${fileName}`}
-                >
-                  <div className={`shared-file-icon-wrap ${badgeClass}`}>
-                    <DocumentIcon className="shared-file-icon" />
-                    <span className="shared-file-ext">{ext}</span>
-                  </div>
-                  <div className="shared-file-info">
-                    <strong className="shared-file-name" title={fileName}>{fileName}</strong>
-                    <span className="shared-file-meta">
-                      {sizeLabel ? `${sizeLabel} • ` : ''}
-                      {formatMessageTime(message.timestamp)}
-                    </span>
-                  </div>
-                </a>
-                <button
-                  type="button"
-                  className="shared-link-jump-btn"
-                  onClick={() => void handleJumpToMessage(message.id)}
-                  aria-label="Go to message"
-                  title="Go to message"
-                >
-                  <JumpIcon className="shared-link-jump-icon" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        {sharedMediaError ? <div className="shared-content-inline-error">{sharedMediaError}</div> : null}
-
-        {sharedMediaHasMore ? (
-          <button
-            type="button"
-            className="shared-content-load-btn"
-            disabled={sharedMediaLoading}
-            onClick={() => void loadSharedContent('media')}
-          >
-            {sharedMediaLoading ? 'Loading' : 'Load more'}
-          </button>
-        ) : null}
-      </>
-    );
-  };
-
-  const renderSharedLinksContent = () => {
-    if (sharedLinksLoading && sharedLinkItems.length === 0) {
-      return (
-        <div className="shared-link-list" aria-hidden="true">
-          {Array.from({ length: 3 }, (_, index) => (
-            <span key={`shared-link-skeleton-${index}`} className="shared-link-skeleton" />
-          ))}
-        </div>
-      );
-    }
-
-    if (sharedLinksError && sharedLinkItems.length === 0) {
-      return (
-        <div className="shared-content-state">
-          <span>{sharedLinksError}</span>
-          <button
-            type="button"
-            className="shared-content-retry-btn"
-            onClick={() => void loadSharedContent('links', { reset: true })}
-          >
-            Retry
-          </button>
-        </div>
-      );
-    }
-
-    if (sharedLinkItems.length === 0) {
-      return <div className="details-empty-text">No shared links yet.</div>;
-    }
-
-    return (
-      <>
-        <div className="shared-link-list">
-          {sharedLinkItems.map((message) => {
-            const preview = message.linkPreview;
-            const url = preview?.url?.trim();
-            if (!url) {
-              return null;
-            }
-
-            const title = preview?.title?.trim() || url;
-            const description = preview?.description?.trim() || message.content?.trim() || url;
-            const domain = getLinkPreviewDomain(preview) || 'Link';
-
-            return (
-              <div key={message.id} className="shared-link-row">
-                <a
-                  className="shared-link-item"
-                  href={url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <span className="shared-link-domain">{domain}</span>
-                  <strong>{title}</strong>
-                  <span>{description}</span>
-                </a>
-                <button
-                  type="button"
-                  className="shared-link-jump-btn"
-                  onClick={() => void handleJumpToMessage(message.id)}
-                  aria-label="Go to message"
-                  title="Go to message"
-                >
-                  <JumpIcon className="shared-link-jump-icon" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        {sharedLinksError ? <div className="shared-content-inline-error">{sharedLinksError}</div> : null}
-
-        {sharedLinksHasMore ? (
-          <button
-            type="button"
-            className="shared-content-load-btn"
-            disabled={sharedLinksLoading}
-            onClick={() => void loadSharedContent('links')}
-          >
-            {sharedLinksLoading ? 'Loading' : 'Load more'}
-          </button>
-        ) : null}
-      </>
-    );
-  };
-
-  const renderSharedContentSections = () => {
-    const sharedPhotoVideoCount = sharedMediaItems.filter(
-      (message) => getMessageType(message) === 'IMAGE' || getMessageType(message) === 'VIDEO'
-    ).length;
-    const sharedFileCount = sharedMediaItems.filter(
-      (message) => getMessageType(message) === 'FILE'
-    ).length;
-
-    return (
-      <>
-        <section className="details-section" aria-labelledby="shared-media-title">
-          <button
-            type="button"
-            className="details-section-toggle-btn"
-            onClick={() => setSharedMediaExpanded((current) => !current)}
-            aria-expanded={sharedMediaExpanded}
-            aria-controls="shared-media-panel"
-          >
-            <div className="details-section-heading">
-              <h4 id="shared-media-title">Media</h4>
-              {sharedPhotoVideoCount > 0 ? <span>{sharedPhotoVideoCount}</span> : null}
-            </div>
-            <ChevronDownIcon className={`details-toggle-icon ${sharedMediaExpanded ? 'expanded' : ''}`} />
-          </button>
-          {sharedMediaExpanded ? (
-            <div id="shared-media-panel" className="shared-content-panel">
-              {renderSharedMediaContent()}
-            </div>
-          ) : null}
-        </section>
-
-        <section className="details-section" aria-labelledby="shared-files-title">
-          <button
-            type="button"
-            className="details-section-toggle-btn"
-            onClick={() => setSharedFilesExpanded((current) => !current)}
-            aria-expanded={sharedFilesExpanded}
-            aria-controls="shared-files-panel"
-          >
-            <div className="details-section-heading">
-              <h4 id="shared-files-title">Files</h4>
-              {sharedFileCount > 0 ? <span>{sharedFileCount}</span> : null}
-            </div>
-            <ChevronDownIcon className={`details-toggle-icon ${sharedFilesExpanded ? 'expanded' : ''}`} />
-          </button>
-          {sharedFilesExpanded ? (
-            <div id="shared-files-panel" className="shared-content-panel">
-              {renderSharedFilesContent()}
-            </div>
-          ) : null}
-        </section>
-
-        <section className="details-section" aria-labelledby="shared-links-title">
-          <button
-            type="button"
-            className="details-section-toggle-btn"
-            onClick={() => setSharedLinksExpanded((current) => !current)}
-            aria-expanded={sharedLinksExpanded}
-            aria-controls="shared-links-panel"
-          >
-            <div className="details-section-heading">
-              <h4 id="shared-links-title">Links</h4>
-              {sharedLinkItems.length > 0 ? <span>{sharedLinkItems.length}</span> : null}
-            </div>
-            <ChevronDownIcon className={`details-toggle-icon ${sharedLinksExpanded ? 'expanded' : ''}`} />
-          </button>
-          {sharedLinksExpanded ? (
-            <div id="shared-links-panel" className="shared-content-panel">
-              {renderSharedLinksContent()}
-            </div>
-          ) : null}
-        </section>
-      </>
-    );
-  };
+  const renderSharedContentSections = () => (
+    <SharedContentSections
+      sharedMediaExpanded={sharedMediaExpanded}
+      setSharedMediaExpanded={setSharedMediaExpanded}
+      sharedFilesExpanded={sharedFilesExpanded}
+      setSharedFilesExpanded={setSharedFilesExpanded}
+      sharedLinksExpanded={sharedLinksExpanded}
+      setSharedLinksExpanded={setSharedLinksExpanded}
+      sharedMediaItems={sharedMediaItems}
+      sharedLinkItems={sharedLinkItems}
+      sharedMediaLoading={sharedMediaLoading}
+      sharedLinksLoading={sharedLinksLoading}
+      sharedMediaError={sharedMediaError}
+      sharedLinksError={sharedLinksError}
+      sharedMediaHasMore={sharedMediaHasMore}
+      sharedLinksHasMore={sharedLinksHasMore}
+      loadSharedContent={loadSharedContent}
+      onOpenMedia={setMediaViewerMessage}
+      onJumpToMessage={handleJumpToMessage}
+    />
+  );
 
   const renderConversationDetails = () => {
     return (
