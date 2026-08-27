@@ -1999,7 +1999,7 @@ export default function ChatPage() {
         onLogout={() => void handleLogout()}
       />
 
-      <div className={`chat-container ${mainView === 'chat' && selectedConversationOpen ? 'conversation-open' : ''}`}>
+      <div className={`chat-container ${mainView === 'chat' && selectedConversationOpen ? 'conversation-open' : ''} ${mainView === 'chat' && selectedConversationOpen && detailsOpen ? 'details-open' : ''}`}>
         <ConversationSidebar
           userSearchQuery={userSearchQuery}
           onUserSearchChange={handleUserSearchChange}

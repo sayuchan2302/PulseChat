@@ -2473,6 +2473,36 @@ button.main-list-item {
   display: none;
 }
 
+.details-backdrop:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: -4px;
+}
+
+@media (min-width: 769px) and (max-width: 1199px) {
+  .chat-container.conversation-open.details-open .sidebar {
+    display: none;
+  }
+
+  .chat-container.conversation-open.details-open .chat-area {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  .details-backdrop {
+    display: none;
+  }
+
+  .details-sidebar {
+    position: static;
+    z-index: auto;
+    width: clamp(264px, 35vw, 312px);
+    max-width: 40%;
+    flex: 0 0 clamp(264px, 35vw, 312px);
+    border-left-color: var(--gray-200);
+    box-shadow: none;
+  }
+}
+
 .details-header {
   min-height: 64px;
   padding: 14px 18px;
