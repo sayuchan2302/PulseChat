@@ -1,7 +1,4 @@
 import {
-  type ChangeEvent,
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -10,11 +7,8 @@ import {
   useState,
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { CALL_RINGING_TIMEOUT_MS, ROUTES, RTC_ICE_SERVERS } from '../config/constants';
+import { ROUTES } from '../config/constants';
 import type {
-  CallSignalEvent,
-  CallSignalPayload,
-  CallType,
   ChatRoom,
   ConversationSetting,
   Friendship,
@@ -22,10 +16,6 @@ import type {
   GroupInviteResponse,
   GroupMemberRole,
   Message,
-  MessagePage,
-  MessageReply,
-  ReadReceiptEvent,
-  RoomReadReceiptEvent,
   User,
 } from '../types';
 import { apiClient } from '../services/api';
@@ -33,7 +23,6 @@ import { useAuth } from '../context/useAuth';
 import { wsService } from '../services/websocket';
 import { soundService } from '../services/soundService';
 import { dbService } from '../services/dbService';
-import { useCallSession } from '../hooks/useCallSession';
 import { useChatRealtime, type ChatRealtimeHandlers } from '../hooks/useChatRealtime';
 import { useConversationDirectory } from '../hooks/useConversationDirectory';
 import { useMessageLoaders } from '../hooks/useMessageLoaders';
@@ -48,129 +37,97 @@ import { useMessageTransport } from '../hooks/useMessageTransport';
 import { useProfileEditor } from '../hooks/useProfileEditor';
 import { useGroupInvite } from '../hooks/useGroupInvite';
 import { useRealtimeEventHandlers } from '../hooks/useRealtimeEventHandlers';
+import { useIncomingMessageRecovery } from '../hooks/useIncomingMessageRecovery';
+import { useIncomingMessageHandler } from '../hooks/useIncomingMessageHandler';
+import { useFriendshipActions } from '../hooks/useFriendshipActions';
+import { useGroupMemberActions } from '../hooks/useGroupMemberActions';
+import { useGroupAvatar } from '../hooks/useGroupAvatar';
+import { useGroupSettingsActions } from '../hooks/useGroupSettingsActions';
+import { useGroupCreation } from '../hooks/useGroupCreation';
+import { useCallFeature } from '../hooks/useCallFeature';
+import { useChatNotifications } from '../hooks/useChatNotifications';
+import { useChatInteractionSignals } from '../hooks/useChatInteractionSignals';
+import { useMessageSearchControls } from '../hooks/useMessageSearchControls';
+import { useMessageNavigation } from '../hooks/useMessageNavigation';
+import { useMessageSearchLoader } from '../hooks/useMessageSearchLoader';
 import { useMessageSearch } from '../hooks/useMessageSearch';
-import { useSharedContent } from '../hooks/useSharedContent';
+import { useSharedContentManager } from '../hooks/useSharedContentManager';
+import { useMessageViewport } from '../hooks/useMessageViewport';
+import { useConversationNavigation } from '../hooks/useConversationNavigation';
+import { useProfileViewer } from '../hooks/useProfileViewer';
 import { useTheme } from '../hooks/useTheme';
 import {
-  USER_SEARCH_DEBOUNCE_MS, REMOTE_TYPING_VISIBLE_MS,
-  OPTIMISTIC_SEND_TIMEOUT_MS,
-  SHARED_CONTENT_PAGE_SIZE, MESSAGE_SEARCH_PAGE_SIZE,
-  MESSAGE_AROUND_PAGE_SIZE, MESSAGE_JUMP_HIGHLIGHT_MS,
+  USER_SEARCH_DEBOUNCE_MS,
   LOAD_OLDER_SCROLL_THRESHOLD, READ_BOTTOM_THRESHOLD, AUTO_SCROLL_BOTTOM_THRESHOLD,
-  BROWSER_NOTIFICATION_CLOSE_MS, CALL_RECONNECT_TIMEOUT_MS,
-  MIN_GROUP_MEMBERS, MIN_GROUP_INVITED_MEMBERS, BIO_MAX_LENGTH,
+  MIN_GROUP_MEMBERS, MIN_GROUP_INVITED_MEMBERS,
   MAX_AVATAR_SIZE_BYTES, MAX_AVATAR_SIZE_MB,
-  ACCEPTED_AVATAR_TYPES, AVATAR_ACCEPT, MEDIA_ACCEPT,
-  USER_SKELETON_KEYS, MESSAGE_SKELETON_KEYS,
-  CONVERSATION_FILTERS, QUICK_REACTION_EMOJIS,
+  ACCEPTED_AVATAR_TYPES, MEDIA_ACCEPT,
+  CONVERSATION_FILTERS,
 } from '../constants/chatConstants';
 import type {
-  ChatMessage, ActiveCall, CallConnectionState,
-  CallPermissionSnapshot, PreCallSetup,
+  ChatMessage,
   PendingMedia,
-  SharedContentLoadOptions, MessageSearchLoadOptions,
-  MainView, ConversationFilter, SharedContentKind, RoomSummaryResponse,
-  PendingReadConversation, ChatBrowserNotification, ConversationTarget,
+  MainView, ConversationFilter, RoomSummaryResponse,
+  ConversationTarget,
 } from '../types/chat.types';
 import {
-  FriendsIcon, FriendRequestIcon, RefreshIcon,
-  PhoneIcon, VideoCallIcon,
-  CloseIcon,
-  DocumentIcon, DownloadIcon, PaperclipIcon,
-  ReplyIcon, CopyIcon, ForwardIcon, RecallIcon, MoreIcon,
-  PinIcon, MutedIcon, ArchiveIcon, TrashIcon, ProfileIcon, MediaIcon,
-} from '../icons/ChatIcons';
-import {
-  toDeliveredMessage, appendOrReconcileMessage,
-  mergeKnownMessageUpdate, mergeServerMessagesWithPending,
-  isActiveConversationMessage, getMessageType,
-  applyReadReceipt, getUnreadDividerCandidateId,
-  markOptimisticMessageFailed,
-  getGroupedMessageReactions, hasCurrentUserReaction,
-  canUseMessageActions, getMessagePreviewContent,
-  messageMatchesSearchQuery, createReplyFromMessage,
+  toDeliveredMessage,
+  mergeKnownMessageUpdate,
+  getMessageType,
+  createReplyFromMessage,
   getPendingMediaType, cloudinaryResultToMedia,
   getLatestSeenOutgoingMessageId, getLatestOutgoingMessageId,
-  isSharedMediaMessage, mergeSharedContentPage, prependSharedContentItem,
-  updateKnownSharedContentItem,
-  appendSeenByUser, getCallEventLabel,
-  isMessagesContainerNearBottom, getMessagesContainerBottomScrollTop,
+  isMessagesContainerNearBottom,
 } from '../utils/messageUtils';
 import {
-  formatSidebarTime,
-  formatMessageTime, formatCallTimer,
-  getMediaDeviceLabel,
-} from '../utils/formatUtils';
-import {
-  getUserDisplayName, getUserAccountDisplayName, getUserInitial,
+  getUserDisplayName,
   getAvatarUrl, getMediaUrl,
   applyProfileToUser, applyProfileToRoom,
   applyConversationSettingToUser, applyConversationSettingToRoom,
-  applyFriendshipToProfileUser, mergeViewedProfileUser,
-  canChatWithUser, getUserStatusClass, getFriendshipStatusLabel,
-  getRelationshipLabel, getPresenceLabel,
+  canChatWithUser,
   getTypingIndicatorLabel,
-  incrementUnreadCount, resetUnreadCount, resetRoomUnreadCount,
-  shouldShowUsername, getRoomInitial,
+
   shouldOpenConversationDetailsByDefault, matchesFriendSearch,
 } from '../utils/userUtils';
 import {
   hasPrivateConversation,
   sortRoomsByChatActivity, buildSidebarConversationItems,
   isRoomParticipant, appendOrUpdateRoom, compareUsersByChatActivity,
-  applyRoomPreviewToRoom, applyRoomPreviewToRooms,
+  applyRoomPreviewToRoom,
   applyConversationPreviewToUser, applyConversationPreviewToUsers,
-  getConversationPreviewText, getRoomPreviewText, isMutedIncomingConversation,
 } from '../utils/conversationUtils';
+import { getBrowserAwareConnectionStatus } from '../utils/callUtils';
 import {
-  canSendWebRtcSignalForCall, getCallMediaErrorMessage, queryCallPermission,
-  getCallPermissionLabel, getScreenShareErrorMessage, buildCallMediaConstraints,
-  stopMediaStream, getBrowserAwareConnectionStatus, isBrowserNotificationSupported,
-  getBrowserNotificationPermission, shouldShowBrowserNotification,
-} from '../utils/callUtils';
-import {
-  formatFileSize, getFileExtension, getFileBadgeColor, getDownloadFilename, getMediaSizeError,
-  getFileFormat, hasLinkPreview, isSharedLinkMessage,
+  getMediaSizeError,
+  getFileFormat,
 } from '../utils/mediaUtils';
 import {
   getChatRoute, getFriendsRoute, getRequestsRoute,
-  getUserChatRoute, getRoomChatRoute, parseChatRoute,
+  getUserChatRoute, getRoomChatRoute,
 } from '../utils/routeUtils';
-import {
-  renderLinkedText,
-  renderLinkPreviewCard, renderUserAvatar,
-} from '../utils/renderUtils';
-import VoiceMessagePlayer from '../components/VoiceMessagePlayer';
 import AppHeader from '../components/chat/AppHeader';
-import ActiveCallOverlay from '../components/chat/ActiveCallOverlay';
-import AddMembersModal from '../components/chat/AddMembersModal';
-import ConversationHeader from '../components/chat/ConversationHeader';
 import ConversationSidebar from '../components/chat/ConversationSidebar';
 import DetailsSidebar from '../components/chat/DetailsSidebar';
-import ForwardPickerBody from '../components/chat/ForwardPickerBody';
-import MessageItem from '../components/chat/MessageItem';
-import MessageInput from '../components/chat/MessageInput';
-import PreCallSetupModal from '../components/chat/PreCallSetupModal';
+import { FriendsPanel, FriendRequestsPanel } from '../components/chat/PeoplePanels';
+import ProfileViewerModal from '../components/chat/ProfileViewerModal';
+import ProfileEditorModal from '../components/chat/ProfileEditorModal';
+import CreateGroupModal from '../components/chat/CreateGroupModal';
+import SidebarContent from '../components/chat/SidebarContent';
+import GroupMemberListItem from '../components/chat/GroupMemberListItem';
+import ConversationPane from '../components/chat/ConversationPane';
+import CallModalLayer from '../components/chat/CallModalLayer';
+import ChatDialogLayer from '../components/chat/ChatDialogLayer';
+import MessageContent from '../components/chat/MessageContent';
 import SearchSidebar from '../components/chat/SearchSidebar';
+import MessageReactions from '../components/chat/MessageReactions';
+import CallMessageBody from '../components/chat/CallMessageBody';
+import MessageActions from '../components/chat/MessageActions';
+import GroupSeenBy from '../components/chat/GroupSeenBy';
 import SharedContentSections from '../components/chat/SharedContentSections';
 import type { LightboxMediaItem } from '../components/chat/MediaLightbox';
 import type { ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
 import { buildMessageListItems } from '../utils/messageListUtils';
 import './ChatPage.css';
-
-const GROUP_MESSAGE_DESTINATION_PREFIX = '/app/rooms';
-const TYPING_DESTINATION = '/app/chat.typing';
-const READ_RECEIPT_DESTINATION = '/app/chat.read';
-const CALL_SIGNAL_DESTINATION = '/app/calls.signal';
-
-const MediaLightbox = lazy(() => import('../components/chat/MediaLightbox'));
-const GroupSeenByModal = lazy(() => import('../components/chat/GroupSeenByModal'));
-const ReactionSummaryModal = lazy(() => import('../components/chat/ReactionSummaryModal'));
-
-const UNKNOWN_CALL_PERMISSIONS: CallPermissionSnapshot = {
-  microphone: 'unknown',
-  camera: 'unknown',
-};
 
 export default function ChatPage() {
   const { isDark, toggleTheme } = useTheme();
@@ -217,8 +174,6 @@ export default function ChatPage() {
   const [remoteTypingUserIds, setRemoteTypingUserIds] = useState<number[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
-  const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
-  const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [usersError, setUsersError] = useState('');
   const [roomsError, setRoomsError] = useState('');
   const [messagesError, setMessagesError] = useState('');
@@ -277,129 +232,74 @@ export default function ChatPage() {
     activeMessageSearchId, setActiveMessageSearchId,
     clearMessageSearch,
   } = useMessageSearch();
-  const {
-    sharedMediaExpanded, setSharedMediaExpanded,
-    sharedFilesExpanded, setSharedFilesExpanded,
-    sharedLinksExpanded, setSharedLinksExpanded,
-    sharedMediaLoaded, setSharedMediaLoaded,
-    sharedLinksLoaded, setSharedLinksLoaded,
-    sharedMediaItems, setSharedMediaItems,
-    sharedLinkItems, setSharedLinkItems,
-    sharedMediaLoading, setSharedMediaLoading,
-    sharedLinksLoading, setSharedLinksLoading,
-    sharedMediaError, setSharedMediaError,
-    sharedLinksError, setSharedLinksError,
-    sharedMediaHasMore, setSharedMediaHasMore,
-    sharedLinksHasMore, setSharedLinksHasMore,
-    sharedMediaNextBefore, setSharedMediaNextBefore,
-    sharedLinksNextBefore, setSharedLinksNextBefore,
-  } = useSharedContent();
   const [roomSeenByByMessageId, setRoomSeenByByMessageId] = useState<Record<number, User[]>>({});
   const [seenByLoadingMessageIds, setSeenByLoadingMessageIds] = useState<number[]>([]);
   const [seenByPopupMessageId, setSeenByPopupMessageId] = useState<number | null>(null);
-  const [activeCall, setActiveCallState] = useState<ActiveCall | null>(null);
-  const [callMinimized, setCallMinimized] = useState(false);
-  const [callError, setCallError] = useState('');
-  const [localCallStream, setLocalCallStream] = useState<MediaStream | null>(null);
-  const [remoteCallStream, setRemoteCallStream] = useState<MediaStream | null>(null);
-  const [micMuted, setMicMuted] = useState(false);
-  const [cameraOff, setCameraOff] = useState(false);
-  const [screenSharing, setScreenSharing] = useState(false);
-  const [remoteScreenSharing, setRemoteScreenSharing] = useState(false);
-  const [screenShareError, setScreenShareError] = useState('');
-  const [callConnectionState, setCallConnectionState] = useState<CallConnectionState>('idle');
-  const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
-  const [callElapsedSeconds, setCallElapsedSeconds] = useState(0);
-  const [callDevices, setCallDevices] = useState<MediaDeviceInfo[]>([]);
-  const [callDevicesLoading, setCallDevicesLoading] = useState(false);
-  const [callDeviceError, setCallDeviceError] = useState('');
-  const [callPermissions, setCallPermissions] = useState<CallPermissionSnapshot>(
-    UNKNOWN_CALL_PERMISSIONS,
-  );
-  const [selectedAudioInputId, setSelectedAudioInputId] = useState('');
-  const [selectedVideoInputId, setSelectedVideoInputId] = useState('');
-  const [preCallSetup, setPreCallSetup] = useState<PreCallSetup>(null);
-  const [preCallPreviewStream, setPreCallPreviewStream] = useState<MediaStream | null>(null);
-  const [preCallPreviewLoading, setPreCallPreviewLoading] = useState(false);
-  const [preCallError, setPreCallError] = useState('');
-  const [preCallSubmitting, setPreCallSubmitting] = useState(false);
   const [profileFullName, setProfileFullName] = useState('');
   const [profileBio, setProfileBio] = useState('');
   const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null);
   const [profileAvatarPreview, setProfileAvatarPreview] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState('');
-  const [viewedProfileUser, setViewedProfileUser] = useState<User | null>(null);
-  const [viewedProfileLoading, setViewedProfileLoading] = useState(false);
-  const [viewedProfileError, setViewedProfileError] = useState('');
-  const [profileActionError, setProfileActionError] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(shouldOpenConversationDetailsByDefault);
-  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
-  const [unreadDividerMessageId, setUnreadDividerMessageIdState] = useState<number | null>(null);
-  const [browserNotificationPermission, setBrowserNotificationPermission] =
-    useState<NotificationPermission>(getBrowserNotificationPermission);
   const currentUserRef = useRef<User | null>(null);
   const currentUserIdRef = useRef<number | null>(null);
   const selectedUserIdRef = useRef<number | null>(null);
   const selectedRoomIdRef = useRef<number | null>(null);
-  const unreadDividerMessageIdRef = useRef<number | null>(null);
-  const pendingReadConversationRef = useRef<PendingReadConversation>(null);
   const usersRef = useRef<User[]>([]);
   const friendsRef = useRef<User[]>([]);
   const roomsRef = useRef<ChatRoom[]>([]);
-  const browserNotificationPermissionRef = useRef<NotificationPermission>(
-    getBrowserNotificationPermission()
-  );
-  const browserNotificationPermissionRequestRef = useRef<Promise<NotificationPermission> | null>(null);
-  const notificationAudioContextRef = useRef<AudioContext | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const roomSeenByLoadedMessageIdsRef = useRef<Set<number>>(new Set());
-  const activeCallRef = useRef<ActiveCall | null>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const localCallStreamRef = useRef<MediaStream | null>(null);
-  const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
-  const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  const preCallPreviewStreamRef = useRef<MediaStream | null>(null);
-  const preCallPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
-  const micMutedRef = useRef(false);
-  const cameraOffRef = useRef(false);
-  const screenSharingRef = useRef(false);
-  const screenShareStreamRef = useRef<MediaStream | null>(null);
-  const screenShareCameraTrackRef = useRef<MediaStreamTrack | null>(null);
-  const screenShareStoppingRef = useRef(false);
-  const selectedAudioInputIdRef = useRef('');
-  const selectedVideoInputIdRef = useRef('');
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteTypingTimeoutsRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const sendTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const userSearchQueryRef = useRef('');
   const messageSearchQueryRef = useRef('');
   const messageSearchRequestedQueryRef = useRef('');
-  const viewedProfileUsernameRef = useRef('');
   const optimisticMessageIdRef = useRef(0);
   const hasConnectedRef = useRef(false);
   const realtimeActiveRef = useRef(false);
   const hasLoadedInitialUsersRef = useRef(false);
-  const olderMessagesLoadingRef = useRef(false);
-  const hasMoreMessagesRef = useRef(false);
-  const nextMessageBeforeRef = useRef<number | null>(null);
-  const skipNextAutoScrollRef = useRef(false);
-  const pendingInitialMessageScrollRef = useRef(false);
-  const blockOlderMessagesAutoLoadRef = useRef(false);
-  const hasUserInteractedWithMessagesRef = useRef(false);
-  const releaseInitialScrollBlockFrameRef = useRef<number | null>(null);
-  const messageJumpHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const messageJumpFrameRef = useRef<number | null>(null);
+  const {
+    unreadDividerMessageId,
+    unreadDividerMessageIdRef,
+    pendingReadConversationRef,
+    olderMessagesLoading,
+    setOlderMessagesLoading,
+    olderMessagesLoadingRef,
+    hasMoreMessages,
+    hasMoreMessagesRef,
+    nextMessageBeforeRef,
+    skipNextAutoScrollRef,
+    pendingInitialMessageScrollRef,
+    blockOlderMessagesAutoLoadRef,
+    hasUserInteractedWithMessagesRef,
+    messagesContainerRef,
+    messagesEndRef,
+    unreadDividerRef,
+    highlightedMessageId,
+    setHighlightedMessageId,
+    forceScrollToLatestMessage,
+    scrollToLatestMessage,
+    releaseInitialScrollBlock,
+    scrollToUnreadDivider,
+    setUnreadDividerMessageId,
+    clearPendingReadConversation,
+    preparePendingReadConversation,
+    applyPendingUnreadDivider,
+    addPendingUnreadMessage,
+    resetMessagePagination,
+    applyMessagePagination,
+    clearMessageJumpEffects,
+    scrollToMessageById,
+    highlightMessageById,
+  } = useMessageViewport({ currentUserIdRef });
 
   const canOpenDirectConversation = useCallback(
     (user: User) => user.id !== currentUserIdRef.current,
     []
   );
-  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const unreadDividerRef = useRef<HTMLDivElement | null>(null);
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const messageInputSelectionRef = useRef({ start: 0, end: 0 });
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -409,8 +309,116 @@ export default function ChatPage() {
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const {
+    findKnownUserById,
+    startIncomingCallRingtone,
+    stopIncomingCallRingtone,
+    notifyWithBrowserNotification,
+    buildMessageNotification,
+    buildFriendshipNotification,
+  } = useChatNotifications({
+    currentUser,
+    currentUserRef,
+    currentUserIdRef,
+    usersRef,
+    friendsRef,
+    roomsRef,
+    navigate,
+  });
+  const {
+    activeCall,
+    activeCallRef,
+    callMinimized,
+    callError,
+    localCallStream,
+    remoteCallStream,
+    micMuted,
+    cameraOff,
+    screenSharing,
+    remoteScreenSharing,
+    screenShareError,
+    callConnectionState,
+    callElapsedSeconds,
+    callDevicesLoading,
+    callDeviceError,
+    callPermissions,
+    selectedAudioInputId,
+    selectedVideoInputId,
+    preCallSetup,
+    preCallPreviewStream,
+    preCallPreviewLoading,
+    preCallError,
+    preCallSubmitting,
+    preCallPreviewVideoRef,
+    remoteAudioRef,
+    remoteVideoRef,
+    localVideoRef,
+    audioInputDevices,
+    videoInputDevices,
+    preCallCanStart,
+    refreshCallPermissions,
+    stopPreCallPreview,
+    stopCallMedia,
+    sendActiveCallCloseSignal,
+    handleCallSignal,
+    openPreCallSetupForUser,
+    handleStartCall,
+    handleClosePreCallSetup,
+    handlePreCallRetryPreview,
+    handleConfirmStartCall,
+    handlePreCallAudioInputChange,
+    handlePreCallVideoInputChange,
+    handlePreCallToggleMic,
+    handlePreCallToggleCamera,
+    handleToggleMic,
+    handleToggleCamera,
+    handleRetryActiveCall,
+    handleAcceptCall,
+    handleRejectCall,
+    handleEndCall,
+    handleStartScreenShare,
+    handleStopScreenShare,
+    handleAudioInputChange,
+    handleVideoInputChange,
+    handleMinimizeActiveCall,
+    handleRestoreActiveCall,
+  } = useCallFeature({
+    currentUserRef,
+    currentUserIdRef,
+    selectedUser,
+    notifyWithBrowserNotification,
+    startIncomingCallRingtone,
+    stopIncomingCallRingtone,
+  });
   const selectedUserId = selectedUser?.id ?? null;
   const selectedRoomId = selectedRoom?.id ?? null;
+  const {
+    sharedMediaExpanded,
+    setSharedMediaExpanded,
+    sharedFilesExpanded,
+    setSharedFilesExpanded,
+    sharedLinksExpanded,
+    setSharedLinksExpanded,
+    sharedMediaItems,
+    sharedLinkItems,
+    sharedMediaLoading,
+    sharedLinksLoading,
+    sharedMediaError,
+    sharedLinksError,
+    sharedMediaHasMore,
+    sharedLinksHasMore,
+    loadSharedContent,
+    addIncomingSharedContent,
+    updateSharedContentFromMessage,
+  } = useSharedContentManager({
+    currentUserIdRef,
+    selectedUserIdRef,
+    selectedRoomIdRef,
+    messageSearchQueryRef,
+    selectedUserId,
+    selectedRoomId,
+    setMessageSearchItems,
+  });
   const activeMessageSearchIndex = useMemo(
     () => {
       if (messageSearchItems.length === 0) {
@@ -448,6 +456,24 @@ export default function ChatPage() {
     roomsRef.current = rooms;
   }, [rooms]);
 
+  const {
+    setViewedProfileUser,
+    viewedProfileLoading,
+    viewedProfileError,
+    profileActionError,
+    setProfileActionError,
+    activeViewedProfileUser,
+    clearViewedProfile,
+    handleOpenUserProfile,
+    handleCloseUserProfile,
+  } = useProfileViewer({
+    users,
+    friends,
+    selectedUser,
+    selectedRoom,
+    setProfileMenuOpen,
+  });
+
   const [lightboxState, setLightboxState] = useState<{ items: LightboxMediaItem[]; index: number } | null>(null);
   const [groupSeenModalMessage, setGroupSeenModalMessage] = useState<{ message: Message; seenUsers: User[] } | null>(null);
   const [reactionModalGroups, setReactionModalGroups] = useState<ReactionDetailGroup[] | null>(null);
@@ -463,33 +489,6 @@ export default function ChatPage() {
     messagesRef.current = messages;
   }, [messages]);
 
-  useCallSession({
-    activeCall,
-    setCallMinimized,
-    localCallStream,
-    remoteCallStream,
-    preCallPreviewStream,
-    micMuted,
-    cameraOff,
-    screenSharing,
-    selectedAudioInputId,
-    selectedVideoInputId,
-    callStartedAt,
-    setCallElapsedSeconds,
-    activeCallRef,
-    localCallStreamRef,
-    preCallPreviewStreamRef,
-    micMutedRef,
-    cameraOffRef,
-    screenSharingRef,
-    selectedAudioInputIdRef,
-    selectedVideoInputIdRef,
-    remoteAudioRef,
-    remoteVideoRef,
-    localVideoRef,
-    preCallPreviewVideoRef,
-  });
-
   // Sync pinned message when switching conversations
   useEffect(() => {
     if (selectedRoom) {
@@ -500,10 +499,6 @@ export default function ChatPage() {
       setPinnedMessage(null);
     }
   }, [selectedRoom?.id, selectedUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    browserNotificationPermissionRef.current = browserNotificationPermission;
-  }, [browserNotificationPermission]);
 
   useEffect(() => {
     setGroupSettingsName(selectedRoom?.name ?? '');
@@ -521,393 +516,6 @@ export default function ChatPage() {
     setEditingGroupMemberNicknameId(null);
     setGroupSettingsError('');
   }, [selectedRoom?.id, selectedRoom?.name, selectedRoom?.participants]);
-
-  const clearInitialScrollBlockRelease = useCallback(() => {
-    if (releaseInitialScrollBlockFrameRef.current === null) {
-      return;
-    }
-
-    window.cancelAnimationFrame(releaseInitialScrollBlockFrameRef.current);
-    releaseInitialScrollBlockFrameRef.current = null;
-  }, []);
-
-  const scrollMessagesContainerToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
-    const container = messagesContainerRef.current;
-    if (container) {
-      const bottomScrollTop = getMessagesContainerBottomScrollTop(container);
-      if (behavior === 'auto') {
-        container.scrollTop = bottomScrollTop;
-      } else {
-        container.scrollTo({
-          top: bottomScrollTop,
-          behavior,
-        });
-      }
-      return true;
-    }
-
-    messagesEndRef.current?.scrollIntoView({
-      behavior,
-      block: 'end',
-    });
-    return Boolean(messagesEndRef.current);
-  }, []);
-
-  const settleScrollToLatestMessage = useCallback((behavior: ScrollBehavior = 'auto') => {
-    scrollMessagesContainerToBottom(behavior);
-    window.requestAnimationFrame(() => {
-      scrollMessagesContainerToBottom('auto');
-      window.requestAnimationFrame(() => {
-        scrollMessagesContainerToBottom('auto');
-      });
-    });
-  }, [scrollMessagesContainerToBottom]);
-
-  const forceScrollToLatestMessage = useCallback(() => {
-    settleScrollToLatestMessage('auto');
-  }, [settleScrollToLatestMessage]);
-
-  const scrollToLatestMessage = useCallback(
-    (behavior: ScrollBehavior = 'smooth') => {
-      settleScrollToLatestMessage(behavior);
-    },
-    [settleScrollToLatestMessage]
-  );
-
-  const releaseInitialScrollBlock = useCallback(() => {
-    clearInitialScrollBlockRelease();
-    releaseInitialScrollBlockFrameRef.current = window.requestAnimationFrame(() => {
-      releaseInitialScrollBlockFrameRef.current = window.requestAnimationFrame(() => {
-        blockOlderMessagesAutoLoadRef.current = false;
-        releaseInitialScrollBlockFrameRef.current = null;
-      });
-    });
-  }, [clearInitialScrollBlockRelease]);
-
-  const setUnreadDividerMessageId = useCallback((messageId: number | null) => {
-    unreadDividerMessageIdRef.current = messageId;
-    setUnreadDividerMessageIdState(messageId);
-  }, []);
-
-  const scrollToUnreadDivider = useCallback(() => {
-    const divider = unreadDividerRef.current;
-    if (!divider) {
-      return false;
-    }
-
-    divider.scrollIntoView({
-      behavior: 'auto',
-      block: 'start',
-    });
-    return true;
-  }, []);
-
-  const clearPendingReadConversation = useCallback(() => {
-    pendingReadConversationRef.current = null;
-    setUnreadDividerMessageId(null);
-  }, [setUnreadDividerMessageId]);
-
-  const preparePendingReadConversation = useCallback((
-    type: NonNullable<PendingReadConversation>['type'],
-    id: number,
-    unreadCount: number
-  ) => {
-    if (unreadCount <= 0) {
-      clearPendingReadConversation();
-      return;
-    }
-
-    pendingReadConversationRef.current = { type, id, unreadCount };
-    setUnreadDividerMessageId(null);
-  }, [clearPendingReadConversation, setUnreadDividerMessageId]);
-
-  const applyPendingUnreadDivider = useCallback((
-    pageMessages: Message[],
-    type: NonNullable<PendingReadConversation>['type'],
-    id: number
-  ) => {
-    const pendingConversation = pendingReadConversationRef.current;
-    if (
-      !pendingConversation ||
-      pendingConversation.type !== type ||
-      pendingConversation.id !== id
-    ) {
-      return;
-    }
-
-    const dividerMessageId = getUnreadDividerCandidateId(
-      pageMessages.map(toDeliveredMessage),
-      pendingConversation.unreadCount,
-      currentUserIdRef.current
-    );
-    setUnreadDividerMessageId(dividerMessageId);
-  }, [setUnreadDividerMessageId]);
-
-  const addPendingUnreadMessage = useCallback((
-    type: NonNullable<PendingReadConversation>['type'],
-    id: number,
-    message: Message
-  ) => {
-    const pendingConversation = pendingReadConversationRef.current;
-    const unreadCount =
-      pendingConversation?.type === type && pendingConversation.id === id
-        ? pendingConversation.unreadCount + 1
-        : 1;
-
-    pendingReadConversationRef.current = { type, id, unreadCount };
-    if (unreadDividerMessageIdRef.current === null && message.id > 0) {
-      setUnreadDividerMessageId(message.id);
-    }
-  }, [setUnreadDividerMessageId]);
-
-  const findKnownUserById = useCallback((userId: number) => {
-    const currentKnownUser = currentUserRef.current;
-    const knownUsers = [
-      currentKnownUser?.id === userId ? currentKnownUser : null,
-      ...friendsRef.current,
-      ...usersRef.current,
-      ...roomsRef.current.flatMap((room) => room.participants),
-    ].filter(Boolean) as User[];
-
-    return knownUsers.find((user) => user.id === userId) ?? null;
-  }, []);
-
-  const findKnownRoomById = useCallback((roomId: number) => {
-    return roomsRef.current.find((room) => room.id === roomId) ?? null;
-  }, []);
-
-  const resumeNotificationAudio = useCallback(async () => {
-    if (typeof window === 'undefined') {
-      return null;
-    }
-
-    const AudioContextConstructor =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextConstructor) {
-      return null;
-    }
-
-    if (!notificationAudioContextRef.current) {
-      notificationAudioContextRef.current = new AudioContextConstructor();
-    }
-
-    const audioContext = notificationAudioContextRef.current;
-    if (audioContext.state === 'suspended') {
-      try {
-        await audioContext.resume();
-      } catch (error) {
-        console.warn('Unable to unlock notification sound:', error);
-        return null;
-      }
-    }
-
-    return audioContext;
-  }, []);
-
-  const startIncomingCallRingtone = useCallback(() => {
-    soundService.startIncomingCallRingtone();
-  }, []);
-
-  const stopIncomingCallRingtone = useCallback(() => {
-    soundService.stopIncomingCallRingtone();
-  }, []);
-
-  const requestBrowserNotificationPermission = useCallback(async () => {
-    if (!isBrowserNotificationSupported()) {
-      setBrowserNotificationPermission('denied');
-      return 'denied' as NotificationPermission;
-    }
-
-    const currentPermission = getBrowserNotificationPermission();
-    browserNotificationPermissionRef.current = currentPermission;
-    setBrowserNotificationPermission(currentPermission);
-    if (currentPermission !== 'default') {
-      return currentPermission;
-    }
-
-    if (!browserNotificationPermissionRequestRef.current) {
-      browserNotificationPermissionRequestRef.current = Notification.requestPermission()
-        .then((permission) => {
-          browserNotificationPermissionRef.current = permission;
-          setBrowserNotificationPermission(permission);
-          return permission;
-        })
-        .catch((error) => {
-          console.error('Failed to request browser notification permission:', error);
-          const permission = getBrowserNotificationPermission();
-          browserNotificationPermissionRef.current = permission;
-          setBrowserNotificationPermission(permission);
-          return permission;
-        })
-        .finally(() => {
-          browserNotificationPermissionRequestRef.current = null;
-        });
-    }
-
-    return browserNotificationPermissionRequestRef.current;
-  }, []);
-
-  const showBrowserNotification = useCallback((notification: ChatBrowserNotification) => {
-    if (
-      !isBrowserNotificationSupported() ||
-      browserNotificationPermissionRef.current !== 'granted' ||
-      !shouldShowBrowserNotification()
-    ) {
-      return false;
-    }
-
-    try {
-      const browserNotification = new Notification(notification.title, {
-        body: notification.body,
-        icon: getAvatarUrl(notification.user?.avatar),
-        tag: notification.browserTag,
-      });
-
-      browserNotification.onclick = () => {
-        window.focus();
-        if (notification.path) {
-          navigate(notification.path);
-        }
-        browserNotification.close();
-      };
-
-      window.setTimeout(() => {
-        browserNotification.close();
-      }, BROWSER_NOTIFICATION_CLOSE_MS);
-      return true;
-    } catch (error) {
-      console.error('Failed to show browser notification:', error);
-      return false;
-    }
-  }, [navigate]);
-
-  const notifyWithBrowserNotification = useCallback((notification: ChatBrowserNotification, isMention = false) => {
-    if (isMention) {
-      soundService.playMentionSound();
-    } else {
-      soundService.playNotificationSound();
-    }
-
-    if (browserNotificationPermissionRef.current === 'default') {
-      void requestBrowserNotificationPermission();
-    }
-
-    void showBrowserNotification(notification);
-  }, [requestBrowserNotificationPermission, showBrowserNotification]);
-
-  const buildMessageNotification = useCallback((message: Message) => {
-    const preview = getMessagePreviewContent(message) || 'New message';
-    const isMention = Boolean(
-      message.chatRoomId && (
-        (currentUserRef.current && message.mentionedUserIds?.includes(currentUserRef.current.id)) ||
-        (currentUserRef.current && message.mentionedUsernames?.includes(currentUserRef.current.username)) ||
-        (message.content && /@all\b/i.test(message.content))
-      )
-    );
-
-    if (message.chatRoomId) {
-      const room = findKnownRoomById(message.chatRoomId);
-      const sender = findKnownUserById(message.senderId);
-      const senderName =
-        getUserDisplayName(sender) ||
-        message.senderFullName?.trim() ||
-        message.senderUsername ||
-        'Someone';
-
-      return {
-        title: isMention
-          ? `🔔 ${senderName} mentioned you in ${room?.name ?? 'Group'}`
-          : (room?.name ?? 'Group message'),
-        body: isMention ? preview : `${senderName}: ${preview}`,
-        path: getRoomChatRoute(message.chatRoomId),
-        user: sender,
-        browserTag: `room-message-${message.chatRoomId}`,
-        isMention,
-      };
-    }
-
-    const sender = findKnownUserById(message.senderId);
-    const senderUsername = sender?.username || message.senderUsername;
-    return {
-      title:
-        getUserDisplayName(sender) ||
-        message.senderFullName?.trim() ||
-        senderUsername ||
-        'New message',
-      body: preview,
-      path: senderUsername ? getUserChatRoute(senderUsername) : undefined,
-      user: sender,
-      browserTag: `private-message-${message.senderId}`,
-      isMention: false,
-    };
-  }, [findKnownRoomById, findKnownUserById]);
-
-  const buildFriendshipNotification = useCallback((friendship: Friendship) => {
-    const currentUserId = currentUserIdRef.current;
-    if (friendship.status === 'pending' && friendship.receiver.id === currentUserId) {
-      const requesterName = getUserDisplayName(friendship.requester);
-      return {
-        title: 'New friend request',
-        body: `${requesterName} sent you a friend request.`,
-        path: getRequestsRoute(),
-        user: friendship.requester,
-        browserTag: `friend-request-${friendship.id}`,
-      };
-    }
-
-    if (friendship.status === 'accepted' && friendship.requester.id === currentUserId) {
-      const receiverName = getUserDisplayName(friendship.receiver);
-      return {
-        title: 'Friend request accepted',
-        body: `${receiverName} accepted your friend request.`,
-        path: getUserChatRoute(friendship.receiver.username),
-        user: friendship.receiver,
-        browserTag: `friend-accepted-${friendship.id}`,
-      };
-    }
-
-    return null;
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return undefined;
-    }
-
-    const unlockAudio = () => {
-      void resumeNotificationAudio();
-    };
-
-    window.addEventListener('pointerdown', unlockAudio, { once: true, passive: true });
-    window.addEventListener('keydown', unlockAudio, { once: true });
-
-    return () => {
-      window.removeEventListener('pointerdown', unlockAudio);
-      window.removeEventListener('keydown', unlockAudio);
-    };
-  }, [resumeNotificationAudio]);
-
-  useEffect(() => {
-    if (!currentUser?.id || !isBrowserNotificationSupported()) {
-      return undefined;
-    }
-
-    const requestPermission = () => {
-      if (getBrowserNotificationPermission() === 'default') {
-        void requestBrowserNotificationPermission();
-      }
-    };
-
-    requestPermission();
-    window.addEventListener('pointerdown', requestPermission, { once: true, passive: true });
-    window.addEventListener('keydown', requestPermission, { once: true });
-
-    return () => {
-      window.removeEventListener('pointerdown', requestPermission);
-      window.removeEventListener('keydown', requestPermission);
-    };
-  }, [currentUser?.id, requestBrowserNotificationPermission]);
 
   useEffect(() => {
     dbService.getConversationsCache('conversations_cache').then((cached) => {
@@ -933,180 +541,13 @@ export default function ChatPage() {
     }
   }, [messages, selectedUser, selectedRoom]);
 
-  useEffect(() => () => {
-    stopIncomingCallRingtone();
-    stopMediaStream(preCallPreviewStreamRef.current);
-    preCallPreviewStreamRef.current = null;
-    void notificationAudioContextRef.current?.close();
-    notificationAudioContextRef.current = null;
-  }, [stopIncomingCallRingtone]);
-
-  const resetMessagePagination = useCallback(() => {
-    olderMessagesLoadingRef.current = false;
-    hasMoreMessagesRef.current = false;
-    nextMessageBeforeRef.current = null;
-    skipNextAutoScrollRef.current = false;
-    pendingInitialMessageScrollRef.current = true;
-    blockOlderMessagesAutoLoadRef.current = true;
-    hasUserInteractedWithMessagesRef.current = false;
-    clearInitialScrollBlockRelease();
-    setOlderMessagesLoading(false);
-    setHasMoreMessages(false);
-  }, [clearInitialScrollBlockRelease]);
-
-  const applyMessagePagination = useCallback((page: MessagePage) => {
-    const nextBefore = page.nextBefore ?? null;
-    hasMoreMessagesRef.current = page.hasMore;
-    nextMessageBeforeRef.current = nextBefore;
-    setHasMoreMessages(page.hasMore);
-  }, []);
-
-  const resetSharedContentState = useCallback(() => {
-    setSharedMediaExpanded(false);
-    setSharedLinksExpanded(false);
-    setSharedMediaLoaded(false);
-    setSharedLinksLoaded(false);
-    setSharedMediaItems([]);
-    setSharedLinkItems([]);
-    setSharedMediaLoading(false);
-    setSharedLinksLoading(false);
-    setSharedMediaError('');
-    setSharedLinksError('');
-    setSharedMediaHasMore(false);
-    setSharedLinksHasMore(false);
-    setSharedMediaNextBefore(null);
-    setSharedLinksNextBefore(null);
-  }, [
-    setSharedLinkItems,
-    setSharedLinksError,
-    setSharedLinksHasMore,
-    setSharedLinksLoaded,
-    setSharedLinksLoading,
-    setSharedLinksNextBefore,
-    setSharedLinksExpanded,
-    setSharedMediaError,
-    setSharedMediaHasMore,
-    setSharedMediaItems,
-    setSharedMediaLoaded,
-    setSharedMediaLoading,
-    setSharedMediaNextBefore,
-    setSharedMediaExpanded,
-  ]);
-
   const resetMessageSearchState = useCallback(() => {
     messageSearchQueryRef.current = '';
     messageSearchRequestedQueryRef.current = '';
     clearMessageSearch();
     setActiveMessageSearchId(null);
     setHighlightedMessageId(null);
-  }, [clearMessageSearch, setActiveMessageSearchId]);
-
-  const clearMessageJumpEffects = useCallback(() => {
-    if (messageJumpHighlightTimeoutRef.current) {
-      clearTimeout(messageJumpHighlightTimeoutRef.current);
-      messageJumpHighlightTimeoutRef.current = null;
-    }
-
-    if (messageJumpFrameRef.current !== null) {
-      window.cancelAnimationFrame(messageJumpFrameRef.current);
-      messageJumpFrameRef.current = null;
-    }
-  }, []);
-
-  const scrollToMessageById = useCallback((messageId: number) => {
-    const container = messagesContainerRef.current;
-    const messageElement = container?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
-    if (!messageElement) {
-      return;
-    }
-
-    messageElement.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center',
-    });
-  }, []);
-
-  const highlightMessageById = useCallback(
-    (messageId: number) => {
-      clearMessageJumpEffects();
-      setHighlightedMessageId(messageId);
-      messageJumpFrameRef.current = window.requestAnimationFrame(() => {
-        messageJumpFrameRef.current = window.requestAnimationFrame(() => {
-          scrollToMessageById(messageId);
-          messageJumpFrameRef.current = null;
-        });
-      });
-      messageJumpHighlightTimeoutRef.current = setTimeout(() => {
-        setHighlightedMessageId((currentMessageId) =>
-          currentMessageId === messageId ? null : currentMessageId
-        );
-        messageJumpHighlightTimeoutRef.current = null;
-      }, MESSAGE_JUMP_HIGHLIGHT_MS);
-    },
-    [clearMessageJumpEffects, scrollToMessageById]
-  );
-
-  const addIncomingSharedContent = useCallback((incomingMessage: Message) => {
-    if (
-      !isActiveConversationMessage(
-        incomingMessage,
-        currentUserIdRef.current,
-        selectedUserIdRef.current,
-        selectedRoomIdRef.current
-      )
-    ) {
-      return;
-    }
-
-    setSharedMediaItems((currentMessages) =>
-      prependSharedContentItem(currentMessages, incomingMessage, isSharedMediaMessage)
-    );
-    setSharedLinkItems((currentMessages) =>
-      prependSharedContentItem(currentMessages, incomingMessage, isSharedLinkMessage)
-    );
-
-    const currentSearchQuery = messageSearchQueryRef.current.trim();
-    if (currentSearchQuery) {
-      setMessageSearchItems((currentMessages) =>
-        prependSharedContentItem(
-          currentMessages,
-          incomingMessage,
-          (message) => messageMatchesSearchQuery(message, currentSearchQuery)
-        )
-      );
-    }
-  }, [setMessageSearchItems, setSharedLinkItems, setSharedMediaItems]);
-
-  const updateSharedContentFromMessage = useCallback((updatedMessage: Message) => {
-    if (
-      !isActiveConversationMessage(
-        updatedMessage,
-        currentUserIdRef.current,
-        selectedUserIdRef.current,
-        selectedRoomIdRef.current
-      )
-    ) {
-      return;
-    }
-
-    setSharedMediaItems((currentMessages) =>
-      updateKnownSharedContentItem(currentMessages, updatedMessage, isSharedMediaMessage)
-    );
-    setSharedLinkItems((currentMessages) =>
-      updateKnownSharedContentItem(currentMessages, updatedMessage, isSharedLinkMessage)
-    );
-
-    const currentSearchQuery = messageSearchQueryRef.current.trim();
-    if (currentSearchQuery) {
-      setMessageSearchItems((currentMessages) =>
-        updateKnownSharedContentItem(
-          currentMessages,
-          updatedMessage,
-          (message) => messageMatchesSearchQuery(message, currentSearchQuery)
-        )
-      );
-    }
-  }, [setMessageSearchItems, setSharedLinkItems, setSharedMediaItems]);
+  }, [clearMessageSearch, setActiveMessageSearchId, setHighlightedMessageId]);
 
   const getNextOptimisticMessageId = () => {
     optimisticMessageIdRef.current -= 1;
@@ -1184,202 +625,14 @@ export default function ChatPage() {
     setSeenByLoadingMessageIds,
   });
 
-  const loadSharedContent = useCallback(async (
-    kind: SharedContentKind,
-    options: SharedContentLoadOptions = {}
-  ) => {
-    const selectedUserIdForLoad = selectedUserIdRef.current;
-    const selectedRoomIdForLoad = selectedRoomIdRef.current;
-    if (selectedUserIdForLoad === null && selectedRoomIdForLoad === null) {
-      return;
-    }
-
-    const isMediaContent = kind === 'media';
-    const loading = isMediaContent ? sharedMediaLoading : sharedLinksLoading;
-    const hasMore = isMediaContent ? sharedMediaHasMore : sharedLinksHasMore;
-    const nextBefore = isMediaContent ? sharedMediaNextBefore : sharedLinksNextBefore;
-    const before = options.reset ? null : nextBefore;
-
-    if (loading || (!options.reset && (!hasMore || before === null))) {
-      return;
-    }
-
-    if (isMediaContent) {
-      setSharedMediaLoading(true);
-      setSharedMediaError('');
-    } else {
-      setSharedLinksLoading(true);
-      setSharedLinksError('');
-    }
-
-    try {
-      const endpoint =
-        selectedUserIdForLoad !== null
-          ? `/messages/${selectedUserIdForLoad}/${kind}`
-          : `/rooms/${selectedRoomIdForLoad}/${kind}`;
-      const response = await apiClient.get<MessagePage>(endpoint, {
-        params: {
-          size: SHARED_CONTENT_PAGE_SIZE,
-          ...(before === null ? {} : { before }),
-        },
-      });
-
-      if (
-        selectedUserIdRef.current !== selectedUserIdForLoad ||
-        selectedRoomIdRef.current !== selectedRoomIdForLoad
-      ) {
-        return;
-      }
-
-      const predicate = isMediaContent ? isSharedMediaMessage : isSharedLinkMessage;
-      const pageItems = response.data.items.filter(predicate);
-      if (isMediaContent) {
-        setSharedMediaItems((currentMessages) =>
-          mergeSharedContentPage(currentMessages, pageItems, Boolean(options.reset))
-        );
-        setSharedMediaHasMore(response.data.hasMore);
-        setSharedMediaNextBefore(response.data.nextBefore ?? null);
-        setSharedMediaLoaded(true);
-      } else {
-        setSharedLinkItems((currentMessages) =>
-          mergeSharedContentPage(currentMessages, pageItems, Boolean(options.reset))
-        );
-        setSharedLinksHasMore(response.data.hasMore);
-        setSharedLinksNextBefore(response.data.nextBefore ?? null);
-        setSharedLinksLoaded(true);
-      }
-    } catch (error) {
-      console.error(`Failed to load shared ${kind}:`, error);
-      if (
-        selectedUserIdRef.current === selectedUserIdForLoad &&
-        selectedRoomIdRef.current === selectedRoomIdForLoad
-      ) {
-        if (isMediaContent) {
-          setSharedMediaError('Unable to load shared media.');
-          setSharedMediaLoaded(true);
-        } else {
-          setSharedLinksError('Unable to load shared links.');
-          setSharedLinksLoaded(true);
-        }
-      }
-    } finally {
-      if (
-        selectedUserIdRef.current === selectedUserIdForLoad &&
-        selectedRoomIdRef.current === selectedRoomIdForLoad
-      ) {
-        if (isMediaContent) {
-          setSharedMediaLoading(false);
-        } else {
-          setSharedLinksLoading(false);
-        }
-      }
-    }
-  }, [
-    sharedLinksHasMore,
-    sharedLinksLoading,
-    sharedLinksNextBefore,
-    sharedMediaHasMore,
-    sharedMediaLoading,
-    sharedMediaNextBefore,
-    setSharedLinkItems,
-    setSharedLinksError,
-    setSharedLinksHasMore,
-    setSharedLinksLoaded,
-    setSharedLinksLoading,
-    setSharedLinksNextBefore,
-    setSharedMediaError,
-    setSharedMediaHasMore,
-    setSharedMediaItems,
-    setSharedMediaLoaded,
-    setSharedMediaLoading,
-    setSharedMediaNextBefore,
-  ]);
-
-  const loadMessageSearch = useCallback(async (options: MessageSearchLoadOptions = {}) => {
-    const selectedUserIdForLoad = selectedUserIdRef.current;
-    const selectedRoomIdForLoad = selectedRoomIdRef.current;
-    const query = (options.query ?? messageSearchQueryRef.current).trim();
-    if (selectedUserIdForLoad === null && selectedRoomIdForLoad === null) {
-      return;
-    }
-
-    if (!query) {
-      messageSearchRequestedQueryRef.current = '';
-      setMessageSearchItems([]);
-      setMessageSearchError('');
-      setMessageSearchHasMore(false);
-      setMessageSearchNextBefore(null);
-      setActiveMessageSearchId(null);
-      return;
-    }
-
-    const before = options.reset ? null : messageSearchNextBefore;
-    if (!options.reset && (messageSearchLoading || !messageSearchHasMore || before === null)) {
-      return;
-    }
-
-    setMessageSearchLoading(true);
-    setMessageSearchError('');
-
-    try {
-      const endpoint =
-        selectedUserIdForLoad !== null
-          ? `/messages/${selectedUserIdForLoad}/search`
-          : `/rooms/${selectedRoomIdForLoad}/search`;
-      const response = await apiClient.get<MessagePage>(endpoint, {
-        params: {
-          query,
-          size: MESSAGE_SEARCH_PAGE_SIZE,
-          ...(before === null ? {} : { before }),
-        },
-      });
-
-      if (
-        selectedUserIdRef.current !== selectedUserIdForLoad ||
-        selectedRoomIdRef.current !== selectedRoomIdForLoad ||
-        messageSearchQueryRef.current.trim() !== query
-      ) {
-        return;
-      }
-
-      setMessageSearchItems((currentMessages) =>
-        mergeSharedContentPage(currentMessages, response.data.items, Boolean(options.reset))
-      );
-      setMessageSearchHasMore(response.data.hasMore);
-      setMessageSearchNextBefore(response.data.nextBefore ?? null);
-    } catch (error) {
-      console.error('Failed to search messages:', error);
-      if (
-        selectedUserIdRef.current === selectedUserIdForLoad &&
-        selectedRoomIdRef.current === selectedRoomIdForLoad &&
-        messageSearchQueryRef.current.trim() === query
-      ) {
-        setMessageSearchError('Unable to search messages.');
-      }
-    } finally {
-      if (
-        selectedUserIdRef.current === selectedUserIdForLoad &&
-        selectedRoomIdRef.current === selectedRoomIdForLoad &&
-        messageSearchQueryRef.current.trim() === query
-      ) {
-        setMessageSearchLoading(false);
-      }
-    }
-  }, [
-    messageSearchHasMore,
-    messageSearchLoading,
-    messageSearchNextBefore,
-    setActiveMessageSearchId,
-    setMessageSearchError,
-    setMessageSearchHasMore,
-    setMessageSearchItems,
-    setMessageSearchLoading,
-    setMessageSearchNextBefore,
-  ]);
-
-  useEffect(() => {
-    resetSharedContentState();
-  }, [resetSharedContentState, selectedRoomId, selectedUserId]);
+  const loadMessageSearch = useMessageSearchLoader({
+    selectedUserIdRef, selectedRoomIdRef, queryRef: messageSearchQueryRef,
+    requestedQueryRef: messageSearchRequestedQueryRef, loading: messageSearchLoading,
+    hasMore: messageSearchHasMore, nextBefore: messageSearchNextBefore,
+    setItems: setMessageSearchItems, setLoading: setMessageSearchLoading,
+    setError: setMessageSearchError, setHasMore: setMessageSearchHasMore,
+    setNextBefore: setMessageSearchNextBefore, setActiveId: setActiveMessageSearchId,
+  });
 
   useEffect(() => {
     roomSeenByLoadedMessageIdsRef.current.clear();
@@ -1392,46 +645,6 @@ export default function ChatPage() {
     clearMessageJumpEffects();
     resetMessageSearchState();
   }, [clearMessageJumpEffects, resetMessageSearchState, selectedRoomId, selectedUserId]);
-
-  useEffect(() => {
-    if (
-      (selectedUserId === null && selectedRoomId === null) ||
-      !sharedMediaExpanded ||
-      sharedMediaLoaded ||
-      sharedMediaLoading
-    ) {
-      return;
-    }
-
-    void loadSharedContent('media', { reset: true });
-  }, [
-    loadSharedContent,
-    selectedRoomId,
-    selectedUserId,
-    sharedMediaExpanded,
-    sharedMediaLoaded,
-    sharedMediaLoading,
-  ]);
-
-  useEffect(() => {
-    if (
-      (selectedUserId === null && selectedRoomId === null) ||
-      !sharedLinksExpanded ||
-      sharedLinksLoaded ||
-      sharedLinksLoading
-    ) {
-      return;
-    }
-
-    void loadSharedContent('links', { reset: true });
-  }, [
-    loadSharedContent,
-    selectedRoomId,
-    selectedUserId,
-    sharedLinksExpanded,
-    sharedLinksLoaded,
-    sharedLinksLoading,
-  ]);
 
   useEffect(() => {
     if (messageSearchItems.length === 0) {
@@ -1451,7 +664,7 @@ export default function ChatPage() {
 
   const markMessagesScrollIntent = useCallback(() => {
     hasUserInteractedWithMessagesRef.current = true;
-  }, []);
+  }, [hasUserInteractedWithMessagesRef]);
 
   const handleMessageAssetLoaded = useCallback(() => {
     if (
@@ -1466,7 +679,13 @@ export default function ChatPage() {
     if (blockOlderMessagesAutoLoadRef.current) {
       releaseInitialScrollBlock();
     }
-  }, [forceScrollToLatestMessage, releaseInitialScrollBlock]);
+  }, [
+    blockOlderMessagesAutoLoadRef,
+    forceScrollToLatestMessage,
+    hasUserInteractedWithMessagesRef,
+    pendingReadConversationRef,
+    releaseInitialScrollBlock,
+  ]);
 
   const handleMessagesScroll = () => {
     const container = messagesContainerRef.current;
@@ -1487,14 +706,6 @@ export default function ChatPage() {
 
     void loadOlderMessages();
   };
-
-  useEffect(() => () => {
-    clearInitialScrollBlockRelease();
-  }, [clearInitialScrollBlockRelease]);
-
-  useEffect(() => () => {
-    clearMessageJumpEffects();
-  }, [clearMessageJumpEffects]);
 
   useEffect(() => {
     if (!('scrollRestoration' in window.history)) {
@@ -1637,214 +848,41 @@ export default function ChatPage() {
     void loadFriendSummary();
   }, [currentUser?.id, loadFriendSummary, loadIncomingFriendRequests]);
 
-  const clearTypingTimeout = useCallback(() => {
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = null;
-    }
-  }, []);
-
-  const clearRemoteTypingTimeout = useCallback((senderId?: number) => {
-    if (senderId !== undefined) {
-      const timeout = remoteTypingTimeoutsRef.current.get(senderId);
-      if (timeout) {
-        clearTimeout(timeout);
-        remoteTypingTimeoutsRef.current.delete(senderId);
-      }
-      return;
-    }
-
-    remoteTypingTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
-    remoteTypingTimeoutsRef.current.clear();
-  }, []);
-
-  const clearOptimisticSendTimeout = useCallback((clientId: string) => {
-    const timeout = sendTimeoutsRef.current.get(clientId);
-    if (!timeout) {
-      return;
-    }
-
-    clearTimeout(timeout);
-    sendTimeoutsRef.current.delete(clientId);
-  }, []);
-
-  const clearOptimisticSendTimeouts = useCallback(() => {
-    sendTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
-    sendTimeoutsRef.current.clear();
-  }, []);
-
-  const scheduleOptimisticSendTimeout = useCallback((clientId: string) => {
-    clearOptimisticSendTimeout(clientId);
-
-    const timeout = setTimeout(() => {
-      sendTimeoutsRef.current.delete(clientId);
-      setMessages((currentMessages) => markOptimisticMessageFailed(currentMessages, clientId));
-    }, OPTIMISTIC_SEND_TIMEOUT_MS);
-
-    sendTimeoutsRef.current.set(clientId, timeout);
-  }, [clearOptimisticSendTimeout]);
-
-  const showRemoteTyping = useCallback((senderId: number) => {
-    setRemoteTypingUserIds((currentUserIds) =>
-      currentUserIds.includes(senderId) ? currentUserIds : [...currentUserIds, senderId]
-    );
-    clearRemoteTypingTimeout(senderId);
-    const timeout = setTimeout(() => {
-      setRemoteTypingUserIds((currentUserIds) =>
-        currentUserIds.filter((currentUserId) => currentUserId !== senderId)
-      );
-      remoteTypingTimeoutsRef.current.delete(senderId);
-    }, REMOTE_TYPING_VISIBLE_MS);
-    remoteTypingTimeoutsRef.current.set(senderId, timeout);
-  }, [clearRemoteTypingTimeout]);
-
-  const hideRemoteTyping = useCallback((senderId?: number) => {
-    clearRemoteTypingTimeout(senderId);
-    setRemoteTypingUserIds((currentUserIds) =>
-      senderId === undefined
-        ? []
-        : currentUserIds.filter((currentUserId) => currentUserId !== senderId)
-    );
-  }, [clearRemoteTypingTimeout]);
-
-  const publishTyping = useCallback((receiverId: number, typing: boolean) => {
-    wsService.sendMessage(TYPING_DESTINATION, {
-      receiverId,
-      typing,
-    });
-  }, []);
-
-  const stopTyping = useCallback((receiverId: number) => {
-    clearTypingTimeout();
-    publishTyping(receiverId, false);
-  }, [clearTypingTimeout, publishTyping]);
-
-  const publishRoomTyping = useCallback((roomId: number, typing: boolean) => {
-    wsService.sendMessage(`${GROUP_MESSAGE_DESTINATION_PREFIX}/${roomId}/typing`, {
-      typing,
-    });
-  }, []);
-
-  const stopRoomTyping = useCallback((roomId: number) => {
-    clearTypingTimeout();
-    publishRoomTyping(roomId, false);
-  }, [clearTypingTimeout, publishRoomTyping]);
-
-  const markConversationAsRead = useCallback(async (senderId: number) => {
-    setUsers((currentUsers) => resetUnreadCount(currentUsers, senderId));
-    setFriends((currentFriends) => resetUnreadCount(currentFriends, senderId));
-
-    const sentRealtime = wsService.sendMessage(READ_RECEIPT_DESTINATION, {
-      senderId,
-    });
-
-    if (!sentRealtime) {
-      try {
-        const response = await apiClient.patch<ReadReceiptEvent>(`/messages/${senderId}/read`);
-        setMessages((currentMessages) => applyReadReceipt(currentMessages, response.data));
-      } catch (error) {
-        console.error('Failed to mark conversation as read:', error);
-      }
-    }
-  }, []);
-
-  const markRoomAsRead = useCallback(async (roomId: number) => {
-    setRooms((currentRooms) => resetRoomUnreadCount(currentRooms, roomId));
-    setSelectedRoom((currentSelectedRoom) =>
-      currentSelectedRoom?.id === roomId ? { ...currentSelectedRoom, unreadCount: 0 } : currentSelectedRoom
-    );
-
-    try {
-      const response = await apiClient.patch<ChatRoom>(`/rooms/${roomId}/read`);
-      setRooms((currentRooms) => appendOrUpdateRoom(currentRooms, response.data));
-      setSelectedRoom((currentSelectedRoom) =>
-        currentSelectedRoom?.id === roomId ? response.data : currentSelectedRoom
-      );
-    } catch (error) {
-      console.error('Failed to mark group as read:', error);
-    }
-  }, []);
-
-  const applyRoomReadReceipt = useCallback((receipt: RoomReadReceiptEvent) => {
-    const currentUserId = currentUserIdRef.current;
-    if (
-      currentUserId === null ||
-      receipt.readerId === currentUserId ||
-      receipt.roomId !== selectedRoomIdRef.current
-    ) {
-      return;
-    }
-
-    const reader = findKnownUserById(receipt.readerId);
-    const readAt = Date.parse(receipt.readAt);
-    if (!reader || Number.isNaN(readAt)) {
-      return;
-    }
-
-    const readSentMessageIds = messagesRef.current
-      .filter((message) => {
-        const messageTimestamp = Date.parse(message.timestamp);
-        return (
-          message.id > 0 &&
-          message.chatRoomId === receipt.roomId &&
-          message.senderId === currentUserId &&
-          !message.recalled &&
-          !Number.isNaN(messageTimestamp) &&
-          messageTimestamp <= readAt
-        );
-      })
-      .map((message) => message.id);
-
-    if (readSentMessageIds.length === 0) {
-      return;
-    }
-
-    setRoomSeenByByMessageId((currentSeenBy) => {
-      let changed = false;
-      const nextSeenBy = { ...currentSeenBy };
-
-      readSentMessageIds.forEach((messageId) => {
-        const currentReaders = nextSeenBy[messageId] ?? [];
-        const nextReaders = appendSeenByUser(currentReaders, reader);
-        if (nextReaders !== currentReaders) {
-          nextSeenBy[messageId] = nextReaders;
-          changed = true;
-        }
-      });
-
-      return changed ? nextSeenBy : currentSeenBy;
-    });
-  }, [findKnownUserById]);
-
-  const flushPendingReadConversation = useCallback(() => {
-    const pendingConversation = pendingReadConversationRef.current;
-    if (!pendingConversation) {
-      return false;
-    }
-
-    pendingReadConversationRef.current = null;
-    setUnreadDividerMessageId(null);
-
-    if (pendingConversation.type === 'user') {
-      void markConversationAsRead(pendingConversation.id);
-    } else {
-      void markRoomAsRead(pendingConversation.id);
-    }
-
-    return true;
-  }, [markConversationAsRead, markRoomAsRead, setUnreadDividerMessageId]);
-
-  const completePendingReadIfAtBottom = useCallback(() => {
-    if (!pendingReadConversationRef.current) {
-      return false;
-    }
-
-    if (!isMessagesContainerNearBottom(messagesContainerRef.current, READ_BOTTOM_THRESHOLD)) {
-      return false;
-    }
-
-    return flushPendingReadConversation();
-  }, [flushPendingReadConversation]);
+  const {
+    clearTypingTimeout,
+    clearRemoteTypingTimeout,
+    clearOptimisticSendTimeout,
+    clearOptimisticSendTimeouts,
+    scheduleOptimisticSendTimeout,
+    showRemoteTyping,
+    hideRemoteTyping,
+    publishTyping,
+    stopTyping,
+    publishRoomTyping,
+    stopRoomTyping,
+    markConversationAsRead,
+    markRoomAsRead,
+    applyRoomReadReceipt,
+    completePendingReadIfAtBottom,
+  } = useChatInteractionSignals({
+    currentUserIdRef,
+    selectedRoomIdRef,
+    messagesRef,
+    messagesContainerRef,
+    pendingReadConversationRef,
+    typingTimeoutRef,
+    remoteTypingTimeoutsRef,
+    sendTimeoutsRef,
+    setMessages,
+    setUsers,
+    setFriends,
+    setRooms,
+    setSelectedRoom,
+    setRemoteTypingUserIds,
+    setRoomSeenByByMessageId,
+    setUnreadDividerMessageId,
+    findKnownUserById,
+  });
 
   const applyRoomMembershipUpdate = useCallback((room: ChatRoom) => {
     if (!isRoomParticipant(room, currentUserIdRef.current)) {
@@ -1960,773 +998,6 @@ export default function ChatPage() {
     }
   }, []);
 
-  const sendCallSignal = useCallback((payload: CallSignalPayload) => {
-    const sent = wsService.sendMessage(CALL_SIGNAL_DESTINATION, payload);
-    if (!sent) {
-      setCallError('Call connection is not ready.');
-    }
-
-    return sent;
-  }, []);
-
-  const loadCallDevices = useCallback(async () => {
-    if (!navigator.mediaDevices?.enumerateDevices) {
-      return;
-    }
-
-    setCallDevicesLoading(true);
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      setCallDevices(devices.filter((device) =>
-        device.kind === 'audioinput' || device.kind === 'videoinput'
-      ));
-      setCallDeviceError('');
-    } catch (error) {
-      console.error('Failed to load call devices:', error);
-      setCallDeviceError('Unable to load microphone or camera list.');
-    } finally {
-      setCallDevicesLoading(false);
-    }
-  }, []);
-
-  const refreshCallPermissions = useCallback(async (callType: CallType) => {
-    const [microphone, camera] = await Promise.all([
-      queryCallPermission('microphone'),
-      callType === 'VIDEO' ? queryCallPermission('camera') : Promise.resolve('unsupported' as const),
-    ]);
-
-    setCallPermissions({ microphone, camera });
-  }, []);
-
-  const applySelectedDeviceIdsFromStream = useCallback((stream: MediaStream) => {
-    const audioDeviceId = stream.getAudioTracks()[0]?.getSettings().deviceId;
-    const videoDeviceId = stream.getVideoTracks()[0]?.getSettings().deviceId;
-
-    if (audioDeviceId) {
-      setSelectedAudioInputId(audioDeviceId);
-    }
-
-    if (videoDeviceId) {
-      setSelectedVideoInputId(videoDeviceId);
-    }
-  }, []);
-
-  const stopPreCallPreview = useCallback(() => {
-    stopMediaStream(preCallPreviewStreamRef.current);
-    preCallPreviewStreamRef.current = null;
-    setPreCallPreviewStream(null);
-  }, []);
-
-  const startPreCallPreview = useCallback(async (
-    callType: CallType,
-    audioInputId = selectedAudioInputId,
-    videoInputId = selectedVideoInputId
-  ) => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setPreCallError('Browser does not support media calls.');
-      return null;
-    }
-
-    setPreCallPreviewLoading(true);
-    setPreCallError('');
-    stopMediaStream(preCallPreviewStreamRef.current);
-    preCallPreviewStreamRef.current = null;
-    setPreCallPreviewStream(null);
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia(
-        buildCallMediaConstraints(callType, audioInputId, videoInputId)
-      );
-      stream.getAudioTracks().forEach((track) => {
-        track.enabled = !micMutedRef.current;
-      });
-      stream.getVideoTracks().forEach((track) => {
-        track.enabled = !cameraOffRef.current;
-      });
-
-      preCallPreviewStreamRef.current = stream;
-      setPreCallPreviewStream(stream);
-      applySelectedDeviceIdsFromStream(stream);
-      void loadCallDevices();
-      void refreshCallPermissions(callType);
-      return stream;
-    } catch (error) {
-      console.error('Failed to start pre-call preview:', error);
-      setPreCallError(getCallMediaErrorMessage(error, callType));
-      void refreshCallPermissions(callType);
-      return null;
-    } finally {
-      setPreCallPreviewLoading(false);
-    }
-  }, [
-    applySelectedDeviceIdsFromStream,
-    loadCallDevices,
-    refreshCallPermissions,
-    selectedAudioInputId,
-    selectedVideoInputId,
-  ]);
-
-  const getLocalCallMedia = useCallback((call: ActiveCall) => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Browser does not support media calls.');
-    }
-
-    const audioInputId = selectedAudioInputIdRef.current;
-    const videoInputId = selectedVideoInputIdRef.current;
-
-    return navigator.mediaDevices.getUserMedia(
-      buildCallMediaConstraints(call.type, audioInputId, videoInputId)
-    );
-  }, []);
-
-  const stopScreenShareResources = useCallback(() => {
-    screenShareStreamRef.current?.getTracks().forEach((track) => {
-      track.onended = null;
-      track.stop();
-    });
-    screenShareStreamRef.current = null;
-
-    const cameraTrack = screenShareCameraTrackRef.current;
-    if (cameraTrack && !localCallStreamRef.current?.getTracks().includes(cameraTrack)) {
-      cameraTrack.stop();
-    }
-    screenShareCameraTrackRef.current = null;
-    screenSharingRef.current = false;
-    screenShareStoppingRef.current = false;
-    setScreenSharing(false);
-    setRemoteScreenSharing(false);
-    setScreenShareError('');
-  }, []);
-
-  const stopCallMedia = useCallback(() => {
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.onicecandidate = null;
-      peerConnectionRef.current.ontrack = null;
-      peerConnectionRef.current.onconnectionstatechange = null;
-      peerConnectionRef.current.oniceconnectionstatechange = null;
-      peerConnectionRef.current.close();
-    }
-    peerConnectionRef.current = null;
-    pendingIceCandidatesRef.current = [];
-
-    stopScreenShareResources();
-    localCallStreamRef.current?.getTracks().forEach((track) => track.stop());
-    localCallStreamRef.current = null;
-    setLocalCallStream(null);
-    setRemoteCallStream(null);
-    setMicMuted(false);
-    setCameraOff(false);
-    setCallConnectionState('idle');
-    setCallStartedAt(null);
-    setCallElapsedSeconds(0);
-    setCallDeviceError('');
-    stopIncomingCallRingtone();
-  }, [stopIncomingCallRingtone, stopScreenShareResources]);
-
-  const finishCall = useCallback((message = '') => {
-    setCallMinimized(false);
-    stopCallMedia();
-    setActiveCallState((currentCall) =>
-      currentCall ? { ...currentCall, status: 'ending' } : currentCall
-    );
-    if (message) {
-      setCallError(message);
-    }
-
-    window.setTimeout(() => {
-      setActiveCallState(null);
-      setCallError('');
-    }, 1500);
-  }, [stopCallMedia]);
-
-  useEffect(() => {
-    if (activeCall?.direction === 'incoming' && activeCall.status === 'ringing') {
-      startIncomingCallRingtone();
-      return stopIncomingCallRingtone;
-    }
-
-    stopIncomingCallRingtone();
-    return undefined;
-  }, [
-    activeCall,
-    startIncomingCallRingtone,
-    stopIncomingCallRingtone,
-  ]);
-
-  useEffect(() => {
-    if (!activeCall) {
-      return;
-    }
-
-    void loadCallDevices();
-  }, [activeCall, loadCallDevices]);
-
-  useEffect(() => {
-    const callType = preCallSetup?.type ?? activeCall?.type;
-    if (!callType) {
-      setCallPermissions(UNKNOWN_CALL_PERMISSIONS);
-      return;
-    }
-
-    void refreshCallPermissions(callType);
-  }, [activeCall?.type, preCallSetup?.type, refreshCallPermissions]);
-
-  useEffect(() => {
-    if (
-      !activeCall ||
-      !['reconnecting', 'failed'].includes(callConnectionState) ||
-      activeCall.status === 'ending'
-    ) {
-      return undefined;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      const currentCall = activeCallRef.current;
-      if (!currentCall || currentCall.status === 'ending') {
-        return;
-      }
-
-      if (peerConnectionRef.current?.connectionState === 'connected') {
-        setCallConnectionState('connected');
-        setCallError('');
-        return;
-      }
-
-      if (currentCall.callId) {
-        sendCallSignal({
-          eventType: 'CALL_END',
-          callId: currentCall.callId,
-        });
-      }
-
-      finishCall('Call connection lost.');
-    }, CALL_RECONNECT_TIMEOUT_MS);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [activeCall, callConnectionState, finishCall, sendCallSignal]);
-
-  useEffect(() => {
-    if (!activeCall || activeCall.status !== 'ringing') {
-      return undefined;
-    }
-
-    const callId = activeCall.callId;
-    const timeoutId = window.setTimeout(() => {
-      const currentCall = activeCallRef.current;
-      if (
-        currentCall?.status !== 'ringing' ||
-        (callId !== undefined && currentCall.callId !== callId)
-      ) {
-        return;
-      }
-
-      finishCall(currentCall.direction === 'incoming' ? 'Missed call.' : 'No answer.');
-    }, CALL_RINGING_TIMEOUT_MS + 12_000);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [activeCall, finishCall]);
-
-  const getCurrentCallRole = useCallback((event: CallSignalEvent) => {
-    if (event.recipientRole === 'CALLER') {
-      return 'caller' as const;
-    }
-
-    if (event.recipientRole === 'RECEIVER') {
-      return 'receiver' as const;
-    }
-
-    const currentAccount = currentUserRef.current;
-    if (currentAccount) {
-      if (
-        event.caller.id === currentAccount.id ||
-        event.caller.username === currentAccount.username
-      ) {
-        return 'caller' as const;
-      }
-
-      if (
-        event.receiver.id === currentAccount.id ||
-        event.receiver.username === currentAccount.username
-      ) {
-        return 'receiver' as const;
-      }
-
-      return null;
-    }
-
-    const currentUserId = currentUserIdRef.current;
-    if (currentUserId === null) {
-      return null;
-    }
-
-    if (event.caller.id === currentUserId) {
-      return 'caller' as const;
-    }
-
-    if (event.receiver.id === currentUserId) {
-      return 'receiver' as const;
-    }
-
-    return null;
-  }, []);
-
-  const isCallSignalFromCurrentUser = useCallback((event: CallSignalEvent) => {
-    if (event.recipientRole === 'CALLER') {
-      return (
-        event.fromUser.id === event.caller.id ||
-        event.fromUser.username === event.caller.username
-      );
-    }
-
-    if (event.recipientRole === 'RECEIVER') {
-      return (
-        event.fromUser.id === event.receiver.id ||
-        event.fromUser.username === event.receiver.username
-      );
-    }
-
-    const currentAccount = currentUserRef.current;
-    if (currentAccount) {
-      return (
-        event.fromUser.id === currentAccount.id ||
-        event.fromUser.username === currentAccount.username
-      );
-    }
-
-    return currentUserIdRef.current !== null && event.fromUser.id === currentUserIdRef.current;
-  }, []);
-
-  const getCallPeer = useCallback((event: CallSignalEvent) => {
-    const role = getCurrentCallRole(event);
-    if (!role) {
-      return null;
-    }
-
-    return role === 'caller' ? event.receiver : event.caller;
-  }, [getCurrentCallRole]);
-
-  const buildCallFromSignal = useCallback((
-    event: CallSignalEvent,
-    status: ActiveCall['status']
-  ): ActiveCall | null => {
-    const role = getCurrentCallRole(event);
-    const peer = getCallPeer(event);
-    if (!peer || !role) {
-      return null;
-    }
-
-    return {
-      callId: event.callId,
-      type: event.callType,
-      status,
-      direction: role === 'caller' ? 'outgoing' : 'incoming',
-      peer,
-    };
-  }, [getCallPeer, getCurrentCallRole]);
-
-  const flushPendingIceCandidates = useCallback(async (peerConnection: RTCPeerConnection) => {
-    const candidates = pendingIceCandidatesRef.current;
-    pendingIceCandidatesRef.current = [];
-
-    for (const candidate of candidates) {
-      try {
-        await peerConnection.addIceCandidate(candidate);
-      } catch (error) {
-        console.error('Failed to apply queued ICE candidate:', error);
-      }
-    }
-  }, []);
-
-  const createPeerConnection = useCallback(async (
-    call: ActiveCall,
-    initiator: boolean
-  ) => {
-    if (peerConnectionRef.current) {
-      return peerConnectionRef.current;
-    }
-
-    const localStream = await getLocalCallMedia(call);
-    localCallStreamRef.current = localStream;
-    localStream.getAudioTracks().forEach((track) => {
-      track.enabled = !micMutedRef.current;
-    });
-    localStream.getVideoTracks().forEach((track) => {
-      track.enabled = !cameraOffRef.current;
-    });
-    setLocalCallStream(localStream);
-    applySelectedDeviceIdsFromStream(localStream);
-    void loadCallDevices();
-    void refreshCallPermissions(call.type);
-
-    const peerConnection = new RTCPeerConnection({
-      iceServers: RTC_ICE_SERVERS,
-    });
-    peerConnectionRef.current = peerConnection;
-    setCallConnectionState('connecting');
-
-    localStream.getTracks().forEach((track) => {
-      peerConnection.addTrack(track, localStream);
-    });
-
-    peerConnection.onicecandidate = (event) => {
-      const currentCall = activeCallRef.current;
-      const signalCallId = currentCall?.callId;
-      if (
-        !event.candidate ||
-        signalCallId === undefined ||
-        !canSendWebRtcSignalForCall(currentCall, call.callId)
-      ) {
-        return;
-      }
-
-      sendCallSignal({
-        eventType: 'ICE_CANDIDATE',
-        callId: signalCallId,
-        candidate: event.candidate.candidate,
-        sdpMid: event.candidate.sdpMid,
-        sdpMLineIndex: event.candidate.sdpMLineIndex,
-      });
-    };
-
-    peerConnection.ontrack = (event) => {
-      const [remoteStream] = event.streams;
-      if (remoteStream) {
-        setRemoteCallStream(remoteStream);
-      }
-    };
-
-    const updatePeerConnectionState = () => {
-      const connectionState = peerConnection.connectionState;
-      const iceConnectionState = peerConnection.iceConnectionState;
-
-      if (connectionState === 'connected' || iceConnectionState === 'connected' || iceConnectionState === 'completed') {
-        setCallConnectionState('connected');
-        setCallStartedAt((currentStartedAt) => currentStartedAt ?? Date.now());
-        setActiveCallState((currentCall) =>
-          currentCall ? { ...currentCall, status: 'connected' } : currentCall
-        );
-        setCallError('');
-        return;
-      }
-
-      if (connectionState === 'connecting' || iceConnectionState === 'checking') {
-        setCallConnectionState('connecting');
-        return;
-      }
-
-      if (connectionState === 'disconnected' || iceConnectionState === 'disconnected') {
-        setCallConnectionState('reconnecting');
-        setCallError('Poor connection. Trying to reconnect the call.');
-        return;
-      }
-
-      if (connectionState === 'failed' || iceConnectionState === 'failed') {
-        setCallConnectionState('failed');
-        setCallError('Call connection failed.');
-        return;
-      }
-
-      if (connectionState === 'closed' || iceConnectionState === 'closed') {
-        setCallConnectionState('closed');
-      }
-    };
-    peerConnection.onconnectionstatechange = updatePeerConnectionState;
-    peerConnection.oniceconnectionstatechange = updatePeerConnectionState;
-
-    if (initiator && canSendWebRtcSignalForCall(activeCallRef.current, call.callId)) {
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      if (!canSendWebRtcSignalForCall(activeCallRef.current, call.callId)) {
-        return peerConnection;
-      }
-      sendCallSignal({
-        eventType: 'WEBRTC_OFFER',
-        callId: call.callId,
-        sdp: offer.sdp,
-      });
-    }
-
-    return peerConnection;
-  }, [
-    applySelectedDeviceIdsFromStream,
-    getLocalCallMedia,
-    loadCallDevices,
-    refreshCallPermissions,
-    sendCallSignal,
-  ]);
-
-  const startPeerConnection = useCallback(async (call: ActiveCall, initiator: boolean) => {
-    try {
-      await createPeerConnection(call, initiator);
-    } catch (error) {
-      console.error('Failed to start call media:', error);
-      const message = getCallMediaErrorMessage(error, call.type);
-      setCallError(message);
-      if (call.callId) {
-        sendCallSignal({
-          eventType: 'CALL_END',
-          callId: call.callId,
-        });
-      }
-      finishCall(message);
-    }
-  }, [createPeerConnection, finishCall, sendCallSignal]);
-
-  const handleWebRtcOffer = useCallback(async (event: CallSignalEvent) => {
-    if (!event.sdp || isCallSignalFromCurrentUser(event)) {
-      return;
-    }
-
-    const call = activeCallRef.current ?? buildCallFromSignal(event, 'connecting');
-    if (!call) {
-      return;
-    }
-
-    setActiveCallState({ ...call, status: 'connecting' });
-
-    try {
-      const peerConnection = await createPeerConnection(call, false);
-      await peerConnection.setRemoteDescription({ type: 'offer', sdp: event.sdp });
-      await flushPendingIceCandidates(peerConnection);
-      const answer = await peerConnection.createAnswer();
-      await peerConnection.setLocalDescription(answer);
-      sendCallSignal({
-        eventType: 'WEBRTC_ANSWER',
-        callId: event.callId,
-        sdp: answer.sdp,
-      });
-    } catch (error) {
-      console.error('Failed to handle WebRTC offer:', error);
-      setCallError('Unable to connect the call.');
-      sendCallSignal({
-        eventType: 'CALL_END',
-        callId: event.callId,
-      });
-      finishCall('Unable to connect the call.');
-    }
-  }, [
-    buildCallFromSignal,
-    createPeerConnection,
-    finishCall,
-    flushPendingIceCandidates,
-    isCallSignalFromCurrentUser,
-    sendCallSignal,
-  ]);
-
-  const handleWebRtcAnswer = useCallback(async (event: CallSignalEvent) => {
-    if (!event.sdp || isCallSignalFromCurrentUser(event)) {
-      return;
-    }
-
-    const peerConnection = peerConnectionRef.current;
-    if (!peerConnection) {
-      return;
-    }
-
-    try {
-      await peerConnection.setRemoteDescription({ type: 'answer', sdp: event.sdp });
-      await flushPendingIceCandidates(peerConnection);
-    } catch (error) {
-      console.error('Failed to handle WebRTC answer:', error);
-      setCallError('Unable to complete the call connection.');
-    }
-  }, [flushPendingIceCandidates, isCallSignalFromCurrentUser]);
-
-  const handleIceCandidate = useCallback(async (event: CallSignalEvent) => {
-    if (!event.candidate || isCallSignalFromCurrentUser(event)) {
-      return;
-    }
-
-    const candidate: RTCIceCandidateInit = {
-      candidate: event.candidate,
-      sdpMid: event.sdpMid ?? undefined,
-      sdpMLineIndex: event.sdpMLineIndex ?? undefined,
-    };
-    const peerConnection = peerConnectionRef.current;
-    if (!peerConnection || !peerConnection.remoteDescription) {
-      pendingIceCandidatesRef.current.push(candidate);
-      return;
-    }
-
-    try {
-      await peerConnection.addIceCandidate(candidate);
-    } catch (error) {
-      console.error('Failed to add ICE candidate:', error);
-    }
-  }, [isCallSignalFromCurrentUser]);
-
-  const handleCallSignal = useCallback((event: CallSignalEvent) => {
-    const currentRole = getCurrentCallRole(event);
-    if (!currentRole) {
-      return;
-    }
-
-    const isFromCurrentUser = isCallSignalFromCurrentUser(event);
-    const nextCall = buildCallFromSignal(event, 'ringing');
-    if (!nextCall) {
-      return;
-    }
-
-    if (event.eventType === 'CALL_INVITE') {
-      if (currentRole === 'caller') {
-        setActiveCallState(nextCall);
-        setCallError('');
-        setRemoteScreenSharing(false);
-        setScreenShareError('');
-        return;
-      }
-
-      const currentCall = activeCallRef.current;
-      if (currentCall && currentCall.callId !== event.callId) {
-        sendCallSignal({
-          eventType: 'CALL_REJECT',
-          callId: event.callId,
-        });
-        return;
-      }
-
-      stopPreCallPreview();
-      setPreCallSetup(null);
-      setActiveCallState(nextCall);
-      setCallError('');
-      setRemoteScreenSharing(false);
-      setScreenShareError('');
-      notifyWithBrowserNotification({
-        title: event.callType === 'VIDEO' ? 'Incoming video call' : 'Incoming audio call',
-        body: `${getUserDisplayName(event.caller)} is calling you.`,
-        path: getUserChatRoute(event.caller.username),
-        user: event.caller,
-        browserTag: `call-${event.callId}`,
-      });
-      return;
-    }
-
-    if (
-      activeCallRef.current?.callId !== event.callId &&
-      ![
-        'WEBRTC_OFFER',
-        'WEBRTC_ANSWER',
-        'ICE_CANDIDATE',
-        'SCREEN_SHARE_START',
-        'SCREEN_SHARE_STOP',
-      ].includes(event.eventType)
-    ) {
-      setActiveCallState(nextCall);
-    }
-
-    if (event.eventType === 'CALL_ACCEPT') {
-      const connectingCall = { ...nextCall, status: 'connecting' as const };
-      setActiveCallState(connectingCall);
-      if (currentRole === 'receiver') {
-        void startPeerConnection(connectingCall, false);
-      } else if (!isFromCurrentUser && currentRole === 'caller') {
-        void startPeerConnection(connectingCall, true);
-      }
-      return;
-    }
-
-    if (event.eventType === 'CALL_REJECT') {
-      finishCall('Call declined.');
-      return;
-    }
-
-    if (event.eventType === 'CALL_BUSY') {
-      finishCall('User is busy.');
-      return;
-    }
-
-    if (event.eventType === 'CALL_MISSED') {
-      finishCall('Missed call.');
-      return;
-    }
-
-    if (event.eventType === 'CALL_CANCEL') {
-      finishCall('Call canceled.');
-      return;
-    }
-
-    if (event.eventType === 'CALL_END') {
-      finishCall('Call ended.');
-      return;
-    }
-
-    if (event.eventType === 'SCREEN_SHARE_START') {
-      if (!isFromCurrentUser) {
-        setRemoteScreenSharing(true);
-      }
-      return;
-    }
-
-    if (event.eventType === 'SCREEN_SHARE_STOP') {
-      if (!isFromCurrentUser) {
-        setRemoteScreenSharing(false);
-      }
-      return;
-    }
-
-    if (event.eventType === 'WEBRTC_OFFER') {
-      void handleWebRtcOffer(event);
-      return;
-    }
-
-    if (event.eventType === 'WEBRTC_ANSWER') {
-      void handleWebRtcAnswer(event);
-      return;
-    }
-
-    if (event.eventType === 'ICE_CANDIDATE') {
-      void handleIceCandidate(event);
-    }
-  }, [
-    buildCallFromSignal,
-    finishCall,
-    getCurrentCallRole,
-    handleIceCandidate,
-    handleWebRtcAnswer,
-    handleWebRtcOffer,
-    isCallSignalFromCurrentUser,
-    notifyWithBrowserNotification,
-    sendCallSignal,
-    startPeerConnection,
-    stopPreCallPreview,
-  ]);
-
-  const sendActiveCallCloseSignal = useCallback(() => {
-    const currentCall = activeCallRef.current;
-    if (!currentCall?.callId) {
-      return;
-    }
-
-    if (currentCall.status === 'ringing' && currentCall.direction !== 'outgoing') {
-      return;
-    }
-
-    const eventType =
-      currentCall.status === 'ringing' && currentCall.direction === 'outgoing'
-        ? 'CALL_CANCEL'
-        : 'CALL_END';
-
-    wsService.sendMessage(CALL_SIGNAL_DESTINATION, {
-      eventType,
-      callId: currentCall.callId,
-    });
-  }, []);
-
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      sendActiveCallCloseSignal();
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [sendActiveCallCloseSignal]);
-
   const realtimeEventHandlers = useRealtimeEventHandlers({
     realtimeActiveRef, hasConnectedRef, currentUserIdRef, selectedUserIdRef, selectedRoomIdRef,
     messagesContainerRef, isMessagesContainerNearBottom, readBottomThreshold: READ_BOTTOM_THRESHOLD,
@@ -2739,223 +1010,30 @@ export default function ChatPage() {
     clearOptimisticSendTimeouts, sendActiveCallCloseSignal, stopCallMedia,
   });
 
+  const { restoreMissingRoom, restoreMissingDirectSender } = useIncomingMessageRecovery({
+    realtimeActiveRef, usersRef, roomsRef, userSearchQueryRef, setUsers, setRooms,
+  });
+
+  const handleIncomingMessage = useIncomingMessageHandler({
+    realtimeActiveRef, currentUserIdRef, selectedUserIdRef, selectedRoomIdRef, userSearchQueryRef,
+    usersRef, friendsRef, roomsRef, messagesContainerRef, pendingReadConversationRef,
+    autoScrollBottomThreshold: AUTO_SCROLL_BOTTOM_THRESHOLD,
+    setMessages, setUsers, setFriends, setRooms, setSelectedUser, setSelectedRoom,
+    isMessagesContainerNearBottom, addIncomingSharedContent, clearOptimisticSendTimeout,
+    buildMessageNotification, notifyWithBrowserNotification, restoreMissingRoom,
+    restoreMissingDirectSender, markConversationAsRead, markRoomAsRead, addPendingUnreadMessage,
+  });
+
   const realtimeHandlers = useMemo<ChatRealtimeHandlers>(() => ({
     onConnect: () => {
       realtimeActiveRef.current = true;
       currentUserIdRef.current = currentUser?.id ?? null;
     },
-    onMessage: (incomingMessage) => {
-          if (!realtimeActiveRef.current) {
-            return;
-          }
-
-          const currentUserId = currentUserIdRef.current;
-          const selectedUserIdForMessage = selectedUserIdRef.current;
-          const selectedRoomIdForMessage = selectedRoomIdRef.current;
-          const isIncomingFromOther = incomingMessage.senderId !== currentUserId;
-          const isActiveMessage = isActiveConversationMessage(
-            incomingMessage,
-            currentUserId,
-            selectedUserIdForMessage,
-            selectedRoomIdForMessage
-          );
-          const pageIsFocused =
-            typeof document === 'undefined' || (!document.hidden && document.hasFocus());
-          const wasAtBottomBeforeMessage =
-            isActiveMessage &&
-            isMessagesContainerNearBottom(
-              messagesContainerRef.current,
-              AUTO_SCROLL_BOTTOM_THRESHOLD
-            );
-          const canMarkActiveIncomingAsRead =
-            isIncomingFromOther &&
-            pageIsFocused &&
-            wasAtBottomBeforeMessage &&
-            pendingReadConversationRef.current === null;
-          const conversationMuted = isMutedIncomingConversation(
-            incomingMessage,
-            currentUserId,
-            usersRef.current,
-            friendsRef.current,
-            roomsRef.current
-          );
-          const shouldNotifyIncomingMessage =
-            isIncomingFromOther && !conversationMuted && (!isActiveMessage || !pageIsFocused);
-
-          setMessages((currentMessages) => {
-            if (
-              !isActiveConversationMessage(
-                incomingMessage,
-                currentUserId,
-                selectedUserIdForMessage,
-                selectedRoomIdForMessage
-              )
-            ) {
-              return currentMessages;
-            }
-
-            return appendOrReconcileMessage(currentMessages, incomingMessage);
-          });
-          addIncomingSharedContent(incomingMessage);
-
-          if (incomingMessage.clientId) {
-            clearOptimisticSendTimeout(incomingMessage.clientId);
-          }
-
-          if (shouldNotifyIncomingMessage) {
-            const notif = buildMessageNotification(incomingMessage);
-            notifyWithBrowserNotification(notif, notif.isMention);
-          }
-
-          if (incomingMessage.chatRoomId) {
-            const isActiveRoomMessage = incomingMessage.chatRoomId === selectedRoomIdForMessage;
-
-            if (!roomsRef.current.some((room) => room.id === incomingMessage.chatRoomId)) {
-              void apiClient
-                .get<ChatRoom>(`/rooms/${incomingMessage.chatRoomId}`)
-                .then((response) => {
-                  if (!realtimeActiveRef.current) {
-                    return;
-                  }
-
-                  const withPreview = applyRoomPreviewToRoom(response.data, incomingMessage);
-                  const restoredRoom = {
-                    ...withPreview,
-                    unreadCount:
-                      isIncomingFromOther && !isActiveRoomMessage
-                        ? (withPreview.unreadCount ?? 0) + 1
-                        : withPreview.unreadCount ?? 0,
-                  };
-                  setRooms((currentRooms) => appendOrUpdateRoom(currentRooms, restoredRoom));
-                })
-                .catch((error) => console.error('Failed to restore group conversation:', error));
-            }
-
-            setRooms((currentRooms) =>
-              applyRoomPreviewToRooms(
-                currentRooms,
-                incomingMessage,
-                currentUserId,
-                selectedRoomIdForMessage
-              )
-            );
-            setSelectedRoom((currentSelectedRoom) => {
-              if (!currentSelectedRoom || currentSelectedRoom.id !== incomingMessage.chatRoomId) {
-                return currentSelectedRoom;
-              }
-
-              const withPreview = applyRoomPreviewToRoom(currentSelectedRoom, incomingMessage);
-              return {
-                ...withPreview,
-                unreadCount:
-                  isIncomingFromOther && !isActiveRoomMessage
-                    ? (withPreview.unreadCount ?? 0) + 1
-                    : 0,
-              };
-            });
-
-            if (
-              isIncomingFromOther &&
-              incomingMessage.chatRoomId === selectedRoomIdForMessage
-            ) {
-              if (canMarkActiveIncomingAsRead) {
-                void markRoomAsRead(incomingMessage.chatRoomId);
-              } else {
-                addPendingUnreadMessage('room', incomingMessage.chatRoomId, incomingMessage);
-              }
-            }
-
-            return;
-          }
-
-          if (
-            isIncomingFromOther &&
-            !userSearchQueryRef.current.trim() &&
-            !usersRef.current.some((user) => user.id === incomingMessage.senderId) &&
-            incomingMessage.senderUsername
-          ) {
-            void apiClient
-              .get<User>(`/users/${encodeURIComponent(incomingMessage.senderUsername)}`)
-              .then((response) => {
-                if (!realtimeActiveRef.current) {
-                  return;
-                }
-
-                setUsers((currentUsers) => {
-                  if (currentUsers.some((user) => user.id === response.data.id)) {
-                    return currentUsers;
-                  }
-
-                  return [
-                    ...currentUsers,
-                    applyConversationPreviewToUser(response.data, incomingMessage, currentUserId),
-                  ].sort(compareUsersByChatActivity);
-                });
-              })
-              .catch((error) => console.error('Failed to load direct message sender:', error));
-          }
-
-          setUsers((currentUsers) =>
-            applyConversationPreviewToUsers(
-              currentUsers,
-              incomingMessage,
-              currentUserId,
-              !userSearchQueryRef.current.trim()
-            )
-          );
-          setFriends((currentFriends) =>
-            applyConversationPreviewToUsers(
-              currentFriends,
-              incomingMessage,
-              currentUserId,
-              true
-            )
-          );
-          setSelectedUser((currentSelectedUser) =>
-            currentSelectedUser
-              ? applyConversationPreviewToUser(
-                currentSelectedUser,
-                incomingMessage,
-                currentUserId
-              )
-              : null
-          );
-
-          if (
-            isIncomingFromOther &&
-            incomingMessage.senderId === selectedUserIdForMessage
-          ) {
-            if (canMarkActiveIncomingAsRead) {
-              markConversationAsRead(incomingMessage.senderId);
-            } else {
-              addPendingUnreadMessage('user', incomingMessage.senderId, incomingMessage);
-              setSelectedUser((currentSelectedUser) =>
-                currentSelectedUser?.id === incomingMessage.senderId
-                  ? {
-                    ...currentSelectedUser,
-                    unreadCount: 0,
-                  }
-                  : currentSelectedUser
-              );
-            }
-            return;
-          }
-
-          if (isIncomingFromOther) {
-            setUsers((currentUsers) => incrementUnreadCount(currentUsers, incomingMessage.senderId));
-            setFriends((currentFriends) => incrementUnreadCount(currentFriends, incomingMessage.senderId));
-          }
-        },
-        ...realtimeEventHandlers,
+    onMessage: handleIncomingMessage,
+    ...realtimeEventHandlers,
   }), [
-    clearOptimisticSendTimeout,
-    addIncomingSharedContent,
-    addPendingUnreadMessage,
-    buildMessageNotification,
     currentUser?.id,
-    markConversationAsRead,
-    markRoomAsRead,
-    notifyWithBrowserNotification,
+    handleIncomingMessage,
     realtimeEventHandlers,
   ]);
 
@@ -3018,6 +1096,12 @@ export default function ChatPage() {
     selectedUserId,
     remoteTypingUserIds.length,
     unreadDividerMessageId,
+    hasUserInteractedWithMessagesRef,
+    messagesContainerRef,
+    pendingInitialMessageScrollRef,
+    pendingReadConversationRef,
+    skipNextAutoScrollRef,
+    unreadDividerMessageIdRef,
   ]);
 
   const { sendOptimisticMessage, sendOptimisticRoomMessage } = useMessageTransport({
@@ -3026,762 +1110,58 @@ export default function ChatPage() {
     setSelectedUser, setRooms, setSelectedRoom,
   });
 
-  const sendOutgoingCallInvite = useCallback((callType: CallType, targetUser: User) => {
-    if (activeCallRef.current || !canChatWithUser(targetUser)) {
-      return false;
-    }
-
-    const optimisticCall: ActiveCall = {
-      type: callType,
-      status: 'ringing',
-      direction: 'outgoing',
-      peer: targetUser,
-    };
-
-    void loadCallDevices();
-    setCallConnectionState('idle');
-    setCallStartedAt(null);
-    setCallElapsedSeconds(0);
-    setCallDeviceError('');
-    setScreenSharing(false);
-    setRemoteScreenSharing(false);
-    setScreenShareError('');
-    screenSharingRef.current = false;
-
-    if (
-      sendCallSignal({
-        eventType: 'CALL_INVITE',
-        receiverId: targetUser.id,
-        callType,
-      })
-    ) {
-      setActiveCallState(optimisticCall);
-      setCallError('');
-      return true;
-    }
-
-    return false;
-  }, [loadCallDevices, sendCallSignal]);
-
-  const openPreCallSetupForUser = useCallback((targetUser: User, callType: CallType) => {
-    if (!canChatWithUser(targetUser) || activeCallRef.current) {
-      return;
-    }
-
-    micMutedRef.current = false;
-    cameraOffRef.current = false;
-    setMicMuted(false);
-    setCameraOff(false);
-    setPreCallSetup({ type: callType, target: targetUser });
-    setPreCallError('');
-    setPreCallSubmitting(false);
-    setCallDeviceError('');
-    setCallError('');
-    setScreenShareError('');
-    setRemoteScreenSharing(false);
-    void loadCallDevices();
-    void startPreCallPreview(callType);
-  }, [loadCallDevices, startPreCallPreview]);
-
-  const handleStartCall = useCallback((callType: CallType) => {
-    if (!selectedUser) {
-      return;
-    }
-
-    openPreCallSetupForUser(selectedUser, callType);
-  }, [openPreCallSetupForUser, selectedUser]);
-
-  const handleClosePreCallSetup = useCallback(() => {
-    if (preCallSubmitting) {
-      return;
-    }
-
-    stopPreCallPreview();
-    setPreCallSetup(null);
-    setPreCallError('');
-    setPreCallSubmitting(false);
-  }, [preCallSubmitting, stopPreCallPreview]);
-
-  const handlePreCallRetryPreview = useCallback(() => {
-    if (!preCallSetup) {
-      return;
-    }
-
-    void startPreCallPreview(preCallSetup.type);
-  }, [preCallSetup, startPreCallPreview]);
-
-  const handleConfirmStartCall = useCallback(async () => {
-    if (!preCallSetup || preCallPreviewLoading || preCallSubmitting) {
-      return;
-    }
-
-    setPreCallSubmitting(true);
-    const stream = preCallPreviewStreamRef.current ??
-      (await startPreCallPreview(preCallSetup.type));
-    if (!stream) {
-      setPreCallSubmitting(false);
-      return;
-    }
-
-    stopPreCallPreview();
-    const sent = sendOutgoingCallInvite(preCallSetup.type, preCallSetup.target);
-    if (sent) {
-      setPreCallSetup(null);
-      setPreCallError('');
-      setPreCallSubmitting(false);
-      return;
-    }
-
-    setPreCallError('Call connection is not ready.');
-    setPreCallSubmitting(false);
-  }, [
-    preCallPreviewLoading,
-    preCallSetup,
-    preCallSubmitting,
-    sendOutgoingCallInvite,
-    startPreCallPreview,
-    stopPreCallPreview,
-  ]);
-
-  const handlePreCallAudioInputChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-    const nextAudioInputId = event.target.value;
-    setSelectedAudioInputId(nextAudioInputId);
-    if (preCallSetup) {
-      void startPreCallPreview(preCallSetup.type, nextAudioInputId, selectedVideoInputId);
-    }
-  }, [preCallSetup, selectedVideoInputId, startPreCallPreview]);
-
-  const handlePreCallVideoInputChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-    const nextVideoInputId = event.target.value;
-    setSelectedVideoInputId(nextVideoInputId);
-    if (preCallSetup) {
-      void startPreCallPreview(preCallSetup.type, selectedAudioInputId, nextVideoInputId);
-    }
-  }, [preCallSetup, selectedAudioInputId, startPreCallPreview]);
-
-  const handlePreCallToggleMic = useCallback(() => {
-    const nextMuted = !micMutedRef.current;
-    micMutedRef.current = nextMuted;
-    preCallPreviewStreamRef.current?.getAudioTracks().forEach((track) => {
-      track.enabled = !nextMuted;
-    });
-    setMicMuted(nextMuted);
-  }, []);
-
-  const handlePreCallToggleCamera = useCallback(() => {
-    const nextCameraOff = !cameraOffRef.current;
-    cameraOffRef.current = nextCameraOff;
-    preCallPreviewStreamRef.current?.getVideoTracks().forEach((track) => {
-      track.enabled = !nextCameraOff;
-    });
-    setCameraOff(nextCameraOff);
-  }, []);
-
-  const handleRetryActiveCall = useCallback(() => {
-    const currentCall = activeCallRef.current;
-    if (!currentCall) {
-      return;
-    }
-
-    if (currentCall.callId) {
-      sendCallSignal({
-        eventType: 'CALL_END',
-        callId: currentCall.callId,
-      });
-    }
-
-    stopCallMedia();
-    setActiveCallState(null);
-    setCallError('');
-    micMutedRef.current = false;
-    cameraOffRef.current = false;
-    setMicMuted(false);
-    setCameraOff(false);
-    setPreCallSetup({ type: currentCall.type, target: currentCall.peer });
-    setPreCallError('');
-    setPreCallSubmitting(false);
-    setScreenSharing(false);
-    setRemoteScreenSharing(false);
-    setScreenShareError('');
-    screenSharingRef.current = false;
-    void loadCallDevices();
-    void startPreCallPreview(currentCall.type);
-  }, [loadCallDevices, sendCallSignal, startPreCallPreview, stopCallMedia]);
-
-  const handleAcceptCall = useCallback(() => {
-    const currentCall = activeCallRef.current;
-    if (!currentCall?.callId || currentCall.direction !== 'incoming') {
-      return;
-    }
-
-    stopIncomingCallRingtone();
-    void loadCallDevices();
-
-    if (sendCallSignal({ eventType: 'CALL_ACCEPT', callId: currentCall.callId })) {
-      setActiveCallState({ ...currentCall, status: 'connecting' });
-      setCallError('');
-    }
-  }, [loadCallDevices, sendCallSignal, stopIncomingCallRingtone]);
-
-  const handleRejectCall = useCallback(() => {
-    const currentCall = activeCallRef.current;
-    if (!currentCall?.callId) {
-      finishCall('Call declined.');
-      return;
-    }
-
-    sendCallSignal({ eventType: 'CALL_REJECT', callId: currentCall.callId });
-    finishCall('Call declined.');
-  }, [finishCall, sendCallSignal]);
-
-  const handleEndCall = useCallback(() => {
-    const currentCall = activeCallRef.current;
-    if (!currentCall?.callId) {
-      finishCall('Call ended.');
-      return;
-    }
-
-    const eventType =
-      currentCall.status === 'ringing' && currentCall.direction === 'outgoing'
-        ? 'CALL_CANCEL'
-        : 'CALL_END';
-
-    sendCallSignal({ eventType, callId: currentCall.callId });
-    finishCall(eventType === 'CALL_CANCEL' ? 'Call canceled.' : 'Call ended.');
-  }, [finishCall, sendCallSignal]);
-
-  const handleToggleMic = useCallback(() => {
-    const localStream = localCallStreamRef.current;
-    const nextMuted = !micMuted;
-    localStream?.getAudioTracks().forEach((track) => {
-      track.enabled = !nextMuted;
-    });
-    setMicMuted(nextMuted);
-  }, [micMuted]);
-
-  const handleToggleCamera = useCallback(() => {
-    if (screenSharingRef.current) {
-      return;
-    }
-
-    const localStream = localCallStreamRef.current;
-    const nextCameraOff = !cameraOff;
-    localStream?.getVideoTracks().forEach((track) => {
-      track.enabled = !nextCameraOff;
-    });
-    setCameraOff(nextCameraOff);
-  }, [cameraOff]);
-
-  const replaceLocalCallTrack = useCallback(async (kind: 'audio' | 'video', deviceId: string) => {
-    if (kind === 'audio') {
-      setSelectedAudioInputId(deviceId);
-    } else {
-      setSelectedVideoInputId(deviceId);
-    }
-
-    const currentCall = activeCallRef.current;
-    if (kind === 'video' && screenSharingRef.current) {
-      return;
-    }
-
-    if (!currentCall || (kind === 'video' && currentCall.type !== 'VIDEO')) {
-      return;
-    }
-
-    const currentStream = localCallStreamRef.current;
-    if (!currentStream) {
-      return;
-    }
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setCallDeviceError('Browser does not support media device switching.');
-      return;
-    }
-
-    setCallDeviceError('');
-
-    try {
-      const constraints: MediaStreamConstraints =
-        kind === 'audio'
-          ? {
-            audio: deviceId ? { deviceId: { exact: deviceId } } : true,
-            video: false,
-          }
-          : {
-            audio: false,
-            video: deviceId ? { deviceId: { exact: deviceId } } : true,
-          };
-      const replacementStream = await navigator.mediaDevices.getUserMedia(constraints);
-      const [replacementTrack] =
-        kind === 'audio'
-          ? replacementStream.getAudioTracks()
-          : replacementStream.getVideoTracks();
-
-      if (!replacementTrack) {
-        throw new Error(`No ${kind} track found for selected device.`);
-      }
-
-      replacementTrack.enabled = kind === 'audio' ? !micMuted : !cameraOff;
-
-      const sender = peerConnectionRef.current
-        ?.getSenders()
-        .find((candidate) => candidate.track?.kind === kind);
-      if (sender) {
-        await sender.replaceTrack(replacementTrack);
-      }
-
-      const oldTracks =
-        kind === 'audio' ? currentStream.getAudioTracks() : currentStream.getVideoTracks();
-      oldTracks.forEach((track) => {
-        currentStream.removeTrack(track);
-        track.stop();
-      });
-      currentStream.addTrack(replacementTrack);
-      replacementStream
-        .getTracks()
-        .filter((track) => track !== replacementTrack)
-        .forEach((track) => track.stop());
-
-      const nextStream = new MediaStream(currentStream.getTracks());
-      localCallStreamRef.current = nextStream;
-      setLocalCallStream(nextStream);
-
-      const nextDeviceId = replacementTrack.getSettings().deviceId || deviceId;
-      if (kind === 'audio') {
-        setSelectedAudioInputId(nextDeviceId);
-      } else {
-        setSelectedVideoInputId(nextDeviceId);
-      }
-
-      void loadCallDevices();
-    } catch (error) {
-      console.error(`Failed to switch ${kind} device:`, error);
-      setCallDeviceError(
-        kind === 'audio' ? 'Unable to switch microphone.' : 'Unable to switch camera.'
-      );
-    }
-  }, [cameraOff, loadCallDevices, micMuted]);
-
-  const handleStopScreenShare = useCallback(async (notify = true) => {
-    if (screenShareStoppingRef.current) {
-      return;
-    }
-
-    screenShareStoppingRef.current = true;
-    const currentCall = activeCallRef.current;
-    const currentStream = localCallStreamRef.current;
-    const screenShareStream = screenShareStreamRef.current;
-    const cameraTrack = screenShareCameraTrackRef.current;
-
-    try {
-      if (cameraTrack) {
-        cameraTrack.enabled = !cameraOffRef.current;
-      }
-
-      const sender = peerConnectionRef.current
-        ?.getSenders()
-        .find((candidate) => candidate.track?.kind === 'video');
-      if (sender) {
-        await sender.replaceTrack(cameraTrack ?? null);
-      }
-
-      if (currentStream) {
-        currentStream.getVideoTracks().forEach((track) => {
-          currentStream.removeTrack(track);
-        });
-
-        if (cameraTrack) {
-          currentStream.addTrack(cameraTrack);
-        }
-
-        const nextStream = new MediaStream(currentStream.getTracks());
-        localCallStreamRef.current = nextStream;
-        setLocalCallStream(nextStream);
-
-        if (cameraTrack) {
-          applySelectedDeviceIdsFromStream(nextStream);
-        }
-      }
-
-      screenShareStream?.getTracks().forEach((track) => {
-        track.onended = null;
-        track.stop();
-      });
-      screenShareStreamRef.current = null;
-      screenShareCameraTrackRef.current = null;
-      screenSharingRef.current = false;
-      setScreenSharing(false);
-      setScreenShareError('');
-
-      if (
-        notify &&
-        currentCall?.callId &&
-        canSendWebRtcSignalForCall(currentCall, currentCall.callId)
-      ) {
-        sendCallSignal({
-          eventType: 'SCREEN_SHARE_STOP',
-          callId: currentCall.callId,
-        });
-      }
-    } catch (error) {
-      console.error('Failed to stop screen sharing:', error);
-      setScreenShareError('Unable to stop screen sharing.');
-    } finally {
-      screenShareStoppingRef.current = false;
-    }
-  }, [applySelectedDeviceIdsFromStream, sendCallSignal]);
-
-  const handleStartScreenShare = useCallback(async () => {
-    const currentCall = activeCallRef.current;
-    const currentStream = localCallStreamRef.current;
-    const peerConnection = peerConnectionRef.current;
-
-    if (
-      !currentCall?.callId ||
-      currentCall.type !== 'VIDEO' ||
-      !canSendWebRtcSignalForCall(currentCall, currentCall.callId)
-    ) {
-      return;
-    }
-
-    if (screenSharingRef.current || screenShareStoppingRef.current) {
-      return;
-    }
-
-    if (!navigator.mediaDevices?.getDisplayMedia) {
-      setScreenShareError('Browser does not support screen sharing.');
-      return;
-    }
-
-    if (!currentStream || !peerConnection) {
-      setScreenShareError('Call video is not ready.');
-      return;
-    }
-
-    setScreenShareError('');
-    let displayStream: MediaStream | null = null;
-
-    try {
-      displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: false,
-      });
-      const [screenTrack] = displayStream.getVideoTracks();
-      if (!screenTrack) {
-        throw new Error('No screen track selected.');
-      }
-
-      const sender = peerConnection
-        .getSenders()
-        .find((candidate) => candidate.track?.kind === 'video');
-      if (!sender) {
-        throw new Error('Video sender is not ready.');
-      }
-
-      const [cameraTrack] = currentStream.getVideoTracks();
-      screenShareCameraTrackRef.current = cameraTrack ?? null;
-
-      await sender.replaceTrack(screenTrack);
-
-      currentStream.getVideoTracks().forEach((track) => {
-        currentStream.removeTrack(track);
-      });
-      currentStream.addTrack(screenTrack);
-
-      const nextStream = new MediaStream(currentStream.getTracks());
-      localCallStreamRef.current = nextStream;
-      screenShareStreamRef.current = displayStream;
-      screenSharingRef.current = true;
-      setLocalCallStream(nextStream);
-      setScreenSharing(true);
-      setScreenShareError('');
-
-      screenTrack.onended = () => {
-        if (!screenShareStoppingRef.current) {
-          void handleStopScreenShare();
-        }
-      };
-
-      sendCallSignal({
-        eventType: 'SCREEN_SHARE_START',
-        callId: currentCall.callId,
-      });
-    } catch (error) {
-      console.error('Failed to start screen sharing:', error);
-      displayStream?.getTracks().forEach((track) => {
-        track.onended = null;
-        track.stop();
-      });
-      screenShareStreamRef.current = null;
-      screenShareCameraTrackRef.current = null;
-      screenSharingRef.current = false;
-      setScreenSharing(false);
-      setScreenShareError(getScreenShareErrorMessage(error));
-    }
-  }, [handleStopScreenShare, sendCallSignal]);
-
-  const handleAudioInputChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-    void replaceLocalCallTrack('audio', event.target.value);
-  }, [replaceLocalCallTrack]);
-
-  const handleVideoInputChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-    void replaceLocalCallTrack('video', event.target.value);
-  }, [replaceLocalCallTrack]);
-
-  const navigateIfNeeded = useCallback((path: string, options: { replace?: boolean } = {}) => {
-    if (location.pathname !== path) {
-      navigate(path, options);
-    }
-  }, [location.pathname, navigate]);
-
-  const clearSelectedConversation = useCallback(() => {
-    if (selectedUserIdRef.current !== null) {
-      stopTyping(selectedUserIdRef.current);
-    }
-
-    if (selectedRoomIdRef.current !== null) {
-      stopRoomTyping(selectedRoomIdRef.current);
-    }
-
-    selectedUserIdRef.current = null;
-    selectedRoomIdRef.current = null;
-    setSelectedUser(null);
-    setSelectedRoom(null);
-    setMainView('chat');
-    resetMessagePagination();
-    clearPendingReadConversation();
-    setMessages([]);
-    setMessageInput('');
-    setProfileMenuOpen(false);
-    viewedProfileUsernameRef.current = '';
-    setViewedProfileUser(null);
-    setDetailsOpen(shouldOpenConversationDetailsByDefault());
-    hideRemoteTyping();
-  }, [clearPendingReadConversation, hideRemoteTyping, resetMessagePagination, stopRoomTyping, stopTyping]);
-
-  const activateUserConversation = useCallback((user: User) => {
-    if (!canOpenDirectConversation(user)) {
-      return;
-    }
-
-    const previousSelectedUserId = selectedUserIdRef.current;
-    const previousSelectedRoomId = selectedRoomIdRef.current;
-    const conversationChanged = previousSelectedUserId !== user.id || previousSelectedRoomId !== null;
-
-    if (previousSelectedUserId !== null && previousSelectedUserId !== user.id) {
-      stopTyping(previousSelectedUserId);
-    }
-
-    if (previousSelectedRoomId !== null) {
-      stopRoomTyping(previousSelectedRoomId);
-    }
-
-    setSelectedRoom(null);
-    selectedRoomIdRef.current = null;
-    setSelectedUser(user);
-    selectedUserIdRef.current = user.id;
-    setMainView('chat');
-    setProfileMenuOpen(false);
-    viewedProfileUsernameRef.current = '';
-    setViewedProfileUser(null);
-    setDetailsOpen(shouldOpenConversationDetailsByDefault());
-    hideRemoteTyping();
-
-    const unreadCount = user.unreadCount ?? 0;
-    if (conversationChanged || unreadCount > 0) {
-      preparePendingReadConversation('user', user.id, unreadCount);
-    }
-
-    if (conversationChanged) {
-      void loadMessages(user.id);
-    }
-  }, [canOpenDirectConversation, hideRemoteTyping, loadMessages, preparePendingReadConversation, stopRoomTyping, stopTyping]);
-
-  const activateRoomConversation = useCallback((room: ChatRoom) => {
-    const previousSelectedUserId = selectedUserIdRef.current;
-    const previousSelectedRoomId = selectedRoomIdRef.current;
-    const conversationChanged = previousSelectedRoomId !== room.id || previousSelectedUserId !== null;
-
-    if (previousSelectedUserId !== null) {
-      stopTyping(previousSelectedUserId);
-    }
-
-    if (previousSelectedRoomId !== null && previousSelectedRoomId !== room.id) {
-      stopRoomTyping(previousSelectedRoomId);
-    }
-
-    setSelectedUser(null);
-    selectedUserIdRef.current = null;
-    setSelectedRoom(room);
-    selectedRoomIdRef.current = room.id;
-    setMainView('chat');
-    setProfileMenuOpen(false);
-    viewedProfileUsernameRef.current = '';
-    setViewedProfileUser(null);
-    setDetailsOpen(shouldOpenConversationDetailsByDefault());
-    hideRemoteTyping();
-
-    const unreadCount = room.unreadCount ?? 0;
-    if (conversationChanged || unreadCount > 0) {
-      preparePendingReadConversation('room', room.id, unreadCount);
-    }
-
-    if (conversationChanged) {
-      void loadRoomMessages(room.id);
-    }
-  }, [hideRemoteTyping, loadRoomMessages, preparePendingReadConversation, stopRoomTyping, stopTyping]);
-
-  useEffect(() => {
-    if (!currentUser?.id) {
-      return;
-    }
-
-    const routeStateForPath = parseChatRoute(location.pathname);
-
-    if (routeStateForPath.kind === 'unknown') {
-      navigate(getChatRoute(), { replace: true });
-      return;
-    }
-
-    if (routeStateForPath.kind === 'chat') {
-      clearSelectedConversation();
-      return;
-    }
-
-    if (routeStateForPath.kind === 'friends') {
-      setMainView('friends');
-      setProfileMenuOpen(false);
-      if (userSearchQueryRef.current) {
-        userSearchQueryRef.current = '';
-        setUserSearchQuery('');
-        setUsersError('');
-      }
-      void loadUsers({ silent: true, search: '' });
-      return;
-    }
-
-    if (routeStateForPath.kind === 'requests') {
-      setMainView('requests');
-      setProfileMenuOpen(false);
-      void Promise.all([
-        loadIncomingFriendRequests({ silent: true }),
-        loadFriendSummary({ silent: true }),
-      ]);
-    }
-  }, [
+  const {
+    navigateIfNeeded,
     clearSelectedConversation,
-    currentUser?.id,
-    loadFriendSummary,
-    loadIncomingFriendRequests,
-    loadUsers,
-    location.pathname,
-    navigate,
-  ]);
-
-  useEffect(() => {
-    if (!currentUser?.id) {
-      return;
-    }
-
-    let active = true;
-    const routeStateForPath = parseChatRoute(location.pathname);
-    const usernameMatches = (user: User, username: string) =>
-      user.username.toLowerCase() === username.toLowerCase();
-
-    if (routeStateForPath.kind === 'room') {
-      const room = rooms.find((currentRoom) => currentRoom.id === routeStateForPath.roomId);
-      if (room) {
-        activateRoomConversation(room);
-        return;
-      }
-
-      if (!roomsLoading) {
-        navigate(getChatRoute(), { replace: true });
-      }
-      return;
-    }
-
-    if (routeStateForPath.kind !== 'user') {
-      return;
-    }
-
-    const userFromLists =
-      friends.find((friend) => usernameMatches(friend, routeStateForPath.username)) ??
-      users.find((user) => usernameMatches(user, routeStateForPath.username));
-    if (userFromLists) {
-      if (canOpenDirectConversation(userFromLists)) {
-        activateUserConversation(userFromLists);
-      } else {
-        navigate(getFriendsRoute(), { replace: true });
-      }
-      return;
-    }
-
-    if (usersLoading && !usersError) {
-      return;
-    }
-
-    apiClient
-      .get<User>(`/users/${encodeURIComponent(routeStateForPath.username)}`)
-      .then((response) => {
-        if (!active) {
-          return;
-        }
-
-        if (canOpenDirectConversation(response.data)) {
-          activateUserConversation(response.data);
-        } else {
-          navigate(getFriendsRoute(), { replace: true });
-        }
-      })
-      .catch((error) => {
-        console.error('Failed to resolve chat route user:', error);
-        if (active) {
-          navigate(getFriendsRoute(), { replace: true });
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [
-    activateRoomConversation,
     activateUserConversation,
-    canOpenDirectConversation,
-    currentUser?.id,
-    friends,
-    location.pathname,
+    activateRoomConversation,
+  } = useConversationNavigation({
+    currentUserId: currentUser?.id,
+    pathname: location.pathname,
     navigate,
-    rooms,
-    roomsLoading,
     users,
-    usersError,
+    friends,
+    rooms,
     usersLoading,
-  ]);
+    usersError,
+    roomsLoading,
+    canOpenDirectConversation,
+    selectedUserIdRef,
+    selectedRoomIdRef,
+    userSearchQueryRef,
+    stopTyping,
+    stopRoomTyping,
+    resetMessagePagination,
+    clearPendingReadConversation,
+    preparePendingReadConversation,
+    hideRemoteTyping,
+    loadMessages,
+    loadRoomMessages,
+    loadUsers,
+    loadIncomingFriendRequests,
+    loadFriendSummary,
+    setSelectedUser,
+    setSelectedRoom,
+    setMainView,
+    setMessages,
+    setMessageInput,
+    setProfileMenuOpen,
+    clearViewedProfile,
+    setDetailsOpen,
+    setUserSearchQuery,
+    setUsersError,
+  });
 
-  const setFriendActionPending = (key: string, pending: boolean) => {
-    setFriendActionKeys((currentKeys) =>
-      pending
-        ? [...new Set([...currentKeys, key])]
-        : currentKeys.filter((currentKey) => currentKey !== key)
-    );
-  };
-
-  const refreshFriendshipState = async () => {
-    await Promise.all([
-      loadUsers({ silent: true }),
-      loadIncomingFriendRequests({ silent: true }),
-      loadFriendSummary({ silent: true }),
-    ]);
-  };
-
-  const updateViewedProfileFromFriendship = (friendship: Friendship) => {
-    setViewedProfileUser((currentProfileUser) =>
-      currentProfileUser
-        ? applyFriendshipToProfileUser(currentProfileUser, friendship, currentUserIdRef.current)
-        : null
-    );
-  };
+  const {
+    handleSendFriendRequest,
+    handleAcceptFriendRequest,
+    handleDeclineFriendRequest,
+    handleCancelFriendRequest,
+  } = useFriendshipActions({
+    currentUserIdRef, setFriendActionKeys, setUsersError, setFriendRequestsError,
+    setProfileActionError, setViewedProfileUser, loadUsers, loadIncomingFriendRequests,
+    loadFriendSummary,
+  });
 
   const handleOpenRequestsPanel = () => {
     navigateIfNeeded(getRequestsRoute());
@@ -3791,90 +1171,6 @@ export default function ChatPage() {
       loadIncomingFriendRequests({ silent: incomingFriendRequests.length > 0 }),
       loadFriendSummary({ silent: true }),
     ]);
-  };
-
-  const handleSendFriendRequest = async (user: User) => {
-    const actionKey = `send-${user.id}`;
-    setFriendActionPending(actionKey, true);
-    setUsersError('');
-    setProfileActionError('');
-
-    try {
-      const response = await apiClient.post<Friendship>('/friend-requests', {
-        receiverId: user.id,
-      });
-      updateViewedProfileFromFriendship(response.data);
-      await refreshFriendshipState();
-    } catch (error) {
-      console.error('Failed to send friend request:', error);
-      setUsersError('Unable to send friend request.');
-      setProfileActionError('Unable to send friend request.');
-    } finally {
-      setFriendActionPending(actionKey, false);
-    }
-  };
-
-  const handleAcceptFriendRequest = async (requestId: number, actionKey: string) => {
-    setFriendActionPending(actionKey, true);
-    setFriendRequestsError('');
-    setProfileActionError('');
-
-    try {
-      const response = await apiClient.patch<Friendship>(`/friend-requests/${requestId}/accept`);
-      updateViewedProfileFromFriendship(response.data);
-      await refreshFriendshipState();
-    } catch (error) {
-      console.error('Failed to accept friend request:', error);
-      setFriendRequestsError('Unable to accept request.');
-      setProfileActionError('Unable to accept request.');
-    } finally {
-      setFriendActionPending(actionKey, false);
-    }
-  };
-
-  const handleDeclineFriendRequest = async (requestId: number, actionKey: string) => {
-    setFriendActionPending(actionKey, true);
-    setFriendRequestsError('');
-    setProfileActionError('');
-
-    try {
-      const response = await apiClient.patch<Friendship>(`/friend-requests/${requestId}/decline`);
-      updateViewedProfileFromFriendship(response.data);
-      await refreshFriendshipState();
-    } catch (error) {
-      console.error('Failed to decline friend request:', error);
-      setFriendRequestsError('Unable to decline request.');
-      setProfileActionError('Unable to decline request.');
-    } finally {
-      setFriendActionPending(actionKey, false);
-    }
-  };
-
-  const handleCancelFriendRequest = async (user: User) => {
-    if (!user.friendshipId) {
-      return;
-    }
-
-    const actionKey = `cancel-${user.id}`;
-    setFriendActionPending(actionKey, true);
-    setUsersError('');
-    setProfileActionError('');
-
-    try {
-      await apiClient.delete(`/friend-requests/${user.friendshipId}`);
-      setViewedProfileUser((currentProfileUser) =>
-        currentProfileUser?.id === user.id
-          ? { ...currentProfileUser, friendshipId: undefined, friendshipStatus: 'none' }
-          : currentProfileUser
-      );
-      await refreshFriendshipState();
-    } catch (error) {
-      console.error('Failed to cancel friend request:', error);
-      setUsersError('Unable to cancel friend request.');
-      setProfileActionError('Unable to cancel friend request.');
-    } finally {
-      setFriendActionPending(actionKey, false);
-    }
   };
 
   const handleUserSelect = (user: User) => {
@@ -3890,23 +1186,6 @@ export default function ChatPage() {
     navigateIfNeeded(getRoomChatRoute(room.id));
     activateRoomConversation(room);
   };
-
-  const handleMinimizeActiveCall = useCallback(() => {
-    const currentCall = activeCallRef.current;
-    if (
-      !currentCall ||
-      currentCall.status === 'ending' ||
-      (currentCall.direction === 'incoming' && currentCall.status === 'ringing')
-    ) {
-      return;
-    }
-
-    setCallMinimized(true);
-  }, []);
-
-  const handleRestoreActiveCall = useCallback(() => {
-    setCallMinimized(false);
-  }, []);
 
   const handleOpenActiveCallConversation = () => {
     const currentCall = activeCallRef.current;
@@ -3971,42 +1250,6 @@ export default function ChatPage() {
 
   const handleClearFriendSearch = () => {
     setFriendSearchQuery('');
-  };
-
-  const handleOpenUserProfile = async (user: User) => {
-    const requestedUsername = user.username;
-    viewedProfileUsernameRef.current = requestedUsername;
-    setViewedProfileUser(user);
-    setProfileActionError('');
-    setViewedProfileError('');
-    setViewedProfileLoading(true);
-    setProfileMenuOpen(false);
-
-    try {
-      const response = await apiClient.get<User>(`/users/${encodeURIComponent(requestedUsername)}`);
-      setViewedProfileUser((currentProfileUser) =>
-        currentProfileUser?.username === requestedUsername
-          ? { ...currentProfileUser, ...response.data }
-          : currentProfileUser
-      );
-    } catch (error) {
-      console.error('Failed to load user profile:', error);
-      if (viewedProfileUsernameRef.current === requestedUsername) {
-        setViewedProfileError('Unable to refresh profile.');
-      }
-    } finally {
-      if (viewedProfileUsernameRef.current === requestedUsername) {
-        setViewedProfileLoading(false);
-      }
-    }
-  };
-
-  const handleCloseUserProfile = () => {
-    viewedProfileUsernameRef.current = '';
-    setViewedProfileUser(null);
-    setViewedProfileLoading(false);
-    setViewedProfileError('');
-    setProfileActionError('');
   };
 
   const handleOpenFriendsPanel = () => {
@@ -4130,82 +1373,15 @@ export default function ChatPage() {
     );
   };
 
-  const handleCreateGroup = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const name = groupName.trim();
-    if (!name) {
-      return;
-    }
-
-    if (selectedGroupMemberIds.length < MIN_GROUP_INVITED_MEMBERS) {
-      setGroupError(`Select at least ${MIN_GROUP_INVITED_MEMBERS} friends to create a group.`);
-      return;
-    }
-
-    setGroupCreating(true);
-    setGroupError('');
-
-    try {
-      const response = await apiClient.post<ChatRoom>('/rooms', {
-        name,
-        participantIds: selectedGroupMemberIds,
-      });
-      const room = response.data;
-      if (selectedUserIdRef.current !== null) {
-        stopTyping(selectedUserIdRef.current);
-      }
-      if (selectedRoomIdRef.current !== null) {
-        stopRoomTyping(selectedRoomIdRef.current);
-      }
-      setRooms((currentRooms) => appendOrUpdateRoom(currentRooms, room));
-      setSelectedUser(null);
-      selectedUserIdRef.current = null;
-      setSelectedRoom(room);
-      selectedRoomIdRef.current = room.id;
-      navigateIfNeeded(getRoomChatRoute(room.id));
-      setDetailsOpen(shouldOpenConversationDetailsByDefault());
-      resetMessagePagination();
-      setMessages([]);
-      setMessageInput('');
-      setCreateGroupOpen(false);
-      setGroupName('');
-      setSelectedGroupMemberIds([]);
-    } catch (error) {
-      console.error('Failed to create group:', error);
-      setGroupError('Unable to create group.');
-    } finally {
-      setGroupCreating(false);
-    }
-  };
-
-  const handleUpdateGroupSettingsName = async (event?: React.FormEvent) => {
-    if (event) {
-      event.preventDefault();
-    }
-    if (!selectedRoom || groupSettingsSaving) {
-      return;
-    }
-
-    const name = groupSettingsName.trim();
-    if (!name || name === selectedRoom.name.trim()) {
-      setIsEditingGroupName(false);
-      return;
-    }
-
-    setGroupSettingsPendingAction('rename');
-    setGroupSettingsError('');
-
-    try {
-      const response = await apiClient.patch<ChatRoom>(`/rooms/${selectedRoom.id}`, { name });
-      applyRoomMembershipUpdate(response.data);
-      setIsEditingGroupName(false);
-    } catch (error) {
-      console.error('Failed to update group:', error);
-      setGroupSettingsError('Unable to update group.');
-    } finally {
-      setGroupSettingsPendingAction(null);
-    }
-  };
+  const handleCreateGroup = useGroupCreation({
+    name: groupName, memberIds: selectedGroupMemberIds, minimumInvitedMembers: MIN_GROUP_INVITED_MEMBERS,
+    selectedUserIdRef, selectedRoomIdRef, stopTyping, stopRoomTyping,
+    navigateToRoom: (roomId) => navigateIfNeeded(getRoomChatRoute(roomId)),
+    shouldOpenDetails: shouldOpenConversationDetailsByDefault, resetMessagePagination,
+    setRooms, setSelectedUser, setSelectedRoom, setDetailsOpen, setMessages, setMessageInput,
+    setOpen: setCreateGroupOpen, setName: setGroupName, setMemberIds: setSelectedGroupMemberIds,
+    setCreating: setGroupCreating, setError: setGroupError,
+  });
 
   const handleToggleAddRoomMember = (userId: number) => {
     setGroupSettingsError('');
@@ -4216,41 +1392,30 @@ export default function ChatPage() {
     );
   };
 
-  const handleAddRoomMembers = async () => {
-    if (!selectedRoom || selectedAddMemberIds.length === 0 || groupSettingsSaving) {
-      return;
-    }
+  const { handleUpdateGroupSettingsName, handleAddRoomMembers } = useGroupSettingsActions({
+    selectedRoom, pendingAction: groupSettingsPendingAction, groupName: groupSettingsName,
+    selectedAddMemberIds, applyRoomMembershipUpdate, setPendingAction: setGroupSettingsPendingAction,
+    setError: setGroupSettingsError, setEditingName: setIsEditingGroupName,
+    setSelectedAddMemberIds, setAddMembersModalOpen,
+  });
 
-    setGroupSettingsPendingAction('add');
-    setGroupSettingsError('');
-
-    try {
-      const response = await apiClient.post<ChatRoom>(`/rooms/${selectedRoom.id}/members`, {
-        participantIds: selectedAddMemberIds,
-      });
-      setSelectedAddMemberIds([]);
-      applyRoomMembershipUpdate(response.data);
-      setAddMembersModalOpen(false);
-    } catch (error) {
-      console.error('Failed to add group members:', error);
-      setGroupSettingsError('Unable to add members.');
-    } finally {
-      setGroupSettingsPendingAction(null);
-    }
-  };
-
-  const handleGroupMemberNicknameChange = (userId: number, value: string) => {
-    setGroupSettingsError('');
-    setGroupMemberNicknames((currentNicknames) => ({
-      ...currentNicknames,
-      [userId]: value,
-    }));
-  };
-
-  const handleToggleGroupMemberMenu = (userId: number) => {
-    setGroupSettingsError('');
-    setOpenGroupMemberMenuId((currentUserId) => (currentUserId === userId ? null : userId));
-  };
+  const {
+    handleGroupMemberNicknameChange,
+    handleToggleGroupMemberMenu,
+    handleStartEditGroupMemberNickname,
+    handleCancelEditGroupMemberNickname,
+    handleUpdateRoomMemberNickname,
+    handleKickRoomMember,
+    handleTransferRoomOwner,
+    handleLeaveSelectedGroup,
+    handleUpdateMemberRole,
+    handleDeleteSelectedGroup,
+  } = useGroupMemberActions({
+    selectedRoom, groupSettingsPendingAction, groupMemberNicknames, selectedRoomIdRef,
+    setGroupSettingsError, setGroupSettingsPendingAction, setOpenGroupMemberMenuId,
+    setEditingGroupMemberNicknameId, setGroupMemberNicknames, setRooms, setSelectedRoom,
+    setMessages, applyRoomMembershipUpdate, navigateToChat: () => navigateIfNeeded(getChatRoute()),
+  });
 
   const handleToggleConversationMenu = (
     targetKey: string,
@@ -4286,212 +1451,6 @@ export default function ChatPage() {
       setConversationSettingsError('Unable to update conversation settings.');
     } finally {
       setConversationSettingPendingKey(null);
-    }
-  };
-
-  const handleStartEditGroupMemberNickname = (user: User) => {
-    setGroupSettingsError('');
-    setOpenGroupMemberMenuId(null);
-    setEditingGroupMemberNicknameId(user.id);
-    setGroupMemberNicknames((currentNicknames) => ({
-      ...currentNicknames,
-      [user.id]: currentNicknames[user.id] ?? user.nickname ?? '',
-    }));
-  };
-
-  const handleCancelEditGroupMemberNickname = (user: User) => {
-    setGroupSettingsError('');
-    setEditingGroupMemberNicknameId(null);
-    setGroupMemberNicknames((currentNicknames) => ({
-      ...currentNicknames,
-      [user.id]: user.nickname ?? '',
-    }));
-  };
-
-  const handleUpdateRoomMemberNickname = async (user: User) => {
-    if (!selectedRoom || groupSettingsSaving) {
-      return;
-    }
-
-    const nickname = (groupMemberNicknames[user.id] ?? '').trim();
-    if (nickname === (user.nickname ?? '').trim()) {
-      return;
-    }
-
-    setGroupSettingsPendingAction(`nickname-${user.id}`);
-    setGroupSettingsError('');
-
-    try {
-      const response = await apiClient.patch<ChatRoom>(
-        `/rooms/${selectedRoom.id}/members/${user.id}/nickname`,
-        { nickname }
-      );
-      applyRoomMembershipUpdate(response.data);
-      setEditingGroupMemberNicknameId(null);
-    } catch (error) {
-      console.error('Failed to update group nickname:', error);
-      setGroupSettingsError('Unable to update nickname.');
-    } finally {
-      setGroupSettingsPendingAction(null);
-    }
-  };
-
-  const handleKickRoomMember = async (user: User) => {
-    if (!selectedRoom || groupSettingsSaving) {
-      return;
-    }
-
-    setGroupSettingsPendingAction(`kick-${user.id}`);
-    setGroupSettingsError('');
-
-    try {
-      const response = await apiClient.delete<ChatRoom>(
-        `/rooms/${selectedRoom.id}/members/${user.id}`
-      );
-      applyRoomMembershipUpdate(response.data);
-    } catch (error) {
-      console.error('Failed to remove group member:', error);
-      setGroupSettingsError('Unable to remove member.');
-    } finally {
-      setGroupSettingsPendingAction(null);
-    }
-  };
-
-  const handleTransferRoomOwner = async (user: User) => {
-    if (!selectedRoom || groupSettingsSaving) {
-      return;
-    }
-
-    setGroupSettingsPendingAction(`owner-${user.id}`);
-    setGroupSettingsError('');
-    setOpenGroupMemberMenuId(null);
-
-    try {
-      const response = await apiClient.patch<ChatRoom>(`/rooms/${selectedRoom.id}/owner`, {
-        ownerId: user.id,
-      });
-      applyRoomMembershipUpdate(response.data);
-    } catch (error) {
-      console.error('Failed to transfer group owner:', error);
-      setGroupSettingsError('Unable to transfer owner.');
-    } finally {
-      setGroupSettingsPendingAction(null);
-    }
-  };
-
-  const handleLeaveSelectedGroup = async () => {
-    if (!selectedRoom || groupSettingsSaving) {
-      return;
-    }
-
-    setGroupSettingsPendingAction('leave');
-    setGroupSettingsError('');
-
-    try {
-      const response = await apiClient.delete<ChatRoom>(`/rooms/${selectedRoom.id}/members/me`);
-      applyRoomMembershipUpdate(response.data);
-    } catch (error) {
-      console.error('Failed to leave group:', error);
-      setGroupSettingsError('Unable to leave group.');
-    } finally {
-      setGroupSettingsPendingAction(null);
-    }
-  };
-
-  const handleUpdateMemberRole = async (user: User, newRole: GroupMemberRole) => {
-    if (!selectedRoom || groupSettingsSaving) {
-      return;
-    }
-
-    setGroupSettingsPendingAction(`role-${user.id}`);
-    setGroupSettingsError('');
-    setOpenGroupMemberMenuId(null);
-
-    try {
-      const response = await apiClient.patch<ChatRoom>(
-        `/rooms/${selectedRoom.id}/members/${user.id}/role`,
-        { role: newRole }
-      );
-      applyRoomMembershipUpdate(response.data);
-    } catch (error: any) {
-      console.error('Failed to update member role:', error);
-      setGroupSettingsError(error.response?.data?.message || 'Unable to update member role.');
-    } finally {
-      setGroupSettingsPendingAction(null);
-    }
-  };
-
-  const handleDeleteSelectedGroup = async () => {
-    if (!selectedRoom || groupSettingsSaving) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Are you sure you want to dissolve group "${selectedRoom.name}"? All messages and members will be removed.`
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    setGroupSettingsPendingAction('delete-room');
-    setGroupSettingsError('');
-
-    try {
-      await apiClient.delete(`/rooms/${selectedRoom.id}`);
-      setRooms((currentRooms) => currentRooms.filter((r) => r.id !== selectedRoom.id));
-      setSelectedRoom(null);
-      selectedRoomIdRef.current = null;
-      navigateIfNeeded(getChatRoute());
-      setMessages([]);
-    } catch (error: any) {
-      console.error('Failed to delete group:', error);
-      setGroupSettingsError(error.response?.data?.message || 'Unable to delete group.');
-    } finally {
-      setGroupSettingsPendingAction(null);
-    }
-  };
-
-  const handleGroupAvatarChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !selectedRoom || groupSettingsSaving) {
-      return;
-    }
-
-    if (!ACCEPTED_AVATAR_TYPES.includes(file.type)) {
-      setGroupSettingsError('Choose a JPG, PNG, GIF, or WebP image.');
-      event.currentTarget.value = '';
-      return;
-    }
-
-    if (file.size > MAX_AVATAR_SIZE_BYTES) {
-      setGroupSettingsError(`Avatar must be ${MAX_AVATAR_SIZE_MB}MB or smaller.`);
-      event.currentTarget.value = '';
-      return;
-    }
-
-    setGroupAvatarUploading(true);
-    setGroupSettingsError('');
-
-    try {
-      const media = await uploadPendingMedia({
-        file,
-        previewUrl: URL.createObjectURL(file),
-        type: 'IMAGE',
-        resourceType: 'image',
-      });
-      if (!media.url) {
-        throw new Error('Upload failed');
-      }
-      const response = await apiClient.patch<ChatRoom>(`/rooms/${selectedRoom.id}`, {
-        avatar: media.url,
-      });
-      applyRoomMembershipUpdate(response.data);
-    } catch (error: any) {
-      console.error('Failed to upload group avatar:', error);
-      setGroupSettingsError(error.response?.data?.message || 'Unable to upload group avatar.');
-    } finally {
-      setGroupAvatarUploading(false);
-      event.target.value = '';
     }
   };
 
@@ -4537,6 +1496,12 @@ export default function ChatPage() {
     getMediaUrl, getFileFormat, cloudinaryResultToMedia,
   );
 
+  const handleGroupAvatarChange = useGroupAvatar({
+    selectedRoom, groupSettingsPendingAction, acceptedTypes: ACCEPTED_AVATAR_TYPES,
+    maxBytes: MAX_AVATAR_SIZE_BYTES, maxSizeMb: MAX_AVATAR_SIZE_MB, uploadPendingMedia,
+    applyRoomMembershipUpdate, setUploading: setGroupAvatarUploading, setError: setGroupSettingsError,
+  });
+
   const handleVoiceRecorded = useVoiceMessage(setPendingMedia);
 
   const handleMessageInputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) =>
@@ -4552,118 +1517,30 @@ export default function ChatPage() {
     setRoomSummaryRoomId, setRoomSummaryError, setRoomSummaryLoading,
   });
 
-  const handleMessageSearchChange = (value: string) => {
-    messageSearchQueryRef.current = value;
-    setMessageSearchQuery(value);
-    if (!value.trim()) {
-      setMessageSearchItems([]);
-      setMessageSearchError('');
-      setMessageSearchHasMore(false);
-      setMessageSearchNextBefore(null);
-      setActiveMessageSearchId(null);
-      setMessageSearchSubmitted(false);
-    }
-  };
+  const {
+    handleMessageSearchChange,
+    handleClearMessageSearch,
+    handleMessageSearchSubmit,
+  } = useMessageSearchControls({
+    query: messageSearchQuery, queryRef: messageSearchQueryRef,
+    requestedQueryRef: messageSearchRequestedQueryRef, inputRef: messageSearchInputRef,
+    loadMessageSearch, setQuery: setMessageSearchQuery, setSubmitted: setMessageSearchSubmitted,
+    setItems: setMessageSearchItems, setError: setMessageSearchError,
+    setHasMore: setMessageSearchHasMore, setNextBefore: setMessageSearchNextBefore,
+    setActiveId: setActiveMessageSearchId,
+  });
 
-  const handleClearMessageSearch = () => {
-    messageSearchQueryRef.current = '';
-    messageSearchRequestedQueryRef.current = '';
-    setMessageSearchQuery('');
-    setMessageSearchItems([]);
-    setMessageSearchError('');
-    setMessageSearchHasMore(false);
-    setMessageSearchNextBefore(null);
-    setActiveMessageSearchId(null);
-    setMessageSearchSubmitted(false);
-    messageSearchInputRef.current?.focus();
-  };
-
-  const handleMessageSearchSubmit = (event?: React.FormEvent) => {
-    if (event) {
-      event.preventDefault();
-    }
-    const query = messageSearchQuery.trim();
-    if (!query) {
-      return;
-    }
-    setMessageSearchSubmitted(true);
-    messageSearchRequestedQueryRef.current = query;
-    void loadMessageSearch({ reset: true, query });
-  };
-
-  const handleJumpToMessage = async (messageId: number) => {
-    const selectedUserIdForJump = selectedUserIdRef.current;
-    const selectedRoomIdForJump = selectedRoomIdRef.current;
-    if (messageId <= 0 || (selectedUserIdForJump === null && selectedRoomIdForJump === null)) {
-      return;
-    }
-
-    setMessageSearchError('');
-    setMessagesError('');
-
-    try {
-      const endpoint =
-        selectedUserIdForJump !== null
-          ? `/messages/${selectedUserIdForJump}/around/${messageId}`
-          : `/rooms/${selectedRoomIdForJump}/around/${messageId}`;
-      const response = await apiClient.get<MessagePage>(endpoint, {
-        params: { size: MESSAGE_AROUND_PAGE_SIZE },
-      });
-
-      if (
-        selectedUserIdRef.current !== selectedUserIdForJump ||
-        selectedRoomIdRef.current !== selectedRoomIdForJump
-      ) {
-        return;
-      }
-
-      skipNextAutoScrollRef.current = true;
-      pendingInitialMessageScrollRef.current = false;
-      blockOlderMessagesAutoLoadRef.current = true;
-      setMessages(mergeServerMessagesWithPending([], response.data.items));
-      applyMessagePagination(response.data);
-      highlightMessageById(messageId);
-      releaseInitialScrollBlock();
-    } catch (error) {
-      console.error('Failed to jump to message:', error);
-      setMessageSearchError('Unable to open message.');
-    }
-  };
-
-  const handleJumpToSearchResult = async (messageId: number) => {
-    setActiveMessageSearchId(messageId);
-    await handleJumpToMessage(messageId);
-  };
-
-  const handleStepMessageSearchResult = (direction: -1 | 1) => {
-    const nextMessage = messageSearchItems[activeMessageSearchIndex + direction];
-    if (!nextMessage) {
-      return;
-    }
-
-    void handleJumpToSearchResult(nextMessage.id);
-  };
-
-  const handleMessageSearchInputKeyDown = (
-    event: React.KeyboardEvent<HTMLInputElement>
-  ) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      handleMessageSearchSubmit();
-      return;
-    }
-
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      handleStepMessageSearchResult(1);
-      return;
-    }
-
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      handleStepMessageSearchResult(-1);
-    }
-  };
+  const {
+    handleJumpToMessage,
+    handleJumpToSearchResult,
+    handleMessageSearchInputKeyDown,
+  } = useMessageNavigation({
+    selectedUserIdRef, selectedRoomIdRef, skipNextAutoScrollRef,
+    pendingInitialMessageScrollRef, blockOlderMessagesAutoLoadRef, messageSearchItems,
+    activeMessageSearchIndex, handleMessageSearchSubmit, applyMessagePagination,
+    highlightMessageById, releaseInitialScrollBlock, setMessages, setMessagesError,
+    setMessageSearchError, setActiveMessageSearchId,
+  });
 
   const applyUpdatedCurrentUserProfile = (updatedUser: User) => {
     const nextCurrentUser = currentUser
@@ -4721,25 +1598,11 @@ export default function ChatPage() {
 
   const currentUserDisplayName = getUserDisplayName(currentUser) || 'Profile';
   const currentUserOnline = Boolean(currentUser?.online);
-  const preCallCanStart = Boolean(
-    preCallSetup &&
-    preCallPreviewStream &&
-    !preCallPreviewLoading &&
-    !preCallSubmitting
-  );
   const activeCallConversationOpen = Boolean(
     activeCall &&
     selectedUser?.id === activeCall.peer.id &&
     !selectedRoom &&
     mainView === 'chat'
-  );
-  const audioInputDevices = useMemo(
-    () => callDevices.filter((device) => device.kind === 'audioinput'),
-    [callDevices]
-  );
-  const videoInputDevices = useMemo(
-    () => callDevices.filter((device) => device.kind === 'videoinput'),
-    [callDevices]
   );
   const canStartPrivateCall = Boolean(selectedUser && canChatWithUser(selectedUser) && !activeCall);
   const normalizedUserSearchQuery = userSearchQuery.trim();
@@ -4754,15 +1617,6 @@ export default function ChatPage() {
   const filteredFriends = friends.filter((friend) =>
     matchesFriendSearch(friend, normalizedFriendSearchQuery)
   );
-  const refreshedViewedProfileUser = viewedProfileUser
-    ? users.find((user) => user.id === viewedProfileUser.id) ??
-    friends.find((friend) => friend.id === viewedProfileUser.id) ??
-    (selectedUser?.id === viewedProfileUser.id ? selectedUser : undefined) ??
-    selectedRoom?.participants.find((participant) => participant.id === viewedProfileUser.id)
-    : undefined;
-  const activeViewedProfileUser = viewedProfileUser
-    ? mergeViewedProfileUser(viewedProfileUser, refreshedViewedProfileUser)
-    : null;
   const friendRequestBadgeCount = friendSummary.incomingCount;
   const usersEmptyMessage = normalizedUserSearchQuery
     ? `No username matches "${normalizedUserSearchQuery}".`
@@ -4895,50 +1749,6 @@ export default function ChatPage() {
   const mediaViewerType = mediaViewerMessage ? getMessageType(mediaViewerMessage) : 'IMAGE';
   const activeReplyPreview = createReplyFromMessage(replyingToMessage);
 
-  const renderCallPermissionStatus = (callType: CallType) => {
-    const permissionItems = [
-      { key: 'microphone', label: 'Mic', status: callPermissions.microphone },
-      ...(callType === 'VIDEO'
-        ? [{ key: 'camera', label: 'Camera', status: callPermissions.camera }]
-        : []),
-    ];
-
-    return (
-      <div className="call-permission-row" aria-label="Call permissions">
-        {permissionItems.map((item) => (
-          <span
-            key={item.key}
-            className={`call-permission-pill ${item.status}`}
-            title={`${item.label}: ${getCallPermissionLabel(item.status)}`}
-          >
-            <span>{item.label}</span>
-            <strong>{getCallPermissionLabel(item.status)}</strong>
-          </span>
-        ))}
-        <button
-          type="button"
-          className="call-permission-refresh"
-          onClick={() => void refreshCallPermissions(callType)}
-        >
-          Refresh
-        </button>
-      </div>
-    );
-  };
-
-  const renderReplyQuote = (reply?: MessageReply | null) => {
-    if (!reply) {
-      return null;
-    }
-
-    return (
-      <div className="message-reply-quote">
-        <span>{reply.senderName}</span>
-        <p>{reply.recalled ? 'Message recalled' : reply.content || 'Message'}</p>
-      </div>
-    );
-  };
-
   const handleOpenReactionSummary = (message: ChatMessage) => {
     if (!message.reactions || message.reactions.length === 0) return;
     const map = new Map<string, User[]>();
@@ -4962,590 +1772,54 @@ export default function ChatPage() {
     setReactionModalGroups(groups);
   };
 
-  const renderMessageReactions = (message: ChatMessage) => {
-    const groupedReactions = getGroupedMessageReactions(message, currentUser?.id ?? null);
-    if (groupedReactions.length === 0) {
-      return null;
-    }
+  const renderMessageReactions = (message: ChatMessage) => (
+    <MessageReactions
+      message={message}
+      currentUserId={currentUser?.id ?? null}
+      onReact={(target, emoji) => void handleReactToMessage(target, emoji)}
+      onOpenSummary={handleOpenReactionSummary}
+    />
+  );
 
-    return (
-      <div className="message-reactions" aria-label="Message reactions">
-        {groupedReactions.map((reaction) => (
-          <button
-            key={reaction.emoji}
-            type="button"
-            className={`message-reaction-pill ${reaction.reactedByCurrentUser ? 'active' : ''}`}
-            onClick={() => void handleReactToMessage(message, reaction.emoji)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              handleOpenReactionSummary(message);
-            }}
-            title={`${reaction.title} (Right-click to view details)`}
-            aria-label={`${reaction.count} ${reaction.emoji} reactions`}
-          >
-            <span>{reaction.emoji}</span>
-            {reaction.count > 1 ? <small>{reaction.count}</small> : null}
-          </button>
-        ))}
-        <button
-          type="button"
-          className="message-reaction-pill reaction-summary-trigger"
-          onClick={() => handleOpenReactionSummary(message)}
-          title="View reaction details"
-          aria-label="View reaction details"
-        >
-          <small style={{ fontSize: '10px', opacity: 0.7 }}>📊</small>
-        </button>
-      </div>
-    );
-  };
-
-  const renderMessageActions = (message: ChatMessage, isSentByCurrentUser: boolean) => {
-    if (!canUseMessageActions(message)) {
-      return null;
-    }
-
-    const currentUserId = currentUser?.id ?? null;
-    const canCopyMessage = Boolean(message.content?.trim());
-
-    return (
-      <div className="message-actions" aria-label="Message actions">
-        <div className="message-quick-reactions">
-          {QUICK_REACTION_EMOJIS.map((emoji) => (
-            <button
-              key={`${message.id}-${emoji}`}
-              type="button"
-              className={`message-action-btn reaction ${hasCurrentUserReaction(message, currentUserId, emoji) ? 'active' : ''}`}
-              onClick={() => void handleReactToMessage(message, emoji)}
-              aria-label={`React with ${emoji}`}
-              title={`React with ${emoji}`}
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          className="message-action-btn"
-          onClick={() => handleReplyToMessage(message)}
-          aria-label="Reply"
-          title="Reply"
-        >
-          <ReplyIcon className="message-action-icon" />
-        </button>
-        {canCopyMessage ? (
-          <button
-            type="button"
-            className="message-action-btn"
-            onClick={() => void handleCopyMessage(message)}
-            aria-label="Copy"
-            title="Copy"
-          >
-            <CopyIcon className="message-action-icon" />
-          </button>
-        ) : null}
-        {isSentByCurrentUser ? (
-          <button
-            type="button"
-            className="message-action-btn danger"
-            onClick={() => void handleRecallMessage(message)}
-            aria-label="Recall"
-            title="Recall"
-          >
-            <RecallIcon className="message-action-icon" />
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="message-action-btn"
-          onClick={() => void handlePinMessage(message)}
-          aria-label="Pin message"
-          title={pinnedMessage?.id === message.id ? 'Unpin' : 'Pin'}
-        >
-          <span style={{ fontSize: '13px' }}>
-            {pinnedMessage?.id === message.id ? '📌' : '📌'}
-          </span>
-        </button>
-        {!message.recalled && message.type !== 'CALL' ? (
-          <button
-            type="button"
-            className="message-action-btn"
-            onClick={() => handleForwardMessage(message)}
-            aria-label="Forward message"
-            title="Forward"
-          >
-            <ForwardIcon className="message-action-icon" />
-          </button>
-        ) : null}
-      </div>
-    );
-  };
+  const renderMessageActions = (message: ChatMessage, isSentByCurrentUser: boolean) => (
+    <MessageActions
+      message={message} isSentByCurrentUser={isSentByCurrentUser}
+      currentUserId={currentUser?.id ?? null} pinnedMessage={pinnedMessage}
+      onReact={(target, emoji) => void handleReactToMessage(target, emoji)}
+      onReply={handleReplyToMessage} onCopy={(target) => void handleCopyMessage(target)}
+      onRecall={(target) => void handleRecallMessage(target)} onPin={(target) => void handlePinMessage(target)}
+      onForward={handleForwardMessage}
+    />
+  );
 
   const renderCallMessageBody = (message: ChatMessage) => {
-    const isVideoCall = message.callType === 'VIDEO';
-    const callPeer = getCallMessagePeer(message);
-    const canCallBack = Boolean(callPeer && canChatWithUser(callPeer) && !activeCall);
-
+    const peer = getCallMessagePeer(message);
     return (
-      <div className={`call-message-event ${message.callStatus?.toLowerCase() ?? ''}`}>
-        <span className="call-message-icon-wrap" aria-hidden="true">
-          {isVideoCall ? (
-            <VideoCallIcon className="call-message-icon" />
-          ) : (
-            <PhoneIcon className="call-message-icon" />
-          )}
-        </span>
-        <span>{getCallEventLabel(message)}</span>
-        <small>{formatMessageTime(message.timestamp)}</small>
-        {canCallBack ? (
-          <button
-            type="button"
-            className="call-message-callback"
-            onClick={() => handleCallBackFromMessage(message)}
-            aria-label={`Call ${getUserDisplayName(callPeer)} again`}
-            title={`Call ${getUserDisplayName(callPeer)} again`}
-          >
-            {isVideoCall ? (
-              <VideoCallIcon className="call-message-callback-icon" />
-            ) : (
-              <PhoneIcon className="call-message-callback-icon" />
-            )}
-            <span>Call again</span>
-          </button>
-        ) : null}
-      </div>
+      <CallMessageBody
+        message={message}
+        peer={peer}
+        canCallBack={Boolean(peer && canChatWithUser(peer) && !activeCall)}
+        onCallBack={handleCallBackFromMessage}
+      />
     );
   };
 
-  const renderMessageBody = (message: ChatMessage) => {
-    const mediaUrl = getMediaUrl(message.mediaUrl);
-
-    if (message.recalled) {
-      return (
-        <div className="message-content recalled">
-          <span>Message recalled</span>
-        </div>
-      );
-    }
-
-    if (getMessageType(message) === 'IMAGE' && mediaUrl) {
-      return (
-        <div className="message-media-content">
-          {renderReplyQuote(message.replyTo)}
-          <button
-            type="button"
-            className="message-image-preview-btn"
-            onClick={() => handleOpenLightbox(mediaUrl, 'IMAGE', message.content || 'image')}
-            aria-label="Open image preview"
-          >
-            <img
-              src={mediaUrl}
-              alt={message.content || 'Shared image'}
-              onLoad={handleMessageAssetLoaded}
-              onError={handleMessageAssetLoaded}
-            />
-          </button>
-          {message.content ? (
-            <div className="message-media-caption">{renderLinkedText(message.content)}</div>
-          ) : null}
-        </div>
-      );
-    }
-
-    if (getMessageType(message) === 'VIDEO' && mediaUrl) {
-      return (
-        <div className="message-media-content">
-          {renderReplyQuote(message.replyTo)}
-          <div
-            className="message-video-preview-wrap"
-            onClick={() => handleOpenLightbox(mediaUrl, 'VIDEO', message.content || 'video')}
-            style={{ cursor: 'pointer' }}
-          >
-            <video
-              className="message-video-preview"
-              src={mediaUrl}
-              controls={false}
-              preload="metadata"
-              onLoadedMetadata={handleMessageAssetLoaded}
-              onError={handleMessageAssetLoaded}
-            />
-          </div>
-          {message.content ? (
-            <div className="message-media-caption">{renderLinkedText(message.content)}</div>
-          ) : null}
-        </div>
-      );
-    }
-
-    if (getMessageType(message) === 'AUDIO' && mediaUrl) {
-      return (
-        <div className="message-media-content">
-          {message.forwardedFromId ? (
-            <div className="forwarded-header">
-              <ForwardIcon className="forwarded-icon" />
-              <span>Forwarded from <strong>{message.forwardedFromSenderName ?? 'Unknown'}</strong></span>
-            </div>
-          ) : null}
-          {renderReplyQuote(message.replyTo)}
-          <div className="message-voice">
-            <VoiceMessagePlayer
-              src={mediaUrl}
-              durationSeconds={message.mediaDuration}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    if (getMessageType(message) === 'FILE' && mediaUrl) {
-      const ext = getFileExtension(message.mediaFormat || message.content || mediaUrl);
-      const fileName = getDownloadFilename(message);
-      const badgeClass = getFileBadgeColor(ext);
-      const sizeLabel = formatFileSize(message.mediaBytes);
-
-      return (
-        <div className="message-media-content message-file-card-content">
-          {message.forwardedFromId ? (
-            <div className="forwarded-header">
-              <ForwardIcon className="forwarded-icon" />
-              <span>Forwarded from <strong>{message.forwardedFromSenderName ?? 'Unknown'}</strong></span>
-            </div>
-          ) : null}
-          {renderReplyQuote(message.replyTo)}
-          <div className="message-file-card">
-            <div className={`file-card-icon-wrap ${badgeClass}`}>
-              <DocumentIcon className="file-card-icon" />
-              <span className="file-card-ext">{ext}</span>
-            </div>
-            <div className="file-card-info">
-              <span className="file-card-name" title={fileName}>{fileName}</span>
-              {sizeLabel ? <span className="file-card-size">{sizeLabel}</span> : null}
-            </div>
-            <a
-              href={mediaUrl}
-              download={fileName}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="file-card-download-btn"
-              title={`Download ${fileName}`}
-              aria-label={`Download ${fileName}`}
-            >
-              <DownloadIcon className="file-card-download-icon" />
-            </a>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className={`message-content ${hasLinkPreview(message.linkPreview) ? 'has-link-preview' : ''}`}>
-        {message.forwardedFromId ? (
-          <div className="forwarded-header">
-            <ForwardIcon className="forwarded-icon" />
-            <span>Forwarded from <strong>{message.forwardedFromSenderName ?? 'Unknown'}</strong></span>
-          </div>
-        ) : null}
-        {renderReplyQuote(message.replyTo)}
-        {message.content ? (
-          <div className="message-text">{renderLinkedText(message.content)}</div>
-        ) : null}
-        {renderLinkPreviewCard(message.linkPreview, handleMessageAssetLoaded)}
-      </div>
-    );
-  };
-
-  const renderGroupSeenBy = (message: ChatMessage, seenByUsers: User[]) => {
-    if (seenByUsers.length === 0) {
-      return null;
-    }
-
-    const visibleUsers = seenByUsers.slice(0, 3);
-    const extraCount = seenByUsers.length - visibleUsers.length;
-    const seenByLabel = `Seen by ${seenByUsers.map(getUserDisplayName).join(', ')}`;
-    const isOpen = seenByPopupMessageId === message.id;
-
-    return (
-      <div className="message-seen-by-row">
-        <button
-          type="button"
-          className="message-seen-by-btn"
-          onClick={() => setGroupSeenModalMessage({ message, seenUsers: seenByUsers })}
-          aria-label={seenByLabel}
-          title={seenByLabel}
-        >
-          <span className="message-seen-by-avatars">
-            {visibleUsers.map((reader) => (
-              <span key={reader.id} className="message-seen-by-avatar-shell">
-                {renderUserAvatar(reader, 'user-avatar message-seen-by-avatar')}
-              </span>
-            ))}
-          </span>
-          {extraCount > 0 ? <span className="message-seen-by-count">+{extraCount}</span> : null}
-        </button>
-
-        {isOpen ? (
-          <div className="message-seen-by-popover" role="dialog" aria-label="Seen by members">
-            <strong>Seen by</strong>
-            <div className="message-seen-by-list">
-              {seenByUsers.map((reader) => (
-                <div key={reader.id} className="message-seen-by-item">
-                  {renderUserAvatar(reader, 'user-avatar message-seen-by-list-avatar')}
-                  <span>{getUserDisplayName(reader)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </div>
-    );
-  };
-
-  const renderPreCallSetupModal = () => (
-    <PreCallSetupModal
-      preCallSetup={preCallSetup}
-      previewStream={preCallPreviewStream}
-      previewVideoRef={preCallPreviewVideoRef}
-      previewLoading={preCallPreviewLoading}
-      submitting={preCallSubmitting}
-      canStart={preCallCanStart}
-      error={preCallError}
-      micMuted={micMuted}
-      cameraOff={cameraOff}
-      audioInputDevices={audioInputDevices}
-      videoInputDevices={videoInputDevices}
-      selectedAudioInputId={selectedAudioInputId}
-      selectedVideoInputId={selectedVideoInputId}
-      callDevicesLoading={callDevicesLoading}
-      callDeviceError={callDeviceError}
-      getMediaDeviceLabel={getMediaDeviceLabel}
-      renderUserAvatar={renderUserAvatar}
-      renderCallPermissionStatus={renderCallPermissionStatus}
-      onClose={handleClosePreCallSetup}
-      onToggleMic={handlePreCallToggleMic}
-      onToggleCamera={handlePreCallToggleCamera}
-      onAudioInputChange={handlePreCallAudioInputChange}
-      onVideoInputChange={handlePreCallVideoInputChange}
-      onRetryPreview={handlePreCallRetryPreview}
-      onStart={handleConfirmStartCall}
+  const renderMessageBody = (message: ChatMessage) => (
+    <MessageContent
+      message={message}
+      onOpenLightbox={handleOpenLightbox}
+      onAssetLoaded={handleMessageAssetLoaded}
     />
   );
 
-  const renderCallOverlay = () => (
-    <ActiveCallOverlay
-      activeCall={activeCall}
-      callMinimized={callMinimized}
-      callConnectionState={callConnectionState}
-      callElapsedSeconds={callElapsedSeconds}
-      localCallStream={localCallStream}
-      remoteCallStream={remoteCallStream}
-      remoteAudioRef={remoteAudioRef}
-      remoteVideoRef={remoteVideoRef}
-      localVideoRef={localVideoRef}
-      isConversationOpen={activeCallConversationOpen}
-      micMuted={micMuted}
-      cameraOff={cameraOff}
-      screenSharing={screenSharing}
-      remoteScreenSharing={remoteScreenSharing}
-      screenShareError={screenShareError}
-      callError={callError}
-      audioInputDevices={audioInputDevices}
-      videoInputDevices={videoInputDevices}
-      selectedAudioInputId={selectedAudioInputId}
-      selectedVideoInputId={selectedVideoInputId}
-      callDevicesLoading={callDevicesLoading}
-      callDeviceError={callDeviceError}
-      formatCallTimer={formatCallTimer}
-      getMediaDeviceLabel={getMediaDeviceLabel}
-      renderUserAvatar={renderUserAvatar}
-      renderCallPermissionStatus={renderCallPermissionStatus}
-      onRestore={handleRestoreActiveCall}
-      onMinimize={handleMinimizeActiveCall}
-      onOpenConversation={handleOpenActiveCallConversation}
-      onToggleMic={handleToggleMic}
-      onToggleCamera={handleToggleCamera}
-      onStartScreenShare={handleStartScreenShare}
-      onStopScreenShare={handleStopScreenShare}
-      onEnd={handleEndCall}
-      onAccept={handleAcceptCall}
-      onReject={handleRejectCall}
-      onRetry={handleRetryActiveCall}
-      onAudioInputChange={handleAudioInputChange}
-      onVideoInputChange={handleVideoInputChange}
+  const renderGroupSeenBy = (message: ChatMessage, users: User[]) => (
+    <GroupSeenBy
+      message={message}
+      users={users}
+      open={seenByPopupMessageId === message.id}
+      onOpenModal={(target, seenUsers) => setGroupSeenModalMessage({ message: target, seenUsers })}
     />
   );
-
-  const renderFriendshipAction = (user: User) => {
-    if (!hasUserSearch) {
-      return null;
-    }
-
-    switch (user.friendshipStatus) {
-      case 'pending_incoming': {
-        const requestId = user.friendshipId;
-        return requestId ? (
-          <button
-            type="button"
-            className="friend-action-btn"
-            disabled={friendActionKeys.includes(`accept-user-${user.id}`)}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleAcceptFriendRequest(requestId, `accept-user-${user.id}`);
-            }}
-          >
-            Accept
-          </button>
-        ) : null;
-      }
-      case 'pending_outgoing':
-        return (
-          <div className="friend-actions">
-            <span className="friend-status-pill">Pending</span>
-            <button
-              type="button"
-              className="friend-action-btn secondary"
-              disabled={!user.friendshipId || friendActionKeys.includes(`cancel-${user.id}`)}
-              onClick={(event) => {
-                event.stopPropagation();
-                void handleCancelFriendRequest(user);
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        );
-      case 'none':
-      case 'declined':
-      case undefined:
-        return (
-          <button
-            type="button"
-            className="friend-action-btn"
-            disabled={friendActionKeys.includes(`send-${user.id}`)}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleSendFriendRequest(user);
-            }}
-          >
-            Add
-          </button>
-        );
-      case 'accepted':
-      default:
-        return <span className="friend-status-pill accepted">Friend</span>;
-    }
-  };
-
-  const renderProfileAction = (user: User) => {
-    const openProfileChat = () => {
-      handleCloseUserProfile();
-      handleUserSelect(user);
-    };
-    const openProfileCall = (callType: CallType) => {
-      handleCloseUserProfile();
-      openPreCallSetupForUser(user, callType);
-    };
-
-    switch (user.friendshipStatus) {
-      case 'accepted':
-        return (
-          <>
-            <button
-              type="button"
-              className="send-btn profile-message-btn"
-              onClick={openProfileChat}
-            >
-              Message
-            </button>
-            <button
-              type="button"
-              className="profile-call-btn"
-              onClick={() => openProfileCall('AUDIO')}
-              disabled={Boolean(activeCall)}
-              aria-label={`Start audio call with ${getUserDisplayName(user)}`}
-              title="Audio call"
-            >
-              <PhoneIcon className="profile-call-icon" />
-            </button>
-            <button
-              type="button"
-              className="profile-call-btn"
-              onClick={() => openProfileCall('VIDEO')}
-              disabled={Boolean(activeCall)}
-              aria-label={`Start video call with ${getUserDisplayName(user)}`}
-              title="Video call"
-            >
-              <VideoCallIcon className="profile-call-icon" />
-            </button>
-          </>
-        );
-      case 'pending_incoming': {
-        const requestId = user.friendshipId;
-        return requestId ? (
-          <>
-            <button type="button" className="send-btn profile-message-btn" onClick={openProfileChat}>
-              Message
-            </button>
-            <button
-              type="button"
-              className="friend-action-btn"
-              disabled={friendActionKeys.includes(`accept-profile-${user.id}`)}
-              onClick={() =>
-                void handleAcceptFriendRequest(requestId, `accept-profile-${user.id}`)
-              }
-            >
-              Accept
-            </button>
-            <button
-              type="button"
-              className="friend-action-btn secondary"
-              disabled={friendActionKeys.includes(`decline-profile-${user.id}`)}
-              onClick={() =>
-                void handleDeclineFriendRequest(requestId, `decline-profile-${user.id}`)
-              }
-            >
-              Decline
-            </button>
-          </>
-        ) : null;
-      }
-      case 'pending_outgoing':
-        return (
-          <>
-            <button type="button" className="send-btn profile-message-btn" onClick={openProfileChat}>
-              Message
-            </button>
-            <span className="friend-status-pill">Pending</span>
-            <button
-              type="button"
-              className="friend-action-btn secondary"
-              disabled={!user.friendshipId || friendActionKeys.includes(`cancel-${user.id}`)}
-              onClick={() => void handleCancelFriendRequest(user)}
-            >
-              Cancel
-            </button>
-          </>
-        );
-      case 'declined':
-      case 'none':
-      case undefined:
-      default:
-        return (
-          <>
-            <button type="button" className="send-btn profile-message-btn" onClick={openProfileChat}>
-              Message
-            </button>
-            <button
-              type="button"
-              className="friend-action-btn"
-              disabled={friendActionKeys.includes(`send-${user.id}`)}
-              onClick={() => void handleSendFriendRequest(user)}
-            >
-              Add friend
-            </button>
-          </>
-        );
-    }
-  };
 
   const handleDeleteConversation = async () => {
     if (!conversationDeleteTarget) {
@@ -5587,753 +1861,33 @@ export default function ChatPage() {
     }
   };
 
-  const renderUserIdentity = (user: User, showConversationPreview = false) => {
-    const sidebarTime = showConversationPreview ? formatSidebarTime(user.lastMessageAt) : '';
-
-    return (
-      <>
-        {showConversationPreview ? (
-          <span className="conversation-avatar-presence">
-            {renderUserAvatar(user)}
-            <span
-              className={`conversation-presence-dot ${user.online ? 'online' : 'offline'}`}
-              role="img"
-              aria-label={user.online ? 'Online' : 'Offline'}
-            />
-          </span>
-        ) : renderUserAvatar(user)}
-        <div className="user-info">
-          <div className="user-title-row">
-            <div className="user-name">{getUserDisplayName(user)}</div>
-          </div>
-          {showConversationPreview ? (
-            <div className="user-preview-row">
-              <span className="user-preview">
-                {getConversationPreviewText(user, currentUser?.id ?? null)}
-                {sidebarTime ? ` · ${sidebarTime}` : ''}
-              </span>
-            </div>
-          ) : (
-            <div className="user-meta">
-              <span className={`user-status ${getUserStatusClass(user)}`}>
-                {getFriendshipStatusLabel(user)}
-              </span>
-              {shouldShowUsername(user) ? (
-                <span className="user-username">@{user.username}</span>
-              ) : null}
-            </div>
-          )}
-        </div>
-      </>
-    );
-  };
-
-  const renderConversationStatusIcons = (target: ConversationTarget) => {
-    const pinned = target.type === 'user' ? target.user.pinned : target.room.pinned;
-    const muted = target.type === 'user' ? target.user.muted : target.room.muted;
-    const archived = target.type === 'user' ? target.user.archived : target.room.archived;
-
-    if (!pinned && !muted && !archived) {
-      return null;
-    }
-
-    return (
-      <div className="conversation-status-icons" aria-label="Conversation settings">
-        {pinned ? <PinIcon className="conversation-status-icon" /> : null}
-        {muted ? <MutedIcon className="conversation-status-icon" /> : null}
-        {archived ? <ArchiveIcon className="conversation-status-icon" /> : null}
-      </div>
-    );
-  };
-
-  const renderConversationMenu = (target: ConversationTarget) => {
-    const targetKey =
-      target.type === 'user'
-        ? `user-${target.user.id}`
-        : `room-${target.room.id}`;
-    const pinned = target.type === 'user' ? Boolean(target.user.pinned) : Boolean(target.room.pinned);
-    const muted = target.type === 'user' ? Boolean(target.user.muted) : Boolean(target.room.muted);
-    const archived = target.type === 'user' ? Boolean(target.user.archived) : Boolean(target.room.archived);
-    const pending = conversationSettingPendingKey === targetKey;
-
-    return (
-      <div className="conversation-menu-wrap" onClick={(event) => event.stopPropagation()}>
-        <button
-          type="button"
-          className="conversation-menu-btn"
-          disabled={pending}
-          onClick={(event) => handleToggleConversationMenu(targetKey, event)}
-          aria-haspopup="menu"
-          aria-expanded={openConversationMenuKey === targetKey}
-          aria-label="Conversation actions"
-          title="Conversation actions"
-        >
-          <MoreIcon className="conversation-menu-icon" />
-        </button>
-
-        {openConversationMenuKey === targetKey ? (
-          <div className="conversation-menu" role="menu">
-            {target.type === 'user' ? (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setOpenConversationMenuKey(null);
-                  void handleOpenUserProfile(target.user);
-                }}
-              >
-                <ProfileIcon className="conversation-menu-item-icon" />
-                View profile
-              </button>
-            ) : null}
-            <button
-              type="button"
-              role="menuitem"
-              disabled={pending}
-              onClick={() => void handleUpdateConversationSetting(target, { pinned: !pinned })}
-            >
-              <PinIcon className="conversation-menu-item-icon" />
-              {pinned ? 'Unpin' : 'Pin'}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              disabled={pending}
-              onClick={() => void handleUpdateConversationSetting(target, { muted: !muted })}
-            >
-              <MutedIcon className="conversation-menu-item-icon" />
-              {muted ? 'Unmute' : 'Mute'}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              disabled={pending}
-              onClick={() => void handleUpdateConversationSetting(target, { archived: !archived })}
-            >
-              <ArchiveIcon className="conversation-menu-item-icon" />
-              {archived ? 'Unarchive' : 'Archive'}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="danger"
-              disabled={pending}
-              onClick={() => {
-                setConversationSettingsError('');
-                setConversationDeleteTarget(target);
-                setOpenConversationMenuKey(null);
-              }}
-            >
-              <TrashIcon className="conversation-menu-item-icon" />
-              Delete
-            </button>
-          </div>
-        ) : null}
-      </div>
-    );
-  };
-
-  const renderUserItem = (user: User) => {
-    const unreadCount = user.unreadCount ?? 0;
-    const showConversationPreview = !hasUserSearch && hasPrivateConversation(user);
-    const isAcceptedFriend = user.friendshipStatus === 'accepted';
-
-    if (showConversationPreview) {
-      return (
-        <div
-          key={user.id}
-          className={`conversation-list-row ${selectedUser?.id === user.id ? 'active' : ''}`}
-        >
-          <button
-            type="button"
-            className={`user-item conversation-trigger ${selectedUser?.id === user.id ? 'active' : ''} ${unreadCount > 0 ? 'unread' : ''}`}
-            onClick={() => handleUserSelect(user)}
-          >
-            {renderUserIdentity(user, showConversationPreview)}
-            {renderConversationStatusIcons({ type: 'user', user })}
-          </button>
-          {unreadCount > 0 ? (
-            <div className="unread-badge">{unreadCount}</div>
-          ) : null}
-          {renderConversationMenu({ type: 'user', user })}
-        </div>
-      );
-    }
-
-    return (
-      <div key={user.id} className="user-item relationship-item profile-result-item">
-        <button
-          type="button"
-          className="profile-result-trigger"
-          onClick={() => {
-            if (isAcceptedFriend) {
-              handleUserSelect(user);
-              return;
-            }
-
-            void handleOpenUserProfile(user);
-          }}
-          aria-label={isAcceptedFriend
-            ? `Open chat with ${getUserDisplayName(user)}`
-            : `View profile for ${getUserDisplayName(user)}`}
-        >
-          {renderUserIdentity(user)}
-        </button>
-        {!isAcceptedFriend ? (
-          <div className="friend-actions">
-            {renderFriendshipAction(user)}
-          </div>
-        ) : null}
-      </div>
-    );
-  };
-
-  const renderRoomItem = (room: ChatRoom) => {
-    const unreadCount = room.unreadCount ?? 0;
-    const sidebarTime = formatSidebarTime(room.lastMessageAt);
-
-    return (
-      <div
-        key={`room-${room.id}`}
-        className={`conversation-list-row ${selectedRoom?.id === room.id ? 'active' : ''}`}
-      >
-        <button
-          type="button"
-          className={`user-item room-item conversation-trigger ${selectedRoom?.id === room.id ? 'active' : ''} ${unreadCount > 0 ? 'unread' : ''}`}
-          onClick={() => handleRoomSelect(room)}
-        >
-          <div className="user-avatar room-avatar">
-            {getRoomInitial(room)}
-          </div>
-          <div className="user-info">
-            <div className="user-title-row">
-              <div className="user-name">{room.name}</div>
-            </div>
-            <div className="user-preview-row">
-              <span className="user-preview">
-                {getRoomPreviewText(room, currentUser?.id ?? null)}
-                {sidebarTime ? ` · ${sidebarTime}` : ''}
-              </span>
-            </div>
-          </div>
-          {renderConversationStatusIcons({ type: 'room', room })}
-        </button>
-        {unreadCount > 0 ? (
-          <div className="unread-badge-wrap">
-            {room.lastMessageContent && (/@all\b/i.test(room.lastMessageContent) || (currentUser && room.lastMessageContent.toLowerCase().includes('@' + currentUser.username.toLowerCase()))) ? (
-              <span className="mention-unread-indicator" title="You were mentioned">@</span>
-            ) : null}
-            <div className="unread-badge">{unreadCount}</div>
-          </div>
-        ) : null}
-        {renderConversationMenu({ type: 'room', room })}
-      </div>
-    );
-  };
-
-  const renderSidebarSkeletons = () =>
-    USER_SKELETON_KEYS.map((key) => (
-      <div key={key} className="user-item user-item-skeleton" aria-hidden="true">
-        <div className="skeleton-avatar" />
-        <div className="skeleton-user-info">
-          <div className="skeleton-line name" />
-          <div className="skeleton-line status" />
-        </div>
-      </div>
-    ));
-
-  const renderSidebarSearchList = () => {
-    if (usersLoading) {
-      return renderSidebarSkeletons();
-    }
-
-    if (usersError) {
-      return (
-        <div className="list-state error-state">
-          <span>{usersError}</span>
-          <button
-            type="button"
-            className="retry-btn"
-            onClick={() => void loadUsers({ search: userSearchQuery })}
-          >
-            Retry
-          </button>
-        </div>
-      );
-    }
-
-    if (users.length === 0) {
-      return <div className="list-state">{usersEmptyMessage}</div>;
-    }
-
-    return users.map(renderUserItem);
-  };
-
-  const renderSidebarChatList = () => {
-    const hasAnyConversation = sidebarConversationItems.length > 0;
-    const emptyConversationMessage =
-      conversationFilter === 'archived'
-        ? 'No archived conversations.'
-        : conversationFilter === 'unread'
-          ? 'No unread conversations.'
-          : 'No conversations yet. Search a username to start a chat.';
-
-    if (sidebarBusy && !hasAnyConversation) {
-      return renderSidebarSkeletons();
-    }
-
-    if (!sidebarBusy && !usersError && !roomsError && !hasAnyConversation) {
-      return (
-        <div className="list-state empty-groups-state">
-          <span>{emptyConversationMessage}</span>
-        </div>
-      );
-    }
-
-    return (
-      <>
-        {usersError && conversationUsers.length === 0 ? (
-          <div className="list-state error-state">
-            <span>{usersError}</span>
-            <button type="button" className="retry-btn" onClick={() => void loadUsers({ search: '' })}>
-              Retry
-            </button>
-          </div>
-        ) : null}
-        {roomsError && rooms.length === 0 ? (
-          <div className="list-state error-state">
-            <span>{roomsError}</span>
-            <button type="button" className="retry-btn" onClick={() => void loadRooms()}>
-              Retry
-            </button>
-          </div>
-        ) : null}
-        {sidebarConversationItems.map((item) =>
-          item.type === 'user' ? renderUserItem(item.user) : renderRoomItem(item.room)
-        )}
-      </>
-    );
-  };
-
-  const renderMainFriendItem = (user: User) => (
-    <div key={user.id} className="main-list-item friend-main-item">
-      <button
-        type="button"
-        className="friend-main-profile-trigger"
-        onClick={() => void handleOpenUserProfile(user)}
-        aria-label={`View profile of ${getUserDisplayName(user)}`}
-      >
-        <div className="main-list-avatar-wrap">
-          {renderUserAvatar(user)}
-          <span
-            className={`main-list-presence-dot ${user.online ? 'online' : 'offline'}`}
-            aria-hidden="true"
-          />
-        </div>
-        <div className="main-list-copy">
-          <strong>{getUserDisplayName(user)}</strong>
-          <span>@{user.username}</span>
-        </div>
-      </button>
-      <button
-        type="button"
-        className="friend-action-btn secondary friend-main-message-btn"
-        onClick={() => handleUserSelect(user)}
-      >
-        Message
-      </button>
-      <span className={`main-status-pill ${user.online ? 'online' : 'offline'}`}>
-        {user.online ? 'Online' : 'Offline'}
-      </span>
-    </div>
+  const renderDetailsMemberItem = (user: User) => (
+    <GroupMemberListItem
+      key={user.id}
+      user={user}
+      currentUserId={currentUser?.id ?? null}
+      ownerId={selectedRoomOwnerId}
+      currentUserIsOwner={isCurrentUserOwner}
+      saving={groupSettingsSaving}
+      pendingAction={groupSettingsPendingAction}
+      nicknameValue={groupMemberNicknames[user.id] ?? ''}
+      menuOpen={openGroupMemberMenuId === user.id}
+      editingNickname={editingGroupMemberNicknameId === user.id}
+      canKick={canKickMember(user)}
+      onToggleMenu={handleToggleGroupMemberMenu}
+      onOpenProfile={(member) => {
+        setOpenGroupMemberMenuId(null);
+        void handleOpenUserProfile(member);
+      }}
+      onStartEditNickname={handleStartEditGroupMemberNickname}
+      onUpdateRole={(member, role) => void handleUpdateMemberRole(member, role)}
+      onTransferOwner={(member) => void handleTransferRoomOwner(member)}
+      onKick={(member) => void handleKickRoomMember(member)}
+      onNicknameChange={handleGroupMemberNicknameChange}
+      onSaveNickname={(member) => void handleUpdateRoomMemberNickname(member)}
+      onCancelNicknameEdit={handleCancelEditGroupMemberNickname}
+    />
   );
-
-  const renderMainPanelSkeletons = () => (
-    <div className="main-list" aria-hidden="true">
-      {USER_SKELETON_KEYS.map((key) => (
-        <div key={key} className="main-list-item main-list-item-skeleton">
-          <div className="skeleton-avatar" />
-          <div className="skeleton-user-info">
-            <div className="skeleton-line name" />
-            <div className="skeleton-line status" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-
-  const renderFriendsPanel = () => {
-    const onlineFriendCount = friends.filter((friend) => friend.online).length;
-
-    return (
-      <section className="main-panel people-panel" aria-labelledby="friends-panel-title">
-        <div className="main-panel-header">
-          <div className="main-panel-heading">
-            <span className="panel-heading-icon">
-              <FriendsIcon className="panel-heading-svg" />
-            </span>
-            <div>
-              <span className="main-panel-eyebrow">Friends</span>
-              <h3 id="friends-panel-title">Friend list</h3>
-              <p>
-                {friends.length} friends - {onlineFriendCount} online
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="panel-icon-action"
-            onClick={() => void loadUsers({ search: '', silent: true })}
-            aria-label="Refresh friend list"
-            title="Refresh"
-          >
-            <RefreshIcon className="panel-action-icon" />
-          </button>
-        </div>
-
-        {friends.length > 0 ? (
-          <div className="main-panel-search" role="search">
-            <input
-              type="search"
-              value={friendSearchQuery}
-              onChange={(event) => handleFriendSearchChange(event.target.value)}
-              className="main-panel-search-input"
-              placeholder="Search friends by name or username"
-              aria-label="Search friends by name or username"
-              autoComplete="off"
-              spellCheck={false}
-            />
-            {friendSearchQuery ? (
-              <button
-                type="button"
-                className="main-panel-search-clear"
-                onClick={handleClearFriendSearch}
-                aria-label="Clear friend search"
-              >
-                ×
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-
-        {usersLoading && friends.length === 0 ? (
-          renderMainPanelSkeletons()
-        ) : usersError && friends.length === 0 ? (
-          <div className="main-panel-state error-state">
-            <span>{usersError}</span>
-            <button
-              type="button"
-              className="retry-btn"
-              onClick={() => void loadUsers({ search: '' })}
-            >
-              Retry
-            </button>
-          </div>
-        ) : friends.length === 0 ? (
-          <div className="main-panel-state panel-empty-state">
-            <span className="panel-empty-icon">
-              <FriendsIcon className="panel-heading-svg" />
-            </span>
-            <strong>No friends yet</strong>
-            <span>Search username in the sidebar to add friends.</span>
-          </div>
-        ) : filteredFriends.length === 0 ? (
-          <div className="main-panel-state panel-empty-state">
-            <span className="panel-empty-icon">
-              <FriendsIcon className="panel-heading-svg" />
-            </span>
-            <strong>No matching friends</strong>
-            <span>Try another name or username.</span>
-          </div>
-        ) : (
-          <div className="main-list">
-            {filteredFriends.map(renderMainFriendItem)}
-          </div>
-        )}
-      </section>
-    );
-  };
-
-  const renderRequestItem = (friendship: Friendship) => {
-    const requesterName = getUserDisplayName(friendship.requester);
-
-    return (
-      <div key={friendship.id} className="main-list-item request-main-item">
-        <div className="main-list-avatar-wrap">
-          {renderUserAvatar(friendship.requester)}
-        </div>
-        <div className="main-list-copy">
-          <strong>{requesterName}</strong>
-          {shouldShowUsername(friendship.requester) ? (
-            <span>@{friendship.requester.username}</span>
-          ) : (
-            <span>Incoming friend request</span>
-          )}
-          <small>Waiting for your response</small>
-        </div>
-        <div className="request-actions">
-          <button
-            type="button"
-            className="friend-action-btn"
-            disabled={friendActionKeys.includes(`accept-request-${friendship.id}`)}
-            onClick={() =>
-              void handleAcceptFriendRequest(friendship.id, `accept-request-${friendship.id}`)
-            }
-            aria-label={`Accept friend request from ${requesterName}`}
-          >
-            Accept
-          </button>
-          <button
-            type="button"
-            className="friend-action-btn secondary"
-            disabled={friendActionKeys.includes(`decline-request-${friendship.id}`)}
-            onClick={() =>
-              void handleDeclineFriendRequest(friendship.id, `decline-request-${friendship.id}`)
-            }
-            aria-label={`Decline friend request from ${requesterName}`}
-          >
-            Decline
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  const renderRequestsPanel = () => (
-    <section className="main-panel people-panel" aria-labelledby="requests-panel-title">
-      <div className="main-panel-header">
-        <div className="main-panel-heading">
-          <span className="panel-heading-icon">
-            <FriendRequestIcon className="panel-heading-svg" />
-          </span>
-          <div>
-            <span className="main-panel-eyebrow">Requests</span>
-            <h3 id="requests-panel-title">Friend requests</h3>
-            <p>{friendRequestBadgeCount} pending requests</p>
-          </div>
-        </div>
-        <button
-          type="button"
-          className="panel-icon-action"
-          onClick={() =>
-            void Promise.all([
-              loadIncomingFriendRequests(),
-              loadFriendSummary({ silent: true }),
-            ])
-          }
-          aria-label="Refresh friend requests"
-          title="Refresh"
-        >
-          <RefreshIcon className="panel-action-icon" />
-        </button>
-      </div>
-
-      {friendRequestsLoading ? (
-        renderMainPanelSkeletons()
-      ) : friendRequestsError ? (
-        <div className="main-panel-state error-state">
-          <span>{friendRequestsError}</span>
-          <button
-            type="button"
-            className="retry-btn"
-            onClick={() => void loadIncomingFriendRequests()}
-          >
-            Retry
-          </button>
-        </div>
-      ) : incomingFriendRequests.length === 0 ? (
-        <div className="main-panel-state panel-empty-state">
-          <span className="panel-empty-icon">
-            <FriendRequestIcon className="panel-heading-svg" />
-          </span>
-          <strong>No pending requests</strong>
-          <span>New requests will appear here.</span>
-        </div>
-      ) : (
-        <div className="main-list">
-          {incomingFriendRequests.map(renderRequestItem)}
-        </div>
-      )}
-    </section>
-  );
-
-  const renderDetailsMemberItem = (user: User) => {
-    const isCurrentUser = user.id === currentUser?.id;
-    const isOwner = user.id === selectedRoomOwnerId || user.role === 'OWNER';
-    const isMod = user.role === 'MODERATOR';
-    const memberDisplayName = getUserDisplayName(user);
-    const accountDisplayName = getUserAccountDisplayName(user);
-    const nicknameValue = groupMemberNicknames[user.id] ?? '';
-    const normalizedNicknameValue = nicknameValue.trim();
-    const normalizedSavedNickname = (user.nickname ?? '').trim();
-    const nicknameChanged = normalizedNicknameValue !== normalizedSavedNickname;
-    const nicknamePending = groupSettingsPendingAction === `nickname-${user.id}`;
-    const kickPending = groupSettingsPendingAction === `kick-${user.id}`;
-    const rolePending = groupSettingsPendingAction === `role-${user.id}`;
-    const ownerTransferPending = groupSettingsPendingAction === `owner-${user.id}`;
-    const canKick = canKickMember(user);
-    const memberMenuOpen = openGroupMemberMenuId === user.id;
-    const editingNickname = editingGroupMemberNicknameId === user.id;
-
-    return (
-      <div
-        key={user.id}
-        className={`details-member-item ${editingNickname ? 'editing' : ''}`}
-      >
-        {isCurrentUser ? (
-          <>
-            {renderUserAvatar(user, 'user-avatar small-avatar')}
-            <div className="details-member-copy">
-              <div className="details-member-title">
-                <strong>{memberDisplayName}</strong>
-                {isOwner ? (
-                  <span className="details-role-badge owner-badge">👑 Owner</span>
-                ) : isMod ? (
-                  <span className="details-role-badge mod-badge">🛡️ Moderator</span>
-                ) : null}
-              </div>
-              {user.username ? <span>@{user.username}</span> : null}
-            </div>
-          </>
-        ) : (
-          <>
-            {renderUserAvatar(user, 'user-avatar small-avatar')}
-            <div className="details-member-copy">
-              <div className="details-member-title">
-                <strong>{memberDisplayName}</strong>
-                {isOwner ? (
-                  <span className="details-role-badge owner-badge">👑 Owner</span>
-                ) : isMod ? (
-                  <span className="details-role-badge mod-badge">🛡️ Moderator</span>
-                ) : null}
-              </div>
-              {user.username ? <span>@{user.username}</span> : null}
-            </div>
-          </>
-        )}
-
-        <div className="details-member-menu-wrap">
-          <button
-            type="button"
-            className="details-member-menu-btn"
-            disabled={groupSettingsSaving}
-            onClick={() => handleToggleGroupMemberMenu(user.id)}
-            aria-haspopup="menu"
-            aria-expanded={memberMenuOpen}
-            aria-label={`Member actions for ${memberDisplayName}`}
-            title="Member actions"
-          >
-            <MoreIcon className="details-member-menu-icon" />
-          </button>
-
-          {memberMenuOpen ? (
-            <div className="details-member-menu" role="menu">
-                {!isCurrentUser ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setOpenGroupMemberMenuId(null);
-                      void handleOpenUserProfile(user);
-                    }}
-                  >
-                    View profile
-                  </button>
-                ) : null}
-
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => handleStartEditGroupMemberNickname(user)}
-                >
-                  Edit nickname
-                </button>
-
-                {isCurrentUserOwner && !isCurrentUser ? (
-                  <>
-                    {isMod ? (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={groupSettingsSaving}
-                        onClick={() => void handleUpdateMemberRole(user, 'MEMBER')}
-                      >
-                        {rolePending ? 'Updating...' : 'Demote from moderator'}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={groupSettingsSaving}
-                        onClick={() => void handleUpdateMemberRole(user, 'MODERATOR')}
-                      >
-                        {rolePending ? 'Updating...' : 'Promote to moderator'}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled={groupSettingsSaving}
-                      onClick={() => void handleTransferRoomOwner(user)}
-                    >
-                      {ownerTransferPending ? 'Transferring...' : 'Transfer group ownership'}
-                    </button>
-                  </>
-                ) : null}
-
-                {canKick ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="danger"
-                    disabled={groupSettingsSaving}
-                    onClick={() => void handleKickRoomMember(user)}
-                  >
-                    {kickPending ? 'Removing...' : 'Remove from group'}
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-        </div>
-
-        {editingNickname ? (
-          <div className="details-member-editor">
-            <input
-              type="text"
-              value={nicknameValue}
-              placeholder={accountDisplayName}
-              maxLength={80}
-              disabled={groupSettingsSaving}
-              autoComplete="off"
-              spellCheck={false}
-              aria-label={`Nickname for ${accountDisplayName}`}
-              onChange={(event) =>
-                handleGroupMemberNicknameChange(user.id, event.target.value)
-              }
-            />
-            <div className="details-member-editor-actions">
-              <button
-                type="button"
-                className="details-small-action-btn"
-                disabled={!nicknameChanged || groupSettingsSaving}
-                onClick={() => void handleUpdateRoomMemberNickname(user)}
-              >
-                {nicknamePending ? 'Saving' : 'Save'}
-              </button>
-              <button
-                type="button"
-                className="details-small-action-btn secondary"
-                disabled={groupSettingsSaving}
-                onClick={() => handleCancelEditGroupMemberNickname(user)}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </div>
-    );
-  };
 
   const renderSearchSidebar = () => {
     const query = messageSearchQuery.trim();
@@ -6458,248 +2012,193 @@ export default function ChatPage() {
           sidebarBusy={sidebarBusy}
           onOpenCreateGroup={handleOpenCreateGroup}
         >
-          {hasUserSearch ? renderSidebarSearchList() : renderSidebarChatList()}
+          <SidebarContent
+            hasUserSearch={hasUserSearch}
+            users={users}
+            usersLoading={usersLoading}
+            usersError={usersError}
+            userSearchQuery={userSearchQuery}
+            usersEmptyMessage={usersEmptyMessage}
+            rooms={rooms}
+            roomsError={roomsError}
+            sidebarBusy={sidebarBusy}
+            conversationFilter={conversationFilter}
+            conversationItems={sidebarConversationItems}
+            currentUser={currentUser}
+            selectedUserId={selectedUserId}
+            selectedRoomId={selectedRoomId}
+            friendActionKeys={friendActionKeys}
+            openConversationMenuKey={openConversationMenuKey}
+            pendingConversationKey={conversationSettingPendingKey}
+            onLoadUsers={(options) => void loadUsers(options)}
+            onLoadRooms={() => void loadRooms()}
+            onSelectUser={handleUserSelect}
+            onSelectRoom={handleRoomSelect}
+            onOpenProfile={(user) => {
+              setOpenConversationMenuKey(null);
+              void handleOpenUserProfile(user);
+            }}
+            onSendFriendRequest={(user) => void handleSendFriendRequest(user)}
+            onAcceptFriendRequest={(requestId, actionKey) => void handleAcceptFriendRequest(requestId, actionKey)}
+            onCancelFriendRequest={(user) => void handleCancelFriendRequest(user)}
+            onToggleConversationMenu={handleToggleConversationMenu}
+            onUpdateConversationSetting={(target, patch) => void handleUpdateConversationSetting(target, patch)}
+            onRequestDelete={(target) => {
+              setConversationSettingsError('');
+              setConversationDeleteTarget(target);
+              setOpenConversationMenuKey(null);
+            }}
+          />
         </ConversationSidebar>
 
         <main className={`chat-area ${mainView !== 'chat' ? 'main-view-open' : ''}`}>
           {mainView === 'friends' ? (
-            renderFriendsPanel()
+            <FriendsPanel
+              friends={friends}
+              filteredFriends={filteredFriends}
+              searchQuery={friendSearchQuery}
+              loading={usersLoading}
+              error={usersError}
+              onSearchChange={handleFriendSearchChange}
+              onClearSearch={handleClearFriendSearch}
+              onRefresh={() => void loadUsers({ search: '', silent: true })}
+              onRetry={() => void loadUsers({ search: '' })}
+              onOpenProfile={(user) => void handleOpenUserProfile(user)}
+              onOpenChat={handleUserSelect}
+            />
           ) : mainView === 'requests' ? (
-            renderRequestsPanel()
-          ) : selectedConversationOpen ? (
-            <>
-              <ConversationHeader
-                selectedUser={selectedUser}
-                selectedRoom={selectedRoom}
-                selectedConversationName={selectedConversationName}
-                canStartPrivateCall={canStartPrivateCall}
-                canAddMembers={currentUserCanManageSelectedRoom}
-                detailsOpen={detailsOpen}
-                rightSidebarTab={rightSidebarTab}
-                onBackToChatList={handleReturnToConversationList}
-                onStartCall={handleStartCall}
-                onOpenUserProfile={(user) => void handleOpenUserProfile(user)}
-                onOpenAddMembers={() => {
+            <FriendRequestsPanel
+              incomingRequests={incomingFriendRequests}
+              pendingCount={friendRequestBadgeCount}
+              loading={friendRequestsLoading}
+              error={friendRequestsError}
+              pendingActionKeys={friendActionKeys}
+              onRefresh={() => void Promise.all([
+                loadIncomingFriendRequests(),
+                loadFriendSummary({ silent: true }),
+              ])}
+              onRetry={() => void loadIncomingFriendRequests()}
+              onAccept={(requestId, actionKey) => void handleAcceptFriendRequest(requestId, actionKey)}
+              onDecline={(requestId, actionKey) => void handleDeclineFriendRequest(requestId, actionKey)}
+            />
+          ) : (
+            <ConversationPane
+              open={selectedConversationOpen}
+              header={{
+                selectedUser,
+                selectedRoom,
+                selectedConversationName,
+                canStartPrivateCall,
+                canAddMembers: currentUserCanManageSelectedRoom,
+                detailsOpen,
+                rightSidebarTab,
+                onBackToChatList: handleReturnToConversationList,
+                onStartCall: handleStartCall,
+                onOpenUserProfile: (user) => void handleOpenUserProfile(user),
+                onOpenAddMembers: () => {
                   setGroupSettingsError('');
                   setSelectedAddMemberIds([]);
                   setAddMembersModalOpen(true);
-                }}
-                onToggleMessageSearch={handleToggleMessageSearch}
-                onToggleConversationDetails={handleToggleConversationDetails}
-              />
-
-              {pinnedMessage ? (
-                <div className="pinned-message-banner">
-                  <button
-                    type="button"
-                    className="pinned-message-banner-body"
-                    onClick={() => {
-                      const msg = messages.find((m) => m.id === pinnedMessage.id);
-                      if (msg) scrollToMessageById(msg.id);
-                    }}
-                    aria-label="Go to pinned message"
-                  >
-                    <span className="pinned-banner-icon">📌</span>
-                    <span className="pinned-banner-content">
-                      <span className="pinned-banner-label">Pinned message</span>
-                      <span className="pinned-banner-text">
-                        {pinnedMessage.recalled
-                          ? 'Message recalled'
-                          : pinnedMessage.content || '📎 Media'}
-                      </span>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="pinned-banner-close"
-                    onClick={() => void handleUnpinMessage()}
-                    aria-label="Unpin message"
-                    title="Unpin"
-                  >
-                    ×
-                  </button>
-                </div>
-              ) : null}
-
-              <div
-                ref={messagesContainerRef}
-                className={`messages-container ${isDraggingFile ? 'dragging-over' : ''}`}
-                aria-busy={messagesLoading || olderMessagesLoading}
-                onPointerDown={markMessagesScrollIntent}
-                onScroll={handleMessagesScroll}
-                onTouchMove={markMessagesScrollIntent}
-                onWheel={markMessagesScrollIntent}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  if (!isDraggingFile) setIsDraggingFile(true);
-                }}
-                onDragLeave={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                    setIsDraggingFile(false);
-                  }
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setIsDraggingFile(false);
-                  const file = e.dataTransfer.files?.[0];
-                  if (file) {
-                    handleFileSelected(file);
-                  }
-                }}
-              >
-                {isDraggingFile ? (
-                  <div className="chat-drag-drop-overlay">
-                    <PaperclipIcon className="chat-drag-drop-icon" />
-                    <span>Drop file here to send</span>
-                  </div>
-                ) : null}
-                {messagesLoading ? (
-                  MESSAGE_SKELETON_KEYS.map((key, index) => (
-                    <div
-                      key={key}
-                      className={`message message-skeleton ${index % 2 === 0 ? 'received' : 'sent'}`}
-                      aria-hidden="true"
-                    >
-                      <div className="skeleton-bubble" />
-                    </div>
-                  ))
-                ) : messagesError ? (
-                  <div className="message-state error-state">
-                    <span>{messagesError}</span>
-                    <button
-                      type="button"
-                      className="retry-btn"
-                      onClick={() => {
-                        if (selectedUser) {
-                          void loadMessages(selectedUser.id);
-                        } else if (selectedRoom) {
-                          void loadRoomMessages(selectedRoom.id);
-                        }
-                      }}
-                    >
-                      Retry
-                    </button>
-                  </div>
-                ) : messages.length === 0 ? (
-                  <div className="message-state">No messages yet.</div>
-                ) : (
-                  <>
-                    {hasMoreMessages ? (
-                      <button
-                        type="button"
-                        className="older-messages-btn"
-                        onClick={() => void loadOlderMessages()}
-                        disabled={olderMessagesLoading}
-                      >
-                        {olderMessagesLoading ? 'Loading older messages...' : 'Load older messages'}
-                      </button>
-                    ) : null}
-                    {messageListItems.map((item) => (
-                      <MessageItem
-                        key={item.key}
-                        item={item}
-                        currentUser={currentUser}
-                        selectedUser={selectedUser}
-                        selectedRoom={selectedRoom}
-                        unreadDividerRef={unreadDividerRef}
-                        latestSeenOutgoingMessageId={latestSeenOutgoingMessageId}
-                        latestOutgoingMessageId={latestOutgoingMessageId}
-                        latestRoomSeenByByMessageId={latestRoomSeenByByMessageId}
-                        seenByLoadingMessageIds={seenByLoadingMessageIds}
-                        detailsOpen={detailsOpen}
-                        rightSidebarTab={rightSidebarTab}
-                        messageSearchQuery={messageSearchQuery}
-                        messageSearchResultIds={messageSearchResultIds}
-                        highlightedMessageId={highlightedMessageId}
-                        renderCallMessageBody={renderCallMessageBody}
-                        findKnownUserById={findKnownUserById}
-                        handleOpenUserProfile={handleOpenUserProfile}
-                        renderMessageActions={renderMessageActions}
-                        renderMessageBody={renderMessageBody}
-                        renderMessageReactions={renderMessageReactions}
-                        handleRetryMessage={handleRetryMessage}
-                        renderGroupSeenBy={renderGroupSeenBy}
-                      />
-                    ))}
-                  </>
-                )}
-                {!messagesLoading && typingIndicatorLabel ? (
-                  <div className="typing-indicator">{typingIndicatorLabel}</div>
-                ) : null}
-                <div ref={messagesEndRef} />
-              </div>
-
-              {roomSummaryRoomId === selectedRoom?.id && (roomSummaryLoading || roomSummaryError || roomSummary) ? (
-                <section className="room-summary-card" aria-live="polite" aria-label="Private chat summary">
-                  <div className="room-summary-card-header">
-                    <div>
-                      <span>Private summary</span>
-                      {roomSummary ? <small>{roomSummary.messageCount} recent messages</small> : null}
-                    </div>
-                    <button
-                      type="button"
-                      className="room-summary-close-btn"
-                      onClick={() => {
-                        setRoomSummary(null);
-                        setRoomSummaryRoomId(null);
-                        setRoomSummaryError('');
-                      }}
-                      disabled={roomSummaryLoading}
-                      aria-label="Close summary"
-                      title="Close summary"
-                    >
-                      <CloseIcon className="room-summary-close-icon" />
-                    </button>
-                  </div>
-                  {roomSummaryLoading ? <div className="room-summary-loading">Summarizing recent messages...</div> : null}
-                  {roomSummaryError ? <div className="room-summary-error">{roomSummaryError}</div> : null}
-                  {roomSummary ? <div className="room-summary-content">{roomSummary.summary}</div> : null}
-                </section>
-              ) : null}
-
-              <MessageInput
-                onSubmit={handleSendMessage}
-                mediaFileInputRef={mediaFileInputRef}
-                docFileInputRef={docFileInputRef}
-                mediaAccept={MEDIA_ACCEPT}
-                onFileChange={handleMediaFileChange}
-                replyPreview={activeReplyPreview}
-                onCancelReply={handleCancelReply}
-                pendingMedia={pendingMedia}
-                mediaError={mediaError}
-                mediaUploading={mediaUploading}
-                canAttachMedia={Boolean(selectedRoom || (selectedUser && canChatWithUser(selectedUser)))}
-                onClearPendingMedia={clearPendingMedia}
-                onOpenMediaPicker={handleOpenMediaPicker}
-                onOpenDocumentPicker={handleOpenDocPicker}
-                onVoiceRecorded={handleVoiceRecorded}
-                emojiButtonRef={emojiButtonRef}
-                emojiPickerOpen={emojiPickerOpen}
-                onToggleEmojiPicker={handleToggleEmojiPicker}
-                messageInputRef={messageInputRef}
-                messageInput={messageInput}
-                onMessageInputChange={handleMessageInputChange}
-                onMessageInputKeyDown={handleMessageInputKeyDown}
-                onUpdateMessageInputSelection={updateMessageInputSelection}
-                selectedConversationName={selectedConversationName}
-                mentionQuery={mentionQuery}
-                mentionCandidates={mentionCandidates}
-                mentionActiveIndex={mentionActiveIndex}
-                onInsertMention={insertMention}
-                slashCommandQuery={slashCommandQuery}
-                onInsertSummaryCommand={insertSummaryCommand}
-                emojiPickerRef={emojiPickerRef}
-                onInsertEmoji={handleInsertEmoji}
-              />
-            </>
-          ) : (
-            <div className="no-chat-selected">
-              <span className="no-chat-selected-icon" aria-hidden="true">
-                <FriendsIcon className="no-chat-selected-icon-svg" />
-              </span>
-              <strong>Choose a conversation</strong>
-              <p>Select a friend or group to start chatting.</p>
-            </div>
+                },
+                onToggleMessageSearch: handleToggleMessageSearch,
+                onToggleConversationDetails: handleToggleConversationDetails,
+              }}
+              pinnedMessage={pinnedMessage}
+              messages={messages}
+              messagesLoading={messagesLoading}
+              messagesError={messagesError}
+              hasMoreMessages={hasMoreMessages}
+              olderMessagesLoading={olderMessagesLoading}
+              messageListProps={{
+                items: messageListItems,
+                currentUser,
+                selectedUser,
+                selectedRoom,
+                unreadDividerRef,
+                latestSeenOutgoingMessageId,
+                latestOutgoingMessageId,
+                latestRoomSeenByByMessageId,
+                seenByLoadingMessageIds,
+                detailsOpen,
+                rightSidebarTab,
+                messageSearchQuery,
+                messageSearchResultIds,
+                highlightedMessageId,
+                renderCallMessageBody,
+                findKnownUserById,
+                handleOpenUserProfile,
+                renderMessageActions,
+                renderMessageBody,
+                renderMessageReactions,
+                handleRetryMessage,
+                renderGroupSeenBy,
+              }}
+              messageInputProps={{
+                onSubmit: handleSendMessage,
+                mediaFileInputRef,
+                docFileInputRef,
+                mediaAccept: MEDIA_ACCEPT,
+                onFileChange: handleMediaFileChange,
+                replyPreview: activeReplyPreview,
+                onCancelReply: handleCancelReply,
+                pendingMedia,
+                mediaError,
+                mediaUploading,
+                canAttachMedia: Boolean(selectedRoom || (selectedUser && canChatWithUser(selectedUser))),
+                onClearPendingMedia: clearPendingMedia,
+                onOpenMediaPicker: handleOpenMediaPicker,
+                onOpenDocumentPicker: handleOpenDocPicker,
+                onVoiceRecorded: handleVoiceRecorded,
+                emojiButtonRef,
+                emojiPickerOpen,
+                onToggleEmojiPicker: handleToggleEmojiPicker,
+                messageInputRef,
+                messageInput,
+                onMessageInputChange: handleMessageInputChange,
+                onMessageInputKeyDown: handleMessageInputKeyDown,
+                onUpdateMessageInputSelection: updateMessageInputSelection,
+                selectedConversationName,
+                mentionQuery,
+                mentionCandidates,
+                mentionActiveIndex,
+                onInsertMention: insertMention,
+                slashCommandQuery,
+                onInsertSummaryCommand: insertSummaryCommand,
+                emojiPickerRef,
+                onInsertEmoji: handleInsertEmoji,
+              }}
+              messagesContainerRef={messagesContainerRef}
+              messagesEndRef={messagesEndRef}
+              isDraggingFile={isDraggingFile}
+              onSetDraggingFile={setIsDraggingFile}
+              onMarkScrollIntent={markMessagesScrollIntent}
+              onMessagesScroll={handleMessagesScroll}
+              onFileSelected={handleFileSelected}
+              onRetryMessages={() => {
+                if (selectedUser) {
+                  void loadMessages(selectedUser.id);
+                } else if (selectedRoom) {
+                  void loadRoomMessages(selectedRoom.id);
+                }
+              }}
+              onLoadOlderMessages={() => void loadOlderMessages()}
+              onGoToPinnedMessage={() => {
+                const message = messages.find((item) => item.id === pinnedMessage?.id);
+                if (message) scrollToMessageById(message.id);
+              }}
+              onUnpinMessage={() => void handleUnpinMessage()}
+              typingIndicatorLabel={typingIndicatorLabel}
+              roomSummaryRoomId={roomSummaryRoomId}
+              selectedRoomId={selectedRoom?.id ?? null}
+              roomSummary={roomSummary}
+              roomSummaryLoading={roomSummaryLoading}
+              roomSummaryError={roomSummaryError}
+              onDismissRoomSummary={() => {
+                setRoomSummary(null);
+                setRoomSummaryRoomId(null);
+                setRoomSummaryError('');
+              }}
+            />
           )}
         </main>
 
@@ -6716,495 +2215,179 @@ export default function ChatPage() {
         ) : null}
       </div>
 
-      {renderPreCallSetupModal()}
-      {renderCallOverlay()}
+      <CallModalLayer
+        callPermissions={callPermissions}
+        onRefreshCallPermissions={refreshCallPermissions}
+        preCall={{
+          setup: preCallSetup,
+          previewStream: preCallPreviewStream,
+          previewVideoRef: preCallPreviewVideoRef,
+          previewLoading: preCallPreviewLoading,
+          submitting: preCallSubmitting,
+          canStart: preCallCanStart,
+          error: preCallError,
+          micMuted,
+          cameraOff,
+          audioInputDevices,
+          videoInputDevices,
+          selectedAudioInputId,
+          selectedVideoInputId,
+          devicesLoading: callDevicesLoading,
+          deviceError: callDeviceError,
+          onClose: handleClosePreCallSetup,
+          onToggleMic: handlePreCallToggleMic,
+          onToggleCamera: handlePreCallToggleCamera,
+          onAudioInputChange: handlePreCallAudioInputChange,
+          onVideoInputChange: handlePreCallVideoInputChange,
+          onRetryPreview: handlePreCallRetryPreview,
+          onStart: handleConfirmStartCall,
+        }}
+        active={{
+          call: activeCall,
+          minimized: callMinimized,
+          connectionState: callConnectionState,
+          elapsedSeconds: callElapsedSeconds,
+          localStream: localCallStream,
+          remoteStream: remoteCallStream,
+          remoteAudioRef,
+          remoteVideoRef,
+          localVideoRef,
+          isConversationOpen: activeCallConversationOpen,
+          micMuted,
+          cameraOff,
+          screenSharing,
+          remoteScreenSharing,
+          screenShareError,
+          error: callError,
+          audioInputDevices,
+          videoInputDevices,
+          selectedAudioInputId,
+          selectedVideoInputId,
+          devicesLoading: callDevicesLoading,
+          deviceError: callDeviceError,
+          onRestore: handleRestoreActiveCall,
+          onMinimize: handleMinimizeActiveCall,
+          onOpenConversation: handleOpenActiveCallConversation,
+          onToggleMic: handleToggleMic,
+          onToggleCamera: handleToggleCamera,
+          onStartScreenShare: handleStartScreenShare,
+          onStopScreenShare: handleStopScreenShare,
+          onEnd: handleEndCall,
+          onAccept: handleAcceptCall,
+          onReject: handleRejectCall,
+          onRetry: handleRetryActiveCall,
+          onAudioInputChange: handleAudioInputChange,
+          onVideoInputChange: handleVideoInputChange,
+        }}
+      />
 
-      {mediaViewerUrl ? (
-        <div
-          className="modal-backdrop media-viewer-backdrop"
-          onClick={() => setMediaViewerMessage(null)}
-        >
-          <div
-            className="media-viewer-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={mediaViewerType === 'VIDEO' ? 'Video preview' : 'Image preview'}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="media-viewer-close"
-              onClick={() => setMediaViewerMessage(null)}
-              aria-label="Close media preview"
-            >
-              <CloseIcon className="media-viewer-close-icon" />
-            </button>
-            {mediaViewerType === 'VIDEO' ? (
-              <video
-                className="media-viewer-video"
-                src={mediaViewerUrl}
-                controls
-                autoPlay
-              />
-            ) : (
-              <img
-                src={mediaViewerUrl}
-                alt={mediaViewerMessage?.content || 'Shared image preview'}
-              />
-            )}
-            {mediaViewerMessage?.content ? (
-              <div className="media-viewer-caption">{mediaViewerMessage.content}</div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+      <ProfileViewerModal
+        user={activeViewedProfileUser}
+        loading={viewedProfileLoading}
+        error={viewedProfileError}
+        actionError={profileActionError}
+        pendingActionKeys={friendActionKeys}
+        callActive={Boolean(activeCall)}
+        onClose={handleCloseUserProfile}
+        onOpenChat={(user) => {
+          handleCloseUserProfile();
+          handleUserSelect(user);
+        }}
+        onStartCall={(user, callType) => {
+          handleCloseUserProfile();
+          openPreCallSetupForUser(user, callType);
+        }}
+        onSendFriendRequest={(user) => void handleSendFriendRequest(user)}
+        onAcceptFriendRequest={(requestId, actionKey) => void handleAcceptFriendRequest(requestId, actionKey)}
+        onDeclineFriendRequest={(requestId, actionKey) => void handleDeclineFriendRequest(requestId, actionKey)}
+        onCancelFriendRequest={(user) => void handleCancelFriendRequest(user)}
+      />
 
-      {activeViewedProfileUser ? (
-        <div className="modal-backdrop">
-          <div
-            className="user-profile-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="view-profile-title"
-          >
-            <div className="user-profile-header">
-              <span>Profile</span>
-              <button
-                type="button"
-                className="modal-close-btn"
-                onClick={handleCloseUserProfile}
-                aria-label="Close user profile"
-              >
-                ×
-              </button>
-            </div>
+      <ProfileEditorModal
+        open={profileEditorOpen}
+        currentUser={currentUser}
+        fullName={profileFullName}
+        bio={profileBio}
+        avatarPreview={profileAvatarPreview}
+        saving={profileSaving}
+        error={profileError}
+        onClose={handleCloseProfileEditor}
+        onSubmit={handleUpdateProfile}
+        onAvatarChange={handleProfileAvatarChange}
+        onFullNameChange={(value) => {
+          setProfileFullName(value);
+          setProfileError('');
+        }}
+        onBioChange={(value) => {
+          setProfileBio(value);
+          setProfileError('');
+        }}
+      />
 
-            <div className="user-profile-body">
-              {renderUserAvatar(activeViewedProfileUser, 'user-avatar profile-view-avatar')}
-              <div className="user-profile-copy">
-                <h3 id="view-profile-title">{getUserDisplayName(activeViewedProfileUser)}</h3>
-                <span>@{activeViewedProfileUser.username}</span>
-              </div>
-              {activeViewedProfileUser.bio?.trim() ? (
-                <p className="profile-bio">{activeViewedProfileUser.bio}</p>
-              ) : null}
-              {viewedProfileLoading ? <div className="profile-loading">Refreshing profile...</div> : null}
-              {viewedProfileError ? <div className="profile-action-error">{viewedProfileError}</div> : null}
+      <CreateGroupModal
+        open={createGroupOpen}
+        friends={friends}
+        groupName={groupName}
+        selectedMemberIds={selectedGroupMemberIds}
+        requirementText={groupMemberRequirementText}
+        creating={groupCreating}
+        canCreate={canCreateGroup}
+        error={groupError}
+        onClose={handleCloseCreateGroup}
+        onSubmit={handleCreateGroup}
+        onGroupNameChange={(value) => {
+          setGroupName(value);
+          setGroupError('');
+        }}
+        onToggleMember={handleToggleGroupMember}
+      />
 
-              <div className="profile-info-grid">
-                <div className="profile-info-item">
-                  <span>Status</span>
-                  <strong className={activeViewedProfileUser.online ? 'online' : 'offline'}>
-                    {getPresenceLabel(activeViewedProfileUser)}
-                  </strong>
-                </div>
-                <div className="profile-info-item">
-                  <span>Relationship</span>
-                  <strong>{getRelationshipLabel(activeViewedProfileUser)}</strong>
-                </div>
-              </div>
+      <ChatDialogLayer
+        mediaViewerMessage={mediaViewerMessage}
+        mediaViewerUrl={mediaViewerUrl}
+        mediaViewerType={mediaViewerType}
+        onCloseMediaViewer={() => setMediaViewerMessage(null)}
+        conversationDeleteTarget={conversationDeleteTarget}
+        conversationSettingPendingKey={conversationSettingPendingKey}
+        conversationSettingsError={conversationSettingsError}
+        onCloseConversationDelete={() => setConversationDeleteTarget(null)}
+        onDeleteConversation={() => void handleDeleteConversation()}
+        forwardingMessage={forwardingMessage}
+        friends={friends}
+        rooms={rooms}
+        onCloseForward={() => setForwardingMessage(null)}
+        onForward={(targetUserId, targetRoomId) => void sendForwardMessage(targetUserId, targetRoomId)}
+        addMembersModalOpen={addMembersModalOpen}
+        selectedRoom={selectedRoom}
+        addMemberCandidates={addMemberCandidates}
+        selectedAddMemberIds={selectedAddMemberIds}
+        groupSettingsSaving={groupSettingsSaving}
+        groupSettingsError={groupSettingsError}
+        onCloseAddMembers={() => {
+          setSelectedAddMemberIds([]);
+          setAddMembersModalOpen(false);
+        }}
+        onToggleAddMember={handleToggleAddRoomMember}
+        onAddMembers={handleAddRoomMembers}
+        inviteModalOpen={inviteModalOpen}
+        inviteLoading={inviteLoading}
+        inviteCopied={inviteCopied}
+        inviteError={inviteError}
+        inviteRevoking={inviteRevoking}
+        canManageInvite={currentUserCanManageSelectedRoom}
+        getInviteUrl={getGroupInviteUrl}
+        onCloseInvite={() => setInviteModalOpen(false)}
+        onCopyInvite={() => void handleCopyInviteLink()}
+        onRevokeInvite={() => void handleRevokeInviteLink()}
+        lightboxState={lightboxState}
+        onCloseLightbox={() => setLightboxState(null)}
+        onSelectLightboxIndex={(index) => setLightboxState((current) => current ? { ...current, index } : null)}
+        groupSeenModalMessage={groupSeenModalMessage}
+        onCloseGroupSeen={() => setGroupSeenModalMessage(null)}
+        reactionModalGroups={reactionModalGroups}
+        onCloseReactionSummary={() => setReactionModalGroups(null)}
+      />
 
-              <div className="profile-action-row">
-                {renderProfileAction(activeViewedProfileUser)}
-              </div>
-              {profileActionError ? (
-                <div className="profile-action-error">{profileActionError}</div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {profileEditorOpen ? (
-        <div className="modal-backdrop">
-          <div
-            className="group-modal profile-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="edit-profile-title"
-          >
-            <form onSubmit={handleUpdateProfile} className="group-form profile-form">
-              <div className="group-modal-header">
-                <div>
-                  <h3 id="edit-profile-title">Edit profile</h3>
-                  <p>@{currentUser?.username}</p>
-                </div>
-                <button
-                  type="button"
-                  className="modal-close-btn"
-                  onClick={handleCloseProfileEditor}
-                  aria-label="Close edit profile"
-                  disabled={profileSaving}
-                >
-                  ×
-                </button>
-              </div>
-
-              <div className="profile-avatar-editor">
-                <label className="profile-avatar-upload" aria-label="Change avatar">
-                  <div className="user-avatar profile-avatar-preview">
-                    {profileAvatarPreview ? (
-                      <img src={profileAvatarPreview} alt="" />
-                    ) : (
-                      getUserInitial(currentUser)
-                    )}
-                  </div>
-                  <span className="profile-avatar-edit-badge" aria-hidden="true">
-                    <MediaIcon className="profile-avatar-edit-icon" />
-                  </span>
-                  <input
-                    type="file"
-                    accept={AVATAR_ACCEPT}
-                    onChange={handleProfileAvatarChange}
-                    disabled={profileSaving}
-                  />
-                </label>
-                <small className="profile-avatar-help">
-                  Click your avatar to change it · JPG, PNG, GIF, or WebP · Max {MAX_AVATAR_SIZE_MB}MB
-                </small>
-              </div>
-
-              <label className="group-field">
-                <span>Full name</span>
-                <input
-                  type="text"
-                  value={profileFullName}
-                  onChange={(event) => {
-                    setProfileFullName(event.target.value);
-                    setProfileError('');
-                  }}
-                  placeholder="Ngoc Thinh"
-                  maxLength={100}
-                  autoFocus
-                  disabled={profileSaving}
-                />
-              </label>
-
-              <label className="group-field">
-                <span>Bio</span>
-                <textarea
-                  value={profileBio}
-                  onChange={(event) => {
-                    setProfileBio(event.target.value);
-                    setProfileError('');
-                  }}
-                  placeholder="Write a short status"
-                  maxLength={BIO_MAX_LENGTH}
-                  rows={3}
-                  disabled={profileSaving}
-                />
-                <small className="profile-bio-count">
-                  {profileBio.trim().length}/{BIO_MAX_LENGTH}
-                </small>
-              </label>
-
-              {profileError ? <div className="group-error">{profileError}</div> : null}
-
-              <div className="group-modal-actions">
-                <button
-                  type="button"
-                  className="secondary-btn"
-                  onClick={handleCloseProfileEditor}
-                  disabled={profileSaving}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="send-btn" disabled={profileSaving}>
-                  {profileSaving ? 'Saving' : 'Save'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
-
-      {createGroupOpen ? (
-        <div className="modal-backdrop">
-          <div
-            className="group-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="create-group-title"
-          >
-            <form onSubmit={handleCreateGroup} className="group-form">
-              <div className="group-modal-header">
-                <div>
-                  <h3 id="create-group-title">New group</h3>
-                  <p>{groupMemberRequirementText}</p>
-                </div>
-                <button
-                  type="button"
-                  className="modal-close-btn"
-                  onClick={handleCloseCreateGroup}
-                  aria-label="Close create group"
-                >
-                  ×
-                </button>
-              </div>
-
-              <label className="group-field">
-                <span>Group name</span>
-                <input
-                  type="text"
-                  value={groupName}
-                  onChange={(event) => {
-                    setGroupName(event.target.value);
-                    setGroupError('');
-                  }}
-                  placeholder="Weekend plans"
-                  maxLength={100}
-                  autoFocus
-                />
-              </label>
-
-              <div className="group-field">
-                <div className="group-field-heading">
-                  <span>Members</span>
-                  <small>Minimum {MIN_GROUP_MEMBERS} members</small>
-                </div>
-                <div className="group-member-list">
-                  {friends.length === 0 ? (
-                    <div className="list-state">No friends available.</div>
-                  ) : (
-                    friends.map((user) => (
-                      <label key={user.id} className="group-member-option">
-                        <input
-                          type="checkbox"
-                          checked={selectedGroupMemberIds.includes(user.id)}
-                          onChange={() => handleToggleGroupMember(user.id)}
-                        />
-                        {renderUserAvatar(user, 'user-avatar small-avatar')}
-                        <span className="group-member-copy">
-                          <span>{getUserDisplayName(user)}</span>
-                          {shouldShowUsername(user) ? <small>@{user.username}</small> : null}
-                        </span>
-                      </label>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {groupError ? <div className="group-error">{groupError}</div> : null}
-
-              <div className="group-modal-actions">
-                <button type="button" className="secondary-btn" onClick={handleCloseCreateGroup}>
-                  Cancel
-                </button>
-                <button type="submit" className="send-btn" disabled={!canCreateGroup}>
-                  {groupCreating ? 'Creating' : 'Create group'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
-
-      {conversationDeleteTarget ? (
-        <div
-          className="modal-backdrop delete-conversation-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-conversation-title"
-          aria-describedby="delete-conversation-description"
-          onClick={(event) => {
-            if (event.target === event.currentTarget && conversationSettingPendingKey === null) {
-              setConversationDeleteTarget(null);
-            }
-          }}
-        >
-          <div className="delete-conversation-modal">
-            <div className="delete-conversation-icon" aria-hidden="true">
-              <TrashIcon />
-            </div>
-            <h3 id="delete-conversation-title">Delete chat?</h3>
-            <p id="delete-conversation-description">
-              This removes your conversation with{' '}
-              <strong>
-                {conversationDeleteTarget.type === 'user'
-                  ? getUserDisplayName(conversationDeleteTarget.user)
-                  : conversationDeleteTarget.room.name}
-              </strong>{' '}
-              from this account only. Other people will still see it, and new messages will appear normally.
-            </p>
-            {conversationSettingsError ? (
-              <div className="delete-conversation-error" role="alert">{conversationSettingsError}</div>
-            ) : null}
-            <div className="delete-conversation-actions">
-              <button
-                type="button"
-                className="secondary-btn"
-                autoFocus
-                disabled={conversationSettingPendingKey !== null}
-                onClick={() => setConversationDeleteTarget(null)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="delete-conversation-btn"
-                disabled={conversationSettingPendingKey !== null}
-                onClick={() => void handleDeleteConversation()}
-              >
-                {conversationSettingPendingKey !== null ? 'Deleting…' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Forward Picker Modal */}
-      {forwardingMessage ? (
-        <div
-          className="forward-picker-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Forward message"
-          onClick={(e) => { if (e.target === e.currentTarget) setForwardingMessage(null); }}
-        >
-          <div className="forward-picker-modal">
-            <div className="forward-picker-header">
-              <span className="forward-picker-title">Forward to…</span>
-              <button
-                type="button"
-                className="forward-picker-close"
-                onClick={() => setForwardingMessage(null)}
-                aria-label="Close"
-              >×</button>
-            </div>
-            <ForwardPickerBody
-              friends={friends}
-              rooms={rooms}
-              onSelect={sendForwardMessage}
-            />
-          </div>
-        </div>
-      ) : null}
-
-      {/* Invite Link Modal */}
-      {addMembersModalOpen && selectedRoom ? (
-        <AddMembersModal
-          roomName={selectedRoom.name}
-          candidates={addMemberCandidates}
-          selectedMemberIds={selectedAddMemberIds}
-          saving={groupSettingsSaving}
-          error={groupSettingsError}
-          onClose={() => {
-            setSelectedAddMemberIds([]);
-            setAddMembersModalOpen(false);
-          }}
-          onToggleMember={handleToggleAddRoomMember}
-          onAddMembers={handleAddRoomMembers}
-        />
-      ) : null}
-
-      {inviteModalOpen && selectedRoom ? (
-        <div
-          className="modal-backdrop invite-modal-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="invite-modal-title"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setInviteModalOpen(false);
-          }}
-        >
-          <div className="group-modal invite-modal">
-            <div className="group-modal-header">
-              <div>
-                <h3 id="invite-modal-title">Group Invite Link</h3>
-                <span>Anyone with this link can join {selectedRoom.name}</span>
-              </div>
-              <button
-                type="button"
-                className="modal-close-btn"
-                onClick={() => setInviteModalOpen(false)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="invite-modal-body">
-              {inviteLoading ? (
-                <div className="invite-modal-loading">Loading invite link...</div>
-              ) : (
-                <>
-                  <div className="invite-link-box">
-                    <input
-                      type="text"
-                      readOnly
-                      value={getGroupInviteUrl()}
-                      className="invite-link-input"
-                    />
-                    <button
-                      type="button"
-                      className={`invite-copy-btn ${inviteCopied ? 'copied' : ''}`}
-                      onClick={() => void handleCopyInviteLink()}
-                    >
-                      {inviteCopied ? '✓ Copied' : 'Copy link'}
-                    </button>
-                  </div>
-
-                  {inviteError ? <div className="invite-error-msg">{inviteError}</div> : null}
-
-                  {currentUserCanManageSelectedRoom ? (
-                    <div className="invite-admin-actions">
-                      <p>You can revoke the old link and generate a new invite code if needed:</p>
-                      <button
-                        type="button"
-                        className="invite-revoke-btn"
-                        disabled={inviteRevoking}
-                        onClick={() => void handleRevokeInviteLink()}
-                      >
-                        {inviteRevoking ? 'Generating...' : '🔄 Revoke & Generate new link'}
-                      </button>
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </div>
-
-            <div className="group-modal-actions">
-              <button
-                type="button"
-                className="secondary-btn"
-                onClick={() => setInviteModalOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {lightboxState ? (
-        <Suspense fallback={null}>
-          <MediaLightbox
-            items={lightboxState.items}
-            currentIndex={lightboxState.index}
-            onClose={() => setLightboxState(null)}
-            onSelectIndex={(idx) => setLightboxState((prev) => (prev ? { ...prev, index: idx } : null))}
-          />
-        </Suspense>
-      ) : null}
-
-      {groupSeenModalMessage ? (
-        <Suspense fallback={null}>
-          <GroupSeenByModal
-            message={groupSeenModalMessage.message}
-            seenUsers={groupSeenModalMessage.seenUsers}
-            onClose={() => setGroupSeenModalMessage(null)}
-          />
-        </Suspense>
-      ) : null}
-
-      {reactionModalGroups ? (
-        <Suspense fallback={null}>
-          <ReactionSummaryModal
-            reactionGroups={reactionModalGroups}
-            onClose={() => setReactionModalGroups(null)}
-          />
-        </Suspense>
-      ) : null}
     </div>
   );
 }
