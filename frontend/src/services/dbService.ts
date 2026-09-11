@@ -1,150 +1,164 @@
+import type { ChatMessage, PendingMedia, SendMessagePayload, SendRoomMessagePayload } from '../types/chat.types';
 import type { ChatRoom, User, Message } from '../types';
 
 const DB_NAME = 'ChatAppOfflineDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+const STORES = ['conversations', 'messages', 'pendingQueue'];
+type ConversationsCache = { rooms: ChatRoom[]; users: User[] };
 
 export interface OfflinePendingMessage {
     id: string;
     destination: string;
-    body: unknown;
+    body: SendMessagePayload | SendRoomMessagePayload;
+    conversationKey?: string;
+    optimistic?: ChatMessage;
+    failed?: boolean;
+    attachment?: PendingMedia;
     timestamp: number;
 }
 
-class DBService {
+export class DBService {
     private dbPromise: Promise<IDBDatabase> | null = null;
+    private activeUserId: number | null = null;
+    private generation = 0;
+
+    setActiveUser(userId: number | null) {
+        this.activeUserId = userId;
+        this.generation += 1;
+    }
 
     private getDB(): Promise<IDBDatabase> {
-        if (typeof window === 'undefined' || !('indexedDB' in window)) {
-            return Promise.reject(new Error('IndexedDB is not supported'));
-        }
-
+        if (typeof indexedDB === 'undefined') return Promise.reject(new Error('IndexedDB is not supported'));
         if (this.dbPromise) return this.dbPromise;
-
         this.dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
             const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-            request.onupgradeneeded = (event) => {
-                const db = (event.target as IDBOpenDBRequest).result;
-
-                if (!db.objectStoreNames.contains('conversations')) {
-                    db.createObjectStore('conversations', { keyPath: 'key' });
-                }
-                if (!db.objectStoreNames.contains('messages')) {
-                    const messageStore = db.createObjectStore('messages', { keyPath: 'id' });
-                    messageStore.createIndex('conversationKey', 'conversationKey', { unique: false });
-                }
-                if (!db.objectStoreNames.contains('pendingQueue')) {
-                    db.createObjectStore('pendingQueue', { keyPath: 'id' });
+            request.onupgradeneeded = () => {
+                const db = request.result;
+                // Version 1 records have no owner. Never attribute them to the next login.
+                for (const name of STORES) {
+                    if (db.objectStoreNames.contains(name)) db.deleteObjectStore(name);
+                    const store = db.createObjectStore(name, {
+                        keyPath: ['userId', name === 'conversations' ? 'key' : 'id'],
+                    });
+                    store.createIndex('userId', 'userId');
+                    if (name === 'messages') store.createIndex('conversation', ['userId', 'conversationKey']);
                 }
             };
-
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                request.result.onversionchange = () => {
+                    request.result.close();
+                    this.dbPromise = null;
+                };
+                resolve(request.result);
+            };
+            request.onerror = () => { this.dbPromise = null; reject(request.error); };
         });
-
         return this.dbPromise;
     }
 
-    public async saveConversationsCache(key: string, data: { rooms: ChatRoom[]; users: User[] }): Promise<void> {
+    private async run<T>(userId: number, storeName: string, mode: IDBTransactionMode,
+        action: (store: IDBObjectStore) => IDBRequest<T> | void, fallback: T): Promise<T> {
+        const generation = this.generation;
+        if (this.activeUserId !== userId) return fallback;
         try {
             const db = await this.getDB();
-            const tx = db.transaction('conversations', 'readwrite');
-            const store = tx.objectStore('conversations');
-            store.put({ key, ...data, timestamp: Date.now() });
-        } catch (err) {
-            console.warn('[DBService] Failed to save conversations cache:', err);
-        }
-    }
-
-    public async getConversationsCache(key: string): Promise<{ rooms: ChatRoom[]; users: User[] } | null> {
-        try {
-            const db = await this.getDB();
-            const tx = db.transaction('conversations', 'readonly');
-            const store = tx.objectStore('conversations');
-            const result = await new Promise<any>((resolve) => {
-                const req = store.get(key);
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => resolve(null);
+            if (this.activeUserId !== userId || generation !== this.generation) return fallback;
+            return await new Promise<T>((resolve) => {
+                const tx = db.transaction(storeName, mode);
+                const request = action(tx.objectStore(storeName));
+                tx.oncomplete = () => resolve(this.activeUserId === userId && generation === this.generation
+                    ? request?.result ?? fallback : fallback);
+                tx.onabort = () => resolve(fallback);
+                tx.onerror = () => resolve(fallback);
             });
-            if (result && result.rooms && result.users) {
-                return { rooms: result.rooms, users: result.users };
-            }
-            return null;
         } catch {
-            return null;
+            return fallback;
         }
     }
 
-    public async saveMessagesCache(conversationKey: string, messages: Message[]): Promise<void> {
-        try {
-            const db = await this.getDB();
-            const tx = db.transaction('messages', 'readwrite');
-            const store = tx.objectStore('messages');
-            for (const msg of messages) {
-                if (msg.id > 0) {
-                    store.put({ ...msg, conversationKey });
+    async saveConversationsCache(userId: number, key: string, data: ConversationsCache): Promise<void> {
+        await this.run(userId, 'conversations', 'readwrite', (store) => {
+            store.put({ userId, key, ...data, timestamp: Date.now() });
+        }, undefined);
+    }
+
+    async getConversationsCache(userId: number, key: string): Promise<ConversationsCache | null> {
+        return this.run<ConversationsCache | null>(userId, 'conversations', 'readonly',
+            (store) => store.get([userId, key]), null);
+    }
+
+    async saveMessagesCache(userId: number, conversationKey: string, messages: Message[]): Promise<void> {
+        await this.run(userId, 'messages', 'readwrite', (store) => {
+            for (const message of messages) {
+                if (message.id > 0) store.put({ ...message, userId, conversationKey });
+            }
+        }, undefined);
+    }
+
+    /**
+     * Replaces an authoritative ID window. Passing no bounds clears the entire
+     * conversation; bounded replacement keeps cached history outside that window.
+     */
+    async replaceMessagesCache(
+        userId: number,
+        conversationKey: string,
+        messages: Message[],
+        lowerBound?: number,
+        upperBound?: number,
+    ): Promise<void> {
+        await this.run(userId, 'messages', 'readwrite', (store) => {
+            const cursor = store.index('conversation').openCursor([userId, conversationKey]);
+            cursor.onsuccess = () => {
+                if (cursor.result) {
+                    const id = cursor.result.value.id as number;
+                    const replacesEverything = lowerBound === undefined && upperBound === undefined;
+                    if (replacesEverything || (id >= lowerBound! && id <= upperBound!)) cursor.result.delete();
+                    cursor.result.continue();
                 }
-            }
-        } catch (err) {
-            console.warn('[DBService] Failed to save messages cache:', err);
-        }
+                else for (const message of messages) {
+                    if (message.id > 0) store.put({ ...message, userId, conversationKey });
+                }
+            };
+        }, undefined);
     }
 
-    public async getMessagesCache(conversationKey: string): Promise<Message[]> {
+    async getMessagesCache(userId: number, conversationKey: string): Promise<Message[]> {
+        const messages = await this.run<Message[]>(userId, 'messages', 'readonly',
+            (store) => store.index('conversation').getAll([userId, conversationKey]), []);
+        return messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    }
+
+    async enqueuePendingMessage(userId: number, item: OfflinePendingMessage): Promise<boolean> {
+        return Boolean(await this.run<IDBValidKey>(userId, 'pendingQueue', 'readwrite',
+            (store) => store.put({ ...item, userId }), ''));
+    }
+
+    async getPendingQueue(userId: number): Promise<OfflinePendingMessage[]> {
+        return this.run<OfflinePendingMessage[]>(userId, 'pendingQueue', 'readonly',
+            (store) => store.index('userId').getAll(userId), []);
+    }
+
+    async removePendingMessage(userId: number, id: string): Promise<void> {
+        await this.run(userId, 'pendingQueue', 'readwrite', (store) => { store.delete([userId, id]); }, undefined);
+    }
+
+    async clearUser(userId: number): Promise<void> {
+        if (this.activeUserId === userId) this.setActiveUser(null);
         try {
             const db = await this.getDB();
-            const tx = db.transaction('messages', 'readonly');
-            const store = tx.objectStore('messages');
-            const index = store.index('conversationKey');
-
-            return await new Promise<Message[]>((resolve) => {
-                const req = index.getAll(conversationKey);
-                req.onsuccess = () => {
-                    const res: Message[] = req.result || [];
-                    res.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-                    resolve(res);
-                };
-                req.onerror = () => resolve([]);
+            await new Promise<void>((resolve, reject) => {
+                const tx = db.transaction(STORES, 'readwrite');
+                for (const name of STORES) {
+                    const request = tx.objectStore(name).index('userId').openCursor(userId);
+                    request.onsuccess = () => {
+                        const cursor = request.result;
+                        if (cursor) { cursor.delete(); cursor.continue(); }
+                    };
+                }
+                tx.oncomplete = () => resolve();
+                tx.onabort = () => reject(tx.error);
             });
-        } catch {
-            return [];
-        }
-    }
-
-    public async enqueuePendingMessage(item: OfflinePendingMessage): Promise<void> {
-        try {
-            const db = await this.getDB();
-            const tx = db.transaction('pendingQueue', 'readwrite');
-            tx.objectStore('pendingQueue').put(item);
-        } catch (err) {
-            console.warn('[DBService] Failed to enqueue pending message:', err);
-        }
-    }
-
-    public async getPendingQueue(): Promise<OfflinePendingMessage[]> {
-        try {
-            const db = await this.getDB();
-            const tx = db.transaction('pendingQueue', 'readonly');
-            const store = tx.objectStore('pendingQueue');
-
-            return await new Promise<OfflinePendingMessage[]>((resolve) => {
-                const req = store.getAll();
-                req.onsuccess = () => resolve(req.result || []);
-                req.onerror = () => resolve([]);
-            });
-        } catch {
-            return [];
-        }
-    }
-
-    public async removePendingMessage(id: string): Promise<void> {
-        try {
-            const db = await this.getDB();
-            const tx = db.transaction('pendingQueue', 'readwrite');
-            tx.objectStore('pendingQueue').delete(id);
-        } catch (err) {
-            console.warn('[DBService] Failed to remove pending message:', err);
-        }
+        } catch { /* Cache cleanup must not prevent logout. */ }
     }
 }
 

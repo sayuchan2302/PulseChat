@@ -21,6 +21,7 @@ import java.util.Set;
         @Index(name = "idx_messages_room_id", columnList = "chat_room_id, id"),
         @Index(name = "idx_messages_reply_to", columnList = "reply_to_message_id"),
         @Index(name = "idx_messages_call_session", columnList = "call_session_id"),
+        @Index(name = "idx_messages_media_public_id", columnList = "media_public_id"),
         @Index(name = "uk_messages_sender_client", columnList = "sender_id, client_id", unique = true)
 })
 @Getter

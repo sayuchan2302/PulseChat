@@ -7,6 +7,7 @@ import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.User;
 import com.chatapp.security.RefreshTokenCookieService;
+import com.chatapp.security.MediaSessionCookieService;
 import com.chatapp.service.AuthService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,7 +49,8 @@ class AuthControllerTest {
                 "Lax",
                 604_800_000L
         );
-        controller = new AuthController(authService, cookieService);
+        controller = new AuthController(authService, cookieService,
+                new MediaSessionCookieService("/api", true, "Lax", 604_800_000L));
     }
 
     @Test
@@ -68,6 +70,9 @@ class AuthControllerTest {
         assertTrue(cookie.contains("HttpOnly"));
         assertTrue(cookie.contains("Secure"));
         assertTrue(cookie.contains("SameSite=Lax"));
+        assertTrue(servletResponse.getHeaders(HttpHeaders.SET_COOKIE).stream().anyMatch(value ->
+                value.contains("chat_media_session=" + REFRESH_TOKEN)
+                        && value.contains("Path=/api/uploads/media") && value.contains("HttpOnly")));
         assertFalse(Arrays.stream(AuthResponse.class.getRecordComponents())
                 .anyMatch(component -> component.getName().equals("refreshToken")));
     }
@@ -96,6 +101,8 @@ class AuthControllerTest {
 
         assertEquals(204, response.getStatusCode().value());
         assertTrue(servletResponse.getHeader(HttpHeaders.SET_COOKIE).contains("Max-Age=0"));
+        assertTrue(servletResponse.getHeaders(HttpHeaders.SET_COOKIE).stream().anyMatch(value ->
+                value.contains("chat_media_session=") && value.contains("Max-Age=0")));
         verify(authService).logout(REFRESH_TOKEN);
     }
 

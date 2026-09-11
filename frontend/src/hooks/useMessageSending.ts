@@ -1,4 +1,5 @@
-import { useCallback } from 'react';
+import { dbService } from '../services/dbService';
+import { useCallback, useRef } from 'react';
 import type { Dispatch, FormEvent, MutableRefObject, SetStateAction } from 'react';
 import { apiClient } from '../services/api';
 import { soundService } from '../services/soundService';
@@ -17,6 +18,8 @@ import {
 } from '../utils/conversationUtils';
 
 interface Options {
+  selectedUserIdRef: MutableRefObject<number | null>;
+  selectedRoomIdRef: MutableRefObject<number | null>;
   currentUser: User | null;
   selectedUser: User | null;
   selectedRoom: ChatRoom | null;
@@ -27,7 +30,6 @@ interface Options {
   roomSummaryLoading: boolean;
   roomSummaryRequestRef: MutableRefObject<number>;
   userSearchQueryRef: MutableRefObject<string>;
-  uploadPendingMedia: (media: PendingMedia) => Promise<MediaAttachment>;
   getNextOptimisticMessageId: () => number;
   clearPendingMedia: () => void;
   stopTyping: (userId: number) => void;
@@ -54,20 +56,21 @@ interface Options {
 
 export function useMessageSending(options: Options) {
   const {
-    currentUser, selectedUser, selectedRoom, messageInput, pendingMedia, mediaUploading,
+    selectedUserIdRef, selectedRoomIdRef, currentUser, selectedUser, selectedRoom, messageInput, pendingMedia, mediaUploading,
     replyingToMessage, roomSummaryLoading, roomSummaryRequestRef, userSearchQueryRef,
-    uploadPendingMedia, getNextOptimisticMessageId, clearPendingMedia, stopTyping, stopRoomTyping,
+    getNextOptimisticMessageId, clearPendingMedia, stopTyping, stopRoomTyping,
     sendOptimisticMessage, sendOptimisticRoomMessage, setMessageInput, setEmojiPickerOpen,
     setReplyingToMessage, setMediaUploading, setMediaError, setMessagesError, setMessages,
     setUsers, setFriends, setSelectedUser, setRooms, setSelectedRoom, setRoomSummary,
     setRoomSummaryRoomId, setRoomSummaryError, setRoomSummaryLoading,
   } = options;
 
+  const persisting = useRef(false);
   const handleSendMessage = useCallback(async (event: FormEvent) => {
     event.preventDefault();
     const content = messageInput.trim();
     const mediaToSend = pendingMedia;
-    if ((!content && !mediaToSend) || mediaUploading || !currentUser || (!selectedUser && !selectedRoom)) return;
+    if ((!content && !mediaToSend) || mediaUploading || persisting.current || !currentUser || (!selectedUser && !selectedRoom)) return;
 
     if (!mediaToSend && selectedRoom && /^\/summary$/i.test(content)) {
       if (roomSummaryLoading) return;
@@ -95,25 +98,34 @@ export function useMessageSending(options: Options) {
       return;
     }
 
-    let mediaPayload: MediaAttachment | undefined;
+    const mediaPayload: MediaAttachment | undefined = undefined;
     const messageType: MessageType = mediaToSend ? mediaToSend.type : 'TEXT';
     const replyTo = createReplyFromMessage(replyingToMessage);
     const replyToMessageId = replyTo?.id;
-    if (mediaToSend) {
-      setMediaUploading(true);
-      setMediaError('');
-      try {
-        mediaPayload = await uploadPendingMedia(mediaToSend);
-      } catch (error) {
-        console.error('Failed to upload media:', error);
-        setMediaError('Unable to upload media. Please try again.');
-        setMediaUploading(false);
-        return;
-      }
-      setMediaUploading(false);
-    }
-
     const clientId = createClientId();
+    const optimistic = selectedUser
+      ? createOptimisticMessage(getNextOptimisticMessageId(), currentUser.id, selectedUser.id,
+          content, clientId, messageType, mediaPayload, replyTo)
+      : createOptimisticRoomMessage(getNextOptimisticMessageId(), currentUser, selectedRoom!.id,
+          content, clientId, messageType, mediaPayload, replyTo);
+    persisting.current = true;
+    setMediaUploading(true);
+    const persisted = await dbService.enqueuePendingMessage(currentUser.id, {
+      id: clientId, timestamp: Date.now(), optimistic,
+      attachment: mediaToSend ? { ...mediaToSend, previewUrl: '' } : undefined,
+      conversationKey: selectedUser ? `user_${selectedUser.id}` : `room_${selectedRoom!.id}`,
+      destination: selectedUser ? '/messages' : `/rooms/${selectedRoom!.id}/messages`,
+      body: { ...(selectedUser ? { receiverId: selectedUser.id } : {}),
+        content, clientId, replyToMessageId, type: messageType, media: mediaPayload },
+    });
+    persisting.current = false;
+    setMediaUploading(false);
+    if (!persisted) {
+      setMessagesError('Unable to save the message on this device. Your draft has been kept.');
+      return;
+    }
+    if (selectedUser ? selectedUserIdRef.current !== selectedUser.id : selectedRoomIdRef.current !== selectedRoom!.id) return;
+    setMediaError('');
     setMessagesError('');
     setMessageInput('');
     setEmojiPickerOpen(false);
@@ -121,10 +133,7 @@ export function useMessageSending(options: Options) {
     clearPendingMedia();
 
     if (selectedUser) {
-      const optimisticMessage = createOptimisticMessage(
-        getNextOptimisticMessageId(), currentUser.id, selectedUser.id, content, clientId,
-        messageType, mediaPayload, replyTo
-      );
+      const optimisticMessage = optimistic;
       const payload: SendMessagePayload = {
         receiverId: selectedUser.id, content, clientId, replyToMessageId, type: messageType, media: mediaPayload,
       };
@@ -139,10 +148,7 @@ export function useMessageSending(options: Options) {
     }
 
     if (selectedRoom) {
-      const optimisticMessage = createOptimisticRoomMessage(
-        getNextOptimisticMessageId(), currentUser, selectedRoom.id, content, clientId,
-        messageType, mediaPayload, replyTo
-      );
+      const optimisticMessage = optimistic;
       const payload: SendRoomMessagePayload = { content, clientId, replyToMessageId, type: messageType, media: mediaPayload };
       stopRoomTyping(selectedRoom.id);
       soundService.playMessageSentSound();
@@ -155,12 +161,12 @@ export function useMessageSending(options: Options) {
     }
   }, [
     clearPendingMedia, currentUser, getNextOptimisticMessageId, mediaUploading, messageInput,
-    pendingMedia, replyingToMessage, roomSummaryLoading, roomSummaryRequestRef, selectedRoom,
+    selectedUserIdRef, selectedRoomIdRef, pendingMedia, replyingToMessage, roomSummaryLoading, roomSummaryRequestRef, selectedRoom,
     selectedUser, sendOptimisticMessage, sendOptimisticRoomMessage, setEmojiPickerOpen,
     setFriends, setMediaError, setMediaUploading, setMessageInput, setMessages, setMessagesError,
     setReplyingToMessage, setRoomSummary, setRoomSummaryError, setRoomSummaryLoading,
     setRoomSummaryRoomId, setRooms, setSelectedRoom, setSelectedUser, setUsers, stopRoomTyping,
-    stopTyping, uploadPendingMedia, userSearchQueryRef,
+    stopTyping, userSearchQueryRef,
   ]);
 
   const handleRetryMessage = useCallback((message: ChatMessage) => {

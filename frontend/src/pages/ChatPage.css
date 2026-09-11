@@ -8938,3 +8938,5 @@ html.theme-transitioning *::after {
   background: #854d0e;
   color: #fef08a;
 }
+
+.messages-sync-notice { display: flex; align-items: center; gap: 12px; padding: 12px 20px; font-size: 13px; }

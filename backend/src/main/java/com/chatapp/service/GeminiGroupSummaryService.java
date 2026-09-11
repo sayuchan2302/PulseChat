@@ -12,7 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
@@ -42,6 +42,7 @@ public class GeminiGroupSummaryService {
     private final MessageRepository messageRepository;
     private final ChatRoomService chatRoomService;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate transactionTemplate;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
@@ -52,31 +53,26 @@ public class GeminiGroupSummaryService {
     @Value("${gemini.model:gemini-3.1-flash-lite}")
     private String model;
 
-    @Transactional(readOnly = true)
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     public RoomSummaryResponse summarizeLatestMessages(String currentUsername, Long roomId) {
+        SummarySnapshot snapshot = transactionTemplate.execute(status -> {
+            chatRoomService.findGroupRoomForMember(currentUsername, roomId);
+            List<Message> messages = new ArrayList<>(messageRepository.findRecentSummarizableRoomMessages(
+                    roomId, Message.MessageType.TEXT, PageRequest.of(0, MAX_MESSAGES)));
+            Collections.reverse(messages);
+            if (messages.isEmpty()) throw new AppException(ErrorCode.AI_SUMMARY_NO_MESSAGES);
+            // Materialize all lazy properties before releasing the database transaction.
+            return new SummarySnapshot(messages.get(0).getId(), messages.get(messages.size() - 1).getId(),
+                    messages.size(), buildPrompt(messages));
+        });
+        String summary = requestSummary(snapshot.prompt());
+        // Membership may have changed while the external service was responding.
         chatRoomService.findGroupRoomForMember(currentUsername, roomId);
-
-        List<Message> messages = new ArrayList<>(messageRepository.findRecentSummarizableRoomMessages(
-                roomId,
-                Message.MessageType.TEXT,
-                PageRequest.of(0, MAX_MESSAGES)
-        ));
-        Collections.reverse(messages);
-
-        if (messages.isEmpty()) {
-            throw new AppException(ErrorCode.AI_SUMMARY_NO_MESSAGES);
-        }
-
-        String summary = requestSummary(buildPrompt(messages));
-        return new RoomSummaryResponse(
-                roomId,
-                messages.get(0).getId(),
-                messages.get(messages.size() - 1).getId(),
-                messages.size(),
-                summary,
-                LocalDateTime.now()
-        );
+        return new RoomSummaryResponse(roomId, snapshot.firstId(), snapshot.lastId(), snapshot.count(),
+                summary, LocalDateTime.now());
     }
+
+    private record SummarySnapshot(Long firstId, Long lastId, int count, String prompt) {}
 
     private String requestSummary(String prompt) {
         if (!StringUtils.hasText(apiKey)) {

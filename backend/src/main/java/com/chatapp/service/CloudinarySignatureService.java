@@ -32,7 +32,13 @@ public class CloudinarySignatureService {
     @Value("${cloudinary.upload-folder:chat-app/messages}")
     private String uploadFolder;
 
+    @Value("${cloudinary.public-uploads-enabled:false}")
+    private boolean publicUploadsEnabled;
+
     public CloudinaryUploadSignatureResponse createUploadSignature() {
+        if (!publicUploadsEnabled) {
+            throw new AppException(ErrorCode.CLOUDINARY_PUBLIC_UPLOAD_DISABLED);
+        }
         validateConfiguration();
 
         long timestamp = Instant.now().getEpochSecond();

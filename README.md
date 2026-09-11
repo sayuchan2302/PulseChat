@@ -2,6 +2,10 @@
 
 A modern, full-stack real-time messaging application inspired by Messenger and Discord, featuring WebRTC audio/video calls, AI group summaries, and offline-first capabilities.
 
+See [Phase 1 security changes](PHASE1_SECURITY.md) for private media configuration, cache migration, and validation. Public Cloudinary uploads are now disabled by default; new uploads use authenticated local storage.
+
+The phase 1 browser smoke test covers 11 security and media flows against PostgreSQL over HTTPS. Run it with `scripts/run-phase1-smoke.ps1`; prerequisites and results are documented in the phase 1 guide.
+
 ## ✨ Highlights
 
 - 🔐 **Authentication & Security**: JWT with access & refresh tokens (HttpOnly cookie), Spring Security.
@@ -55,7 +59,7 @@ chat-app/
 
 ### Prerequisites
 
-- **Node.js**: 18+
+- **Node.js**: 24+
 - **Java**: 17+
 - **PostgreSQL**: 14+
 

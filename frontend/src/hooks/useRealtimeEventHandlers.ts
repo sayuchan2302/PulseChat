@@ -103,7 +103,6 @@ export function useRealtimeEventHandlers(options: Options): EventHandlers {
       if (!isOnline) return;
       if (!hasConnectedRef.current) {
         hasConnectedRef.current = true;
-        return;
       }
       const selectedUserId = selectedUserIdRef.current;
       const selectedRoomId = selectedRoomIdRef.current;

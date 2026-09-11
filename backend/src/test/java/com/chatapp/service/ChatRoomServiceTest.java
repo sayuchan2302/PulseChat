@@ -36,6 +36,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ChatRoomServiceTest {
     @Mock
+    private MediaAccessService mediaAccessService;
+    @Mock
     private ChatRoomRepository chatRoomRepository;
 
     @Mock

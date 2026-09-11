@@ -26,8 +26,8 @@ export function getCallMediaErrorMessage(error: unknown, callType: CallType) {
         }
         if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
             return callType === 'VIDEO'
-                ? 'Selected microphone or camera is already in use.'
-                : 'Selected microphone is already in use.';
+                ? 'Selected microphone or camera is already in use. When testing two accounts on one machine, only one tab can use each device.'
+                : 'Selected microphone is already in use. When testing two accounts on one machine, only one tab can use it.';
         }
         if (error.name === 'OverconstrainedError') {
             return callType === 'VIDEO'
@@ -38,6 +38,12 @@ export function getCallMediaErrorMessage(error: unknown, callType: CallType) {
     return callType === 'VIDEO'
         ? 'Unable to access microphone or camera.'
         : 'Unable to access microphone.';
+}
+
+export function isMediaDeviceBusyError(error: unknown) {
+    return error instanceof DOMException && (
+        error.name === 'NotReadableError' || error.name === 'TrackStartError'
+    );
 }
 
 export async function queryCallPermission(name: 'microphone' | 'camera'): Promise<CallPermissionStatus> {

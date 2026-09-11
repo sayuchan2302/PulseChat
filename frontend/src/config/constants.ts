@@ -1,5 +1,15 @@
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
-export const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL;
+const LOCAL_API_BASE_URL = 'http://localhost:8080/api';
+const LOCAL_WS_BASE_URL = 'http://localhost:8080/api/ws';
+
+function configuredUrl(value: string | undefined, fallback: string) {
+  const url = value?.trim();
+  return url && url !== 'undefined' ? url.replace(/\/+$/, '') : fallback;
+}
+
+// Keep local development usable when the optional frontend .env file is absent.
+// Deployments should set these values explicitly through their Vite environment.
+export const API_BASE_URL = configuredUrl(import.meta.env.VITE_API_BASE_URL, LOCAL_API_BASE_URL);
+export const WS_BASE_URL = configuredUrl(import.meta.env.VITE_WS_BASE_URL, LOCAL_WS_BASE_URL);
 
 function splitEnvList(value?: string) {
   return (value ?? '')

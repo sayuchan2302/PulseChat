@@ -12,6 +12,20 @@ import java.util.List;
 import java.util.Optional;
 
 public interface MessageRepository extends JpaRepository<Message, Long> {
+    @Query("""
+            select count(m) from Message m
+            left join m.receiver receiver
+            where m.mediaPublicId = :publicId
+              and m.mediaUrl like concat('%/uploads/media/', :filename)
+              and m.recalled = false
+              and ((m.chatRoom is null and (m.sender.username = :username or receiver.username = :username))
+                   or exists (select member from ChatRoomMember member
+                              where member.chatRoom = m.chatRoom and member.user.username = :username))
+            """)
+    long countAccessibleLocalMedia(@Param("username") String username,
+                                  @Param("publicId") String publicId,
+                                  @Param("filename") String filename);
+
     interface UnreadCountProjection {
         Long getUserId();
 

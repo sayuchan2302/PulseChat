@@ -3,11 +3,13 @@ import { API_BASE_URL } from '../config/constants';
 import type { AuthResponse } from '../types';
 
 const ACCESS_TOKEN_REFRESH_SKEW_MS = 30_000;
-type RetryableRequestConfig = InternalAxiosRequestConfig & { _retry?: boolean };
+type RetryableRequestConfig = InternalAxiosRequestConfig & { _retry?: boolean; _sessionGeneration?: number };
 type SessionInvalidationListener = () => void;
 
 let accessToken: string | null = null;
 let refreshPromise: Promise<AuthResponse | null> | null = null;
+let sessionGeneration = 0;
+let refreshRejected = false;
 const sessionInvalidationListeners = new Set<SessionInvalidationListener>();
 
 function isAuthEndpoint(url?: string) {
@@ -17,16 +19,23 @@ function isAuthEndpoint(url?: string) {
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
+  timeout: 45_000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
 export function clearAuthSession() {
+  sessionGeneration += 1;
+  refreshRejected = false;
+  refreshPromise = null;
   accessToken = null;
 }
 
 export function storeAuthSession(response: AuthResponse) {
+  sessionGeneration += 1;
+  refreshRejected = false;
+  refreshPromise = null;
   accessToken = response.token;
 }
 
@@ -65,19 +74,26 @@ function shouldRefreshAccessToken(token: string) {
 
 export async function refreshAuthSession() {
   if (!refreshPromise) {
-    refreshPromise = axios
-      .post<AuthResponse>(`${API_BASE_URL}/auth/refresh`, undefined, { withCredentials: true })
+    const generation = sessionGeneration;
+    const pendingRefresh = axios
+      .post<AuthResponse>(`${API_BASE_URL}/auth/refresh`, undefined, { withCredentials: true, timeout: 15_000 })
       .then((response) => {
-        storeAuthSession(response.data);
+        if (generation !== sessionGeneration) return null;
+        refreshRejected = false;
+        accessToken = response.data.token;
         return response.data;
       })
-      .catch(() => {
-        clearAuthSession();
+      .catch((error) => {
+        if (generation === sessionGeneration) {
+          refreshRejected = [401, 403].includes(error.response?.status);
+          if (refreshRejected) accessToken = null;
+        }
         return null;
       })
       .finally(() => {
-        refreshPromise = null;
+        if (refreshPromise === pendingRefresh) refreshPromise = null;
       });
+    refreshPromise = pendingRefresh;
   }
 
   return refreshPromise;
@@ -93,11 +109,14 @@ export async function getValidAccessToken() {
 
 apiClient.interceptors.request.use(
   async (config) => {
+    const generation = sessionGeneration;
+    (config as RetryableRequestConfig)._sessionGeneration = generation;
     if (config.data instanceof FormData) {
       delete config.headers['Content-Type'];
     }
 
     const token = !isAuthEndpoint(config.url) ? await getValidAccessToken() : null;
+    if (generation !== sessionGeneration) throw new axios.CanceledError('Authentication session changed');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -107,9 +126,17 @@ apiClient.interceptors.request.use(
 );
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if ((response.config as RetryableRequestConfig)._sessionGeneration !== sessionGeneration) {
+      throw new axios.CanceledError('Authentication session changed');
+    }
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config as RetryableRequestConfig | undefined;
+    if (originalRequest && originalRequest._sessionGeneration !== sessionGeneration) {
+      throw new axios.CanceledError('Authentication session changed');
+    }
 
     if (
       error.response?.status === 401 &&
@@ -119,12 +146,15 @@ apiClient.interceptors.response.use(
     ) {
       originalRequest._retry = true;
       const session = await refreshAuthSession();
+      if (originalRequest._sessionGeneration !== sessionGeneration) {
+        throw new axios.CanceledError('Authentication session changed');
+      }
       if (session) {
         originalRequest.headers.Authorization = `Bearer ${session.token}`;
         return apiClient(originalRequest);
       }
 
-      notifyAuthSessionInvalidated();
+      if (refreshRejected) notifyAuthSessionInvalidated();
     }
 
     return Promise.reject(error);

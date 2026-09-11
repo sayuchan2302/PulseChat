@@ -257,7 +257,7 @@ export default function ChatPage() {
   const userSearchQueryRef = useRef('');
   const messageSearchQueryRef = useRef('');
   const messageSearchRequestedQueryRef = useRef('');
-  const optimisticMessageIdRef = useRef(0);
+  const optimisticMessageIdRef = useRef(-Date.now() * 1000);
   const hasConnectedRef = useRef(false);
   const realtimeActiveRef = useRef(false);
   const hasLoadedInitialUsersRef = useRef(false);
@@ -518,28 +518,34 @@ export default function ChatPage() {
   }, [selectedRoom?.id, selectedRoom?.name, selectedRoom?.participants]);
 
   useEffect(() => {
-    dbService.getConversationsCache('conversations_cache').then((cached) => {
-      if (cached && cached.rooms && cached.users) {
+    if (!currentUser?.id) return;
+    let active = true;
+    dbService.getConversationsCache(currentUser.id, 'conversations_cache').then((cached) => {
+      if (active && cached && cached.rooms && cached.users) {
         setRooms((prev) => (prev.length === 0 ? cached.rooms : prev));
         setUsers((prev) => (prev.length === 0 ? cached.users : prev));
       }
     }).catch(() => { });
-  }, []);
+    return () => { active = false; };
+  }, [currentUser?.id]);
 
   useEffect(() => {
-    if (rooms.length > 0 || users.length > 0) {
-      void dbService.saveConversationsCache('conversations_cache', { rooms, users });
+    if (currentUser?.id && (rooms.length > 0 || users.length > 0)) {
+      void dbService.saveConversationsCache(currentUser.id, 'conversations_cache', { rooms, users });
     }
-  }, [rooms, users]);
+  }, [currentUser?.id, rooms, users]);
 
   useEffect(() => {
-    if (messages.length > 0) {
+    if (currentUser?.id && messages.length > 0) {
       const key = selectedUser ? `user_${selectedUser.id}` : selectedRoom ? `room_${selectedRoom.id}` : null;
       if (key) {
-        void dbService.saveMessagesCache(key, messages);
+        void dbService.saveMessagesCache(currentUser.id, key, messages.filter((message) =>
+          selectedRoom ? message.chatRoomId === selectedRoom.id : !message.chatRoomId &&
+            ((message.senderId === currentUser.id && message.receiverId === selectedUser?.id) ||
+             (message.receiverId === currentUser.id && message.senderId === selectedUser?.id))));
       }
     }
-  }, [messages, selectedUser, selectedRoom]);
+  }, [currentUser?.id, messages, selectedUser, selectedRoom]);
 
   const resetMessageSearchState = useCallback(() => {
     messageSearchQueryRef.current = '';
@@ -607,6 +613,7 @@ export default function ChatPage() {
   });
 
   const { loadMessages, loadRoomMessages } = useMessageLoaders({
+    currentUserIdRef, messagesRef,
     selectedUserIdRef,
     selectedRoomIdRef,
     resetMessagePagination,
@@ -1104,7 +1111,12 @@ export default function ChatPage() {
     unreadDividerMessageIdRef,
   ]);
 
+  const { uploadPendingMedia } = useMediaUpload(
+    getMediaUrl, getFileFormat, cloudinaryResultToMedia,
+  );
+
   const { sendOptimisticMessage, sendOptimisticRoomMessage } = useMessageTransport({
+    currentUserId: currentUser?.id, selectedUserIdRef, uploadPendingMedia,
     currentUserIdRef, selectedRoomIdRef, userSearchQueryRef, clearOptimisticSendTimeout,
     scheduleOptimisticSendTimeout, addIncomingSharedContent, setMessages, setUsers, setFriends,
     setSelectedUser, setRooms, setSelectedRoom,
@@ -1492,9 +1504,6 @@ export default function ChatPage() {
     getPendingMediaType, getMediaSizeError,
   });
 
-  const { uploadPendingMedia } = useMediaUpload(
-    getMediaUrl, getFileFormat, cloudinaryResultToMedia,
-  );
 
   const handleGroupAvatarChange = useGroupAvatar({
     selectedRoom, groupSettingsPendingAction, acceptedTypes: ACCEPTED_AVATAR_TYPES,
@@ -1510,7 +1519,7 @@ export default function ChatPage() {
   const { handleSendMessage, handleRetryMessage } = useMessageSending({
     currentUser, selectedUser, selectedRoom, messageInput, pendingMedia, mediaUploading,
     replyingToMessage, roomSummaryLoading, roomSummaryRequestRef, userSearchQueryRef,
-    uploadPendingMedia, getNextOptimisticMessageId, clearPendingMedia, stopTyping, stopRoomTyping,
+    selectedUserIdRef, selectedRoomIdRef, getNextOptimisticMessageId, clearPendingMedia, stopTyping, stopRoomTyping,
     sendOptimisticMessage, sendOptimisticRoomMessage, setMessageInput, setEmojiPickerOpen,
     setReplyingToMessage, setMediaUploading, setMediaError, setMessagesError, setMessages,
     setUsers, setFriends, setSelectedUser, setRooms, setSelectedRoom, setRoomSummary,

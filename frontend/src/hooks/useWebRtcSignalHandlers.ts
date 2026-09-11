@@ -8,7 +8,11 @@ import type {
   ChatBrowserNotification,
   PreCallSetup,
 } from '../types/chat.types';
-import { canSendWebRtcSignalForCall, getCallMediaErrorMessage } from '../utils/callUtils';
+import {
+  canSendWebRtcSignalForCall,
+  getCallMediaErrorMessage,
+  isMediaDeviceBusyError,
+} from '../utils/callUtils';
 import { getUserChatRoute } from '../utils/routeUtils';
 import { getUserDisplayName } from '../utils/userUtils';
 
@@ -138,23 +142,32 @@ export function useWebRtcSignalHandlers({
   const createPeerConnection = useCallback(async (call: ActiveCall, initiator: boolean) => {
     if (peerConnectionRef.current) return peerConnectionRef.current;
 
-    const localStream = await getLocalCallMedia(call);
-    localCallStreamRef.current = localStream;
-    localStream.getAudioTracks().forEach((track) => {
-      track.enabled = !micMutedRef.current;
-    });
-    localStream.getVideoTracks().forEach((track) => {
-      track.enabled = !cameraOffRef.current;
-    });
-    setLocalCallStream(localStream);
-    applySelectedDeviceIdsFromStream(localStream);
+    let localStream: MediaStream | null = null;
+    try {
+      localStream = await getLocalCallMedia(call);
+      localCallStreamRef.current = localStream;
+      localStream.getAudioTracks().forEach((track) => {
+        track.enabled = !micMutedRef.current;
+      });
+      localStream.getVideoTracks().forEach((track) => {
+        track.enabled = !cameraOffRef.current;
+      });
+      setLocalCallStream(localStream);
+      applySelectedDeviceIdsFromStream(localStream);
+    } catch (error) {
+      if (!isMediaDeviceBusyError(error)) {
+        throw error;
+      }
+
+      setCallError('Camera or microphone is used by another app or test tab. Joining without local media.');
+    }
     void loadCallDevices();
     void refreshCallPermissions(call.type);
 
     const peerConnection = new RTCPeerConnection({ iceServers: RTC_ICE_SERVERS });
     peerConnectionRef.current = peerConnection;
     setCallConnectionState('connecting');
-    localStream.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
+    localStream?.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
 
     peerConnection.onicecandidate = (event) => {
       const currentCall = activeCallRef.current;

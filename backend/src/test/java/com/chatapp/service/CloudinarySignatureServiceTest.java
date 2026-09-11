@@ -13,6 +13,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CloudinarySignatureServiceTest {
     @Test
+    void publicUploadsAreDisabledByDefaultEvenWithCredentials() {
+        CloudinarySignatureService service = service("demo", "api-key", "secret", "chat/messages");
+        ReflectionTestUtils.setField(service, "publicUploadsEnabled", false);
+        AppException exception = assertThrows(AppException.class, service::createUploadSignature);
+        assertEquals(ErrorCode.CLOUDINARY_PUBLIC_UPLOAD_DISABLED, exception.getErrorCode());
+    }
+
+    @Test
     void createUploadSignatureReturnsSignedCloudinaryParams() {
         CloudinarySignatureService service = service("demo", "api-key", "secret", "chat/messages");
 
@@ -48,6 +56,7 @@ class CloudinarySignatureServiceTest {
         ReflectionTestUtils.setField(service, "apiKey", apiKey);
         ReflectionTestUtils.setField(service, "apiSecret", apiSecret);
         ReflectionTestUtils.setField(service, "uploadFolder", uploadFolder);
+        ReflectionTestUtils.setField(service, "publicUploadsEnabled", true);
         return service;
     }
 }

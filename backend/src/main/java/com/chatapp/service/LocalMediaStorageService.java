@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.PathResource;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -63,7 +65,51 @@ public class LocalMediaStorageService {
     @Value("${server.servlet.context-path:}")
     private String contextPath;
 
-    public LocalMediaUploadResponse storeMedia(MultipartFile mediaFile) {
+    public LocalMediaUploadResponse storeMedia(MultipartFile file, String username) {
+        if (!StringUtils.hasText(username)) throw new AppException(ErrorCode.UNAUTHORIZED);
+        LocalMediaUploadResponse result = storeMedia(file);
+        Path ownersDirectory = Paths.get(mediaDirectory).toAbsolutePath().normalize().resolve(".owners");
+        try {
+            Files.createDirectories(ownersDirectory);
+            Files.writeString(ownersDirectory.resolve(result.publicId()), username);
+        } catch (IOException exception) {
+            throw new AppException(ErrorCode.MEDIA_UPLOAD_FAILED);
+        }
+        return result;
+    }
+
+    public String getOwner(String filename) {
+        validateFilename(filename);
+        Path owner = Paths.get(mediaDirectory).toAbsolutePath().normalize().resolve(".owners")
+                .resolve(filename.substring(0, filename.lastIndexOf('.')));
+        try {
+            return Files.isRegularFile(owner) ? Files.readString(owner) : null;
+        } catch (IOException exception) {
+            throw new AppException(ErrorCode.FORBIDDEN);
+        }
+    }
+
+    public Resource loadMedia(String filename) {
+        validateFilename(filename);
+        try {
+            Path root = Paths.get(mediaDirectory).toRealPath();
+            Path file = root.resolve(filename).toRealPath();
+            if (!file.startsWith(root) || !Files.isRegularFile(file)) {
+                throw new AppException(ErrorCode.FORBIDDEN);
+            }
+            return new PathResource(file);
+        } catch (IOException exception) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND);
+        }
+    }
+
+    public void validateFilename(String filename) {
+        if (filename == null || !filename.matches("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\\.[a-z0-9]+")) {
+            throw new AppException(ErrorCode.FORBIDDEN);
+        }
+    }
+
+    LocalMediaUploadResponse storeMedia(MultipartFile mediaFile) {
         if (mediaFile == null || mediaFile.isEmpty()) {
             throw new AppException(ErrorCode.INVALID_MEDIA_FILE);
         }

@@ -98,9 +98,9 @@ export function ConversationPane({
     >
       {isDraggingFile ? <div className="chat-drag-drop-overlay"><PaperclipIcon className="chat-drag-drop-icon" /><span>Drop file here to send</span></div> : null}
       {messagesLoading ? MESSAGE_SKELETON_KEYS.map((key, index) => <div key={key} className={`message message-skeleton ${index % 2 === 0 ? 'received' : 'sent'}`} aria-hidden="true"><div className="skeleton-bubble" /></div>) : null}
-      {!messagesLoading && messagesError ? <div className="message-state error-state"><span>{messagesError}</span><button type="button" className="retry-btn" onClick={onRetryMessages}>Retry</button></div> : null}
+      {!messagesLoading && messagesError ? <div className={messages.length ? "messages-sync-notice" : "message-state error-state"}><span>{messagesError}</span><button type="button" className="retry-btn" onClick={onRetryMessages}>Retry</button></div> : null}
       {!messagesLoading && !messagesError && messages.length === 0 ? <div className="message-state">No messages yet.</div> : null}
-      {!messagesLoading && !messagesError && messages.length > 0 ? <>
+      {!messagesLoading && messages.length > 0 ? <>
         {hasMoreMessages ? <button type="button" className="older-messages-btn" onClick={onLoadOlderMessages} disabled={olderMessagesLoading}>{olderMessagesLoading ? 'Loading older messages...' : 'Load older messages'}</button> : null}
         <MessageList {...messageListProps} />
       </> : null}

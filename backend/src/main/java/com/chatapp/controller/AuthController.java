@@ -7,6 +7,7 @@ import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.service.AuthService;
 import com.chatapp.security.RefreshTokenCookieService;
+import com.chatapp.security.MediaSessionCookieService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
     private final AuthService authService;
     private final RefreshTokenCookieService refreshTokenCookieService;
+    private final MediaSessionCookieService mediaSessionCookieService;
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(
@@ -50,6 +52,7 @@ public class AuthController {
             return withRefreshCookie(result, response, HttpStatus.OK);
         } catch (RuntimeException exception) {
             refreshTokenCookieService.clearRefreshToken(response);
+            mediaSessionCookieService.clearSession(response);
             throw exception;
         }
     }
@@ -58,6 +61,7 @@ public class AuthController {
     public ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
         refreshTokenCookieService.readRefreshToken(request).ifPresent(authService::logout);
         refreshTokenCookieService.clearRefreshToken(response);
+        mediaSessionCookieService.clearSession(response);
         return ResponseEntity.noContent().build();
     }
 
@@ -67,6 +71,7 @@ public class AuthController {
             HttpStatus status
     ) {
         refreshTokenCookieService.addRefreshToken(response, result.refreshToken());
+        mediaSessionCookieService.addSession(response, result.refreshToken());
         return ResponseEntity.status(status).body(result.response());
     }
 }

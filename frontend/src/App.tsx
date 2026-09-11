@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import AuthPage from './pages/AuthPage';
 import ChatPage from './pages/ChatPage';
 import InviteJoinPage from './pages/InviteJoinPage';
@@ -18,9 +18,9 @@ function GuestRoute() {
 }
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   if (isLoading) return <AuthLoading />;
-  return isAuthenticated ? children : <Navigate to={ROUTES.HOME} replace />;
+  return isAuthenticated ? <Fragment key={user?.id}>{children}</Fragment> : <Navigate to={ROUTES.HOME} replace />;
 }
 
 function App() {

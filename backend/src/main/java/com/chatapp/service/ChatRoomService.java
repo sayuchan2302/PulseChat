@@ -42,6 +42,7 @@ public class ChatRoomService {
     private final MessageRepository messageRepository;
     private final ConversationSettingRepository conversationSettingRepository;
     private final UserService userService;
+    private final MediaAccessService mediaAccessService;
 
     @Transactional
     public ChatRoomResponse createGroup(String currentUsername, CreateChatRoomRequest request) {
@@ -135,6 +136,7 @@ public class ChatRoomService {
         }
 
         if (request.avatar() != null) {
+            mediaAccessService.validateAvatar(currentUsername, request.avatar());
             room.setAvatar(request.avatar().trim().isBlank() ? null : request.avatar().trim());
         }
 
@@ -350,7 +352,7 @@ public class ChatRoomService {
         return new com.chatapp.dto.response.GroupPreviewResponse(
                 room.getId(),
                 room.getName(),
-                room.getAvatar(),
+                MediaAccessService.isLocalMediaUrl(room.getAvatar()) ? null : room.getAvatar(),
                 room.getMembers().size(),
                 owner == null ? null : owner.getUsername(),
                 owner == null ? null : owner.getFullName());

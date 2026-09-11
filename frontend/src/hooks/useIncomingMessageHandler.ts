@@ -1,4 +1,5 @@
-import { useCallback } from 'react';
+import { dbService } from '../services/dbService';
+import { useCallback, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { ChatRoom, Message, User } from '../types';
 import type { ChatBrowserNotification, ChatMessage } from '../types/chat.types';
@@ -51,10 +52,23 @@ export function useIncomingMessageHandler({
   restoreMissingRoom, restoreMissingDirectSender, markConversationAsRead, markRoomAsRead,
   addPendingUnreadMessage,
 }: Options) {
+  const seen = useRef(new Set<number>());
   return useCallback((incomingMessage: Message) => {
     if (!realtimeActiveRef.current) return;
 
     const currentUserId = currentUserIdRef.current;
+    if (currentUserId !== null) {
+      const key = incomingMessage.chatRoomId ? `room_${incomingMessage.chatRoomId}`
+        : `user_${incomingMessage.senderId === currentUserId ? incomingMessage.receiverId : incomingMessage.senderId}`;
+      void dbService.saveMessagesCache(currentUserId, key, [incomingMessage]).then(() => {
+        if (incomingMessage.senderId === currentUserId && incomingMessage.clientId) {
+          return dbService.removePendingMessage(currentUserId, incomingMessage.clientId);
+        }
+      });
+    }
+    if (seen.current.has(incomingMessage.id)) return;
+    seen.current.add(incomingMessage.id);
+    if (seen.current.size > 5000) seen.current.delete(seen.current.values().next().value!);
     const selectedUserId = selectedUserIdRef.current;
     const selectedRoomId = selectedRoomIdRef.current;
     const isIncomingFromOther = incomingMessage.senderId !== currentUserId;
@@ -74,7 +88,7 @@ export function useIncomingMessageHandler({
       incomingMessage, currentUserId, selectedUserId, selectedRoomId,
     ) ? appendOrReconcileMessage(messages, incomingMessage) : messages);
     addIncomingSharedContent(incomingMessage);
-    if (incomingMessage.clientId) clearOptimisticSendTimeout(incomingMessage.clientId);
+    if (incomingMessage.senderId === currentUserId && incomingMessage.clientId) clearOptimisticSendTimeout(incomingMessage.clientId);
     if (shouldNotify) {
       const notification = buildMessageNotification(incomingMessage);
       notifyWithBrowserNotification(notification, notification.isMention);

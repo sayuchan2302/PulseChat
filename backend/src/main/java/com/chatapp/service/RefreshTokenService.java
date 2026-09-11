@@ -55,6 +55,13 @@ public class RefreshTokenService {
         return refreshToken;
     }
 
+    @Transactional(readOnly = true)
+    public String getActiveUsername(String rawToken) {
+        RefreshToken token = findToken(rawToken);
+        if (!token.isActive()) throw new AppException(ErrorCode.INVALID_REFRESH_TOKEN);
+        return token.getUser().getUsername();
+    }
+
     @Transactional
     public void revokeToken(String rawToken) {
         refreshTokenRepository.findByTokenHash(hashToken(rawToken))

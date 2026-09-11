@@ -1,6 +1,8 @@
 package com.chatapp.security;
 
 import io.jsonwebtoken.JwtException;
+import com.chatapp.exception.AppException;
+import com.chatapp.service.RefreshTokenService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,6 +25,8 @@ import java.io.IOException;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
+    private final MediaSessionCookieService mediaSessionCookieService;
+    private final RefreshTokenService refreshTokenService;
 
     @Override
     protected void doFilterInternal(
@@ -33,6 +37,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            try {
+                mediaSessionCookieService.readSession(request).ifPresent(token ->
+                        authenticateUsername(request, refreshTokenService.getActiveUsername(token)));
+            } catch (AppException ignored) {
+                SecurityContextHolder.clearContext();
+            }
             filterChain.doFilter(request, response);
             return;
         }
@@ -59,6 +69,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
+        setAuthentication(request, userDetails);
+    }
+
+    private void authenticateUsername(HttpServletRequest request, String username) {
+        if (SecurityContextHolder.getContext().getAuthentication() != null) return;
+        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+        setAuthentication(request, userDetails);
+    }
+
+    private void setAuthentication(HttpServletRequest request, UserDetails userDetails) {
         UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(
                 userDetails,
                 null,

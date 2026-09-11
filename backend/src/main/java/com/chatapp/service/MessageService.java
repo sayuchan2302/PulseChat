@@ -73,6 +73,8 @@ public class MessageService {
     private final FriendshipService friendshipService;
     private final LinkPreviewService linkPreviewService;
     private final ConversationSettingRepository conversationSettingRepository;
+    private final MediaAccessService mediaAccessService;
+    private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
 
     @Transactional(readOnly = true)
     public MessagePageResponse getConversation(
@@ -284,8 +286,21 @@ public class MessageService {
                         messageRepository.findRoomMessagesAfter(roomId, anchorId, pageable), clearedAt));
     }
 
-    @Transactional
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     public MessageResponse sendMessage(String currentUsername, SendMessageRequest request) {
+        MessageType type = normalizeMessageType(request.type());
+        String content = normalizeContent(request.content());
+        validateMessagePayload(type, content, request.media());
+        LinkPreviewMetadata preview = resolveLinkPreview(type, content);
+        try {
+            return transactionTemplate.execute(status -> sendPrivateInTransaction(currentUsername, request, preview));
+        } catch (org.springframework.dao.DataIntegrityViolationException conflict) {
+            return replayAfterConcurrentInsert(currentUsername, request.clientId(), request.receiverId(), null, conflict);
+        }
+    }
+
+    private MessageResponse sendPrivateInTransaction(String currentUsername, SendMessageRequest request,
+            LinkPreviewMetadata linkPreview) {
         User sender = userService.findByUsername(currentUsername);
         User receiver = userService.findById(request.receiverId());
         String clientId = normalizeClientId(request.clientId());
@@ -299,13 +314,13 @@ public class MessageService {
         boolean areFriends = friendshipService.areFriends(sender, receiver);
         validateNonFriendMessage(areFriends, type, request.media() != null);
         validateMessagePayload(type, content, request.media());
+        mediaAccessService.validateAttachment(currentUsername, request.media());
         Message replyToMessage = resolvePrivateReplyTarget(sender, receiver, request.replyToMessageId());
 
         if (clientId != null) {
             return messageRepository.findBySenderIdAndClientId(sender.getId(), clientId)
-                    .map(MessageResponse::from)
+                    .map(existing -> replayForConversation(existing, receiver.getId(), null))
                     .orElseGet(() -> {
-                        LinkPreviewMetadata linkPreview = resolveLinkPreview(type, content);
                         return saveMessage(
                                 sender,
                                 receiver,
@@ -318,15 +333,24 @@ public class MessageService {
                     });
         }
 
-        LinkPreviewMetadata linkPreview = resolveLinkPreview(type, content);
         return saveMessage(sender, receiver, content, null, type, request.media(), linkPreview, replyToMessage);
     }
 
-    @Transactional
-    public MessageResponse sendRoomMessage(
-            String currentUsername,
-            Long roomId,
-            SendRoomMessageRequest request) {
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    public MessageResponse sendRoomMessage(String currentUsername, Long roomId, SendRoomMessageRequest request) {
+        MessageType type = normalizeMessageType(request.type());
+        String content = normalizeContent(request.content());
+        validateMessagePayload(type, content, request.media());
+        LinkPreviewMetadata preview = resolveLinkPreview(type, content);
+        try {
+            return transactionTemplate.execute(status -> sendRoomInTransaction(currentUsername, roomId, request, preview));
+        } catch (org.springframework.dao.DataIntegrityViolationException conflict) {
+            return replayAfterConcurrentInsert(currentUsername, request.clientId(), null, roomId, conflict);
+        }
+    }
+
+    private MessageResponse sendRoomInTransaction(String currentUsername, Long roomId,
+            SendRoomMessageRequest request, LinkPreviewMetadata linkPreview) {
         User sender = userService.findByUsername(currentUsername);
         ChatRoom room = chatRoomService.findGroupRoomForMember(sender, roomId);
         String clientId = normalizeClientId(request.clientId());
@@ -334,13 +358,13 @@ public class MessageService {
         String content = normalizeContent(request.content());
 
         validateMessagePayload(type, content, request.media());
+        mediaAccessService.validateAttachment(currentUsername, request.media());
         Message replyToMessage = resolveRoomReplyTarget(room, request.replyToMessageId());
 
         if (clientId != null) {
             return messageRepository.findBySenderIdAndClientId(sender.getId(), clientId)
-                    .map(MessageResponse::from)
+                    .map(existing -> replayForConversation(existing, null, room.getId()))
                     .orElseGet(() -> {
-                        LinkPreviewMetadata linkPreview = resolveLinkPreview(type, content);
                         return saveRoomMessage(
                                 sender,
                                 room,
@@ -353,8 +377,29 @@ public class MessageService {
                     });
         }
 
-        LinkPreviewMetadata linkPreview = resolveLinkPreview(type, content);
         return saveRoomMessage(sender, room, content, null, type, request.media(), linkPreview, replyToMessage);
+    }
+
+    private MessageResponse replayAfterConcurrentInsert(String username, String rawClientId,
+            Long receiverId, Long roomId, org.springframework.dao.DataIntegrityViolationException conflict) {
+        String clientId = normalizeClientId(rawClientId);
+        if (clientId == null) throw conflict;
+        // The failed transaction has already rolled back. Read the winning insert in a fresh transaction.
+        return transactionTemplate.execute(status -> {
+            User sender = userService.findByUsername(username);
+            return messageRepository.findBySenderIdAndClientId(sender.getId(), clientId)
+                    .map(existing -> replayForConversation(existing, receiverId, roomId))
+                    .orElseThrow(() -> conflict);
+        });
+    }
+
+    private MessageResponse replayForConversation(Message existing, Long receiverId, Long roomId) {
+        Long actualReceiver = existing.getReceiver() == null ? null : existing.getReceiver().getId();
+        Long actualRoom = existing.getChatRoom() == null ? null : existing.getChatRoom().getId();
+        if (!Objects.equals(actualReceiver, receiverId) || !Objects.equals(actualRoom, roomId)) {
+            throw new AppException(ErrorCode.CLIENT_ID_CONFLICT);
+        }
+        return MessageResponse.from(existing);
     }
 
     @Transactional
@@ -437,7 +482,7 @@ public class MessageService {
             throw new AppException(ErrorCode.INVALID_MESSAGE_CONTENT);
         }
 
-        // Resolve target – either DM or room (mutually exclusive)
+        // Resolve target: either DM or room (mutually exclusive).
         if (request.targetRoomId() != null) {
             ChatRoom room = chatRoomService.findGroupRoomForMember(sender, request.targetRoomId());
             return saveForwardedRoomMessage(sender, source, room);

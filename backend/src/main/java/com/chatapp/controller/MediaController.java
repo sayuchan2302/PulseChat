@@ -6,6 +6,7 @@ import com.chatapp.service.CloudinarySignatureService;
 import com.chatapp.service.LocalMediaStorageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -25,7 +26,7 @@ public class MediaController {
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public LocalMediaUploadResponse uploadMedia(@RequestParam("file") MultipartFile file) {
-        return localMediaStorageService.storeMedia(file);
+    public LocalMediaUploadResponse uploadMedia(@RequestParam("file") MultipartFile file, Authentication authentication) {
+        return localMediaStorageService.storeMedia(file, authentication.getName());
     }
 }

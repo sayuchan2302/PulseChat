@@ -86,6 +86,7 @@ export function useCallFeature({
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const preCallPreviewStreamRef = useRef<MediaStream | null>(null);
+  const preCallPreviewRequestRef = useRef(0);
   const preCallPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
   const micMutedRef = useRef(false);
   const cameraOffRef = useRef(false);
@@ -175,8 +176,12 @@ export function useCallFeature({
   }, []);
 
   const stopPreCallPreview = useCallback(() => {
+    preCallPreviewRequestRef.current += 1;
     stopMediaStream(preCallPreviewStreamRef.current);
     preCallPreviewStreamRef.current = null;
+    if (preCallPreviewVideoRef.current) {
+      preCallPreviewVideoRef.current.srcObject = null;
+    }
     setPreCallPreviewStream(null);
   }, []);
 
@@ -190,16 +195,19 @@ export function useCallFeature({
       return null;
     }
 
+    stopPreCallPreview();
+    const requestId = ++preCallPreviewRequestRef.current;
     setPreCallPreviewLoading(true);
     setPreCallError('');
-    stopMediaStream(preCallPreviewStreamRef.current);
-    preCallPreviewStreamRef.current = null;
-    setPreCallPreviewStream(null);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia(
         buildCallMediaConstraints(callType, audioInputId, videoInputId)
       );
+      if (requestId !== preCallPreviewRequestRef.current) {
+        stopMediaStream(stream);
+        return null;
+      }
       stream.getAudioTracks().forEach((track) => {
         track.enabled = !micMutedRef.current;
       });
@@ -214,12 +222,17 @@ export function useCallFeature({
       void refreshCallPermissions(callType);
       return stream;
     } catch (error) {
+      if (requestId !== preCallPreviewRequestRef.current) {
+        return null;
+      }
       console.error('Failed to start pre-call preview:', error);
       setPreCallError(getCallMediaErrorMessage(error, callType));
       void refreshCallPermissions(callType);
       return null;
     } finally {
-      setPreCallPreviewLoading(false);
+      if (requestId === preCallPreviewRequestRef.current) {
+        setPreCallPreviewLoading(false);
+      }
     }
   }, [
     applySelectedDeviceIdsFromStream,
@@ -227,11 +240,33 @@ export function useCallFeature({
     refreshCallPermissions,
     selectedAudioInputId,
     selectedVideoInputId,
+    stopPreCallPreview,
   ]);
 
   const getLocalCallMedia = useCallback((call: ActiveCall) => {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error('Browser does not support media calls.');
+    }
+
+    const previewStream = preCallPreviewStreamRef.current;
+    const hasAudioTrack = previewStream?.getAudioTracks().some((track) => track.readyState === 'live');
+    const hasRequiredVideoTrack = call.type !== 'VIDEO' || previewStream?.getVideoTracks().some(
+      (track) => track.readyState === 'live'
+    );
+
+    if (previewStream && hasAudioTrack && hasRequiredVideoTrack) {
+      preCallPreviewStreamRef.current = null;
+      if (preCallPreviewVideoRef.current) {
+        preCallPreviewVideoRef.current.srcObject = null;
+      }
+      setPreCallPreviewStream(null);
+      return Promise.resolve(previewStream);
+    }
+
+    if (previewStream) {
+      stopMediaStream(previewStream);
+      preCallPreviewStreamRef.current = null;
+      setPreCallPreviewStream(null);
     }
 
     return navigator.mediaDevices.getUserMedia(
@@ -263,6 +298,7 @@ export function useCallFeature({
   }, []);
 
   const stopCallMedia = useCallback(() => {
+    stopPreCallPreview();
     if (peerConnectionRef.current) {
       peerConnectionRef.current.onicecandidate = null;
       peerConnectionRef.current.ontrack = null;
@@ -276,6 +312,15 @@ export function useCallFeature({
     stopScreenShareResources();
     localCallStreamRef.current?.getTracks().forEach((track) => track.stop());
     localCallStreamRef.current = null;
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = null;
+    }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
+    }
     setLocalCallStream(null);
     setRemoteCallStream(null);
     setMicMuted(false);
@@ -285,7 +330,7 @@ export function useCallFeature({
     setCallElapsedSeconds(0);
     setCallDeviceError('');
     stopIncomingCallRingtone();
-  }, [stopIncomingCallRingtone, stopScreenShareResources]);
+  }, [stopIncomingCallRingtone, stopPreCallPreview, stopScreenShareResources]);
 
   const finishCall = useCallback((message = '') => {
     setCallMinimized(false);
@@ -529,7 +574,6 @@ export function useCallFeature({
       return;
     }
 
-    stopPreCallPreview();
     const sent = sendOutgoingCallInvite(preCallSetup.type, preCallSetup.target);
     if (sent) {
       setPreCallSetup(null);
@@ -546,7 +590,6 @@ export function useCallFeature({
     preCallSubmitting,
     sendOutgoingCallInvite,
     startPreCallPreview,
-    stopPreCallPreview,
   ]);
 
   const {
@@ -880,8 +923,12 @@ export function useCallFeature({
   );
 
   useEffect(() => () => {
-    stopPreCallPreview();
-  }, [stopPreCallPreview]);
+    peerConnectionRef.current?.close();
+    stopMediaStream(localCallStreamRef.current);
+    stopMediaStream(preCallPreviewStreamRef.current);
+    stopMediaStream(screenShareStreamRef.current);
+    screenShareCameraTrackRef.current?.stop();
+  }, []);
 
   return {
     activeCall,

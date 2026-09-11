@@ -62,7 +62,7 @@ export function appendOrReconcileMessage(messages: ChatMessage[], incoming: Mess
         return messages.map((m, i) => (i === existingIdx ? { ...m, ...delivered } : m));
     }
     if (incoming.clientId) {
-        const optimisticIdx = messages.findIndex((m) => m.clientId === incoming.clientId);
+        const optimisticIdx = messages.findIndex((m) => m.clientId === incoming.clientId && m.senderId === incoming.senderId);
         if (optimisticIdx >= 0) {
             return messages.map((m, i) => (i === optimisticIdx ? delivered : m));
         }
@@ -89,7 +89,7 @@ export function mergeServerMessagesWithPending(current: ChatMessage[], serverMes
         const existingIdx = merged.findIndex((m) => m.id === delivered.id);
         if (existingIdx >= 0) { merged[existingIdx] = { ...merged[existingIdx], ...delivered }; return; }
         if (delivered.clientId) {
-            const optimisticIdx = merged.findIndex((m) => m.clientId === delivered.clientId);
+            const optimisticIdx = merged.findIndex((m) => m.clientId === delivered.clientId && m.senderId === delivered.senderId);
             if (optimisticIdx >= 0) { merged[optimisticIdx] = delivered; return; }
         }
         merged.push(delivered);

@@ -120,7 +120,7 @@ export class WebSocketService {
             }
           },
           debug: (str) => {
-            console.log('STOMP: ' + str);
+            if (import.meta.env.DEV) console.log('STOMP: ' + str);
           },
           reconnectDelay: 5000,
           heartbeatIncoming: 4000,
@@ -138,7 +138,6 @@ export class WebSocketService {
           console.log('Connected to WebSocket');
           this.connected = true;
           this.connectingPromise = null;
-          this.updateStatus('connected');
 
           client.subscribe('/user/queue/messages', (message) => {
             this.handleIncomingMessage(message.body);
@@ -175,6 +174,7 @@ export class WebSocketService {
           client.subscribe('/user/queue/calls', (message) => {
             this.handleIncomingCallSignal(message.body);
           });
+          this.updateStatus('connected');
 
           resolve();
         };

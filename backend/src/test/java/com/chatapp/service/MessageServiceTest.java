@@ -45,6 +45,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class MessageServiceTest {
         @Mock
+        private MediaAccessService mediaAccessService;
+        @Mock
         private MessageRepository messageRepository;
 
         @Mock
@@ -68,8 +70,47 @@ class MessageServiceTest {
         @Mock
         private LinkPreviewService linkPreviewService;
 
+        @Mock
+        private org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+
+        @org.junit.jupiter.api.BeforeEach
+        void executeTransactions() {
+                org.mockito.Mockito.lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation ->
+                        ((org.springframework.transaction.support.TransactionCallback<?>) invocation.getArgument(0))
+                                .doInTransaction(org.mockito.Mockito.mock(org.springframework.transaction.TransactionStatus.class)));
+        }
+
         @InjectMocks
         private MessageService messageService;
+
+        @Test
+        void reusedClientIdCannotReturnAnotherConversation() {
+                User sender = user(1L, "alice");
+                User receiver = user(2L, "bob");
+                User other = user(3L, "other");
+                when(userService.findByUsername("alice")).thenReturn(sender);
+                when(userService.findById(2L)).thenReturn(receiver);
+                Message existing = privateMessage(10L, "original", sender, other);
+                when(messageRepository.findBySenderIdAndClientId(1L, "same-key")).thenReturn(Optional.of(existing));
+                AppException error = assertThrows(AppException.class, () -> messageService.sendMessage("alice",
+                        new SendMessageRequest(2L, "retry", "same-key", null, MessageType.TEXT, null)));
+                assertEquals(ErrorCode.CLIENT_ID_CONFLICT, error.getErrorCode());
+                verify(messageRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        void linkPreviewIsResolvedBeforeStartingTheWriteTransaction() {
+                User sender = user(1L, "alice");
+                User receiver = user(2L, "bob");
+                when(userService.findByUsername("alice")).thenReturn(sender);
+                when(userService.findById(2L)).thenReturn(receiver);
+                Message existing = privateMessage(10L, "https://example.com", sender, receiver);
+                when(messageRepository.findBySenderIdAndClientId(1L, "same-key")).thenReturn(Optional.of(existing));
+                messageService.sendMessage("alice", new SendMessageRequest(2L, "https://example.com", "same-key", null, MessageType.TEXT, null));
+                var order = org.mockito.Mockito.inOrder(linkPreviewService, transactionTemplate);
+                order.verify(linkPreviewService).resolveFirstPreview("https://example.com");
+                order.verify(transactionTemplate).execute(any());
+        }
 
         @Test
         void getConversationReturnsNewestPageInAscendingOrderWithCursor() {
@@ -492,9 +533,6 @@ class MessageServiceTest {
         void sendTextMessageRejectsBlankContent() {
                 User sender = user(1L, "sayu");
                 User receiver = user(2L, "thinh");
-                when(userService.findByUsername("sayu")).thenReturn(sender);
-                when(userService.findById(receiver.getId())).thenReturn(receiver);
-                when(friendshipService.areFriends(sender, receiver)).thenReturn(true);
 
                 AppException exception = assertThrows(
                                 AppException.class,
@@ -553,9 +591,6 @@ class MessageServiceTest {
                                 "video",
                                 "mp4",
                                 51L * 1024 * 1024);
-                when(userService.findByUsername("sayu")).thenReturn(sender);
-                when(userService.findById(receiver.getId())).thenReturn(receiver);
-                when(friendshipService.areFriends(sender, receiver)).thenReturn(true);
 
                 AppException exception = assertThrows(
                                 AppException.class,
@@ -618,10 +653,10 @@ class MessageServiceTest {
                 MessageResponse response = messageService.reactToMessage(
                                 "sayu",
                                 message.getId(),
-                                new MessageReactionRequest("💜"));
+                                new MessageReactionRequest("ok"));
 
                 assertEquals(1, response.reactions().size());
-                assertEquals("💜", response.reactions().get(0).emoji());
+                assertEquals("ok", response.reactions().get(0).emoji());
         }
 
         @Test
