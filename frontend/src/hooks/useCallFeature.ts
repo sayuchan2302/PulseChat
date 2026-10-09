@@ -15,13 +15,13 @@ import {
   buildCallMediaConstraints,
   canSendWebRtcSignalForCall,
   getCallMediaErrorMessage,
-  getScreenShareErrorMessage,
   queryCallPermission,
   stopMediaStream,
 } from '../utils/callUtils';
 import { canChatWithUser } from '../utils/userUtils';
 import { useCallLifecycleActions } from './useCallLifecycleActions';
 import { useCallMediaControls } from './useCallMediaControls';
+import { useCallScreenSharing } from './useCallScreenSharing';
 import { useCallSession } from './useCallSession';
 import { useWebRtcSignalHandlers } from './useWebRtcSignalHandlers';
 
@@ -33,6 +33,11 @@ const UNKNOWN_CALL_PERMISSIONS: CallPermissionSnapshot = {
 };
 
 type MutableRef<T> = { current: T };
+type PendingIceCandidate = { callId: number; candidate: RTCIceCandidateInit };
+type PeerConnectionSetup = {
+  callId: number;
+  promise: Promise<RTCPeerConnection | null>;
+};
 
 type UseCallFeatureOptions = {
   currentUserRef: MutableRef<User | null>;
@@ -80,8 +85,10 @@ export function useCallFeature({
 
   const activeCallRef = useRef<ActiveCall | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const peerConnectionCallIdRef = useRef<number | null>(null);
+  const peerConnectionSetupRef = useRef<PeerConnectionSetup | null>(null);
   const localCallStreamRef = useRef<MediaStream | null>(null);
-  const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const pendingIceCandidatesRef = useRef<PendingIceCandidate[]>([]);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -174,6 +181,27 @@ export function useCallFeature({
       setSelectedVideoInputId(videoDeviceId);
     }
   }, []);
+
+  const {
+    stopScreenShareResources,
+    handleStartScreenShare,
+    handleStopScreenShare,
+  } = useCallScreenSharing({
+    activeCallRef,
+    localCallStreamRef,
+    peerConnectionRef,
+    screenSharingRef,
+    screenShareStreamRef,
+    screenShareCameraTrackRef,
+    screenShareStoppingRef,
+    cameraOffRef,
+    applySelectedDeviceIdsFromStream,
+    sendCallSignal,
+    setLocalCallStream,
+    setScreenSharing,
+    setRemoteScreenSharing,
+    setScreenShareError,
+  });
 
   const stopPreCallPreview = useCallback(() => {
     preCallPreviewRequestRef.current += 1;
@@ -278,25 +306,6 @@ export function useCallFeature({
     );
   }, []);
 
-  const stopScreenShareResources = useCallback(() => {
-    screenShareStreamRef.current?.getTracks().forEach((track) => {
-      track.onended = null;
-      track.stop();
-    });
-    screenShareStreamRef.current = null;
-
-    const cameraTrack = screenShareCameraTrackRef.current;
-    if (cameraTrack && !localCallStreamRef.current?.getTracks().includes(cameraTrack)) {
-      cameraTrack.stop();
-    }
-    screenShareCameraTrackRef.current = null;
-    screenSharingRef.current = false;
-    screenShareStoppingRef.current = false;
-    setScreenSharing(false);
-    setRemoteScreenSharing(false);
-    setScreenShareError('');
-  }, []);
-
   const stopCallMedia = useCallback(() => {
     stopPreCallPreview();
     if (peerConnectionRef.current) {
@@ -307,6 +316,8 @@ export function useCallFeature({
       peerConnectionRef.current.close();
     }
     peerConnectionRef.current = null;
+    peerConnectionCallIdRef.current = null;
+    peerConnectionSetupRef.current = null;
     pendingIceCandidatesRef.current = [];
 
     stopScreenShareResources();
@@ -435,6 +446,8 @@ export function useCallFeature({
     currentUserRef,
     currentUserIdRef,
     peerConnectionRef,
+    peerConnectionCallIdRef,
+    peerConnectionSetupRef,
     localCallStreamRef,
     pendingIceCandidatesRef,
     micMutedRef,
@@ -739,155 +752,6 @@ export function useCallFeature({
     }
   }, [cameraOff, loadCallDevices, micMuted]);
 
-  const handleStopScreenShare = useCallback(async (notify = true) => {
-    if (screenShareStoppingRef.current) {
-      return;
-    }
-
-    screenShareStoppingRef.current = true;
-    const currentCall = activeCallRef.current;
-    const currentStream = localCallStreamRef.current;
-    const screenShareStream = screenShareStreamRef.current;
-    const cameraTrack = screenShareCameraTrackRef.current;
-
-    try {
-      if (cameraTrack) {
-        cameraTrack.enabled = !cameraOffRef.current;
-      }
-
-      const sender = peerConnectionRef.current
-        ?.getSenders()
-        .find((candidate) => candidate.track?.kind === 'video');
-      if (sender) {
-        await sender.replaceTrack(cameraTrack ?? null);
-      }
-
-      if (currentStream) {
-        currentStream.getVideoTracks().forEach((track) => {
-          currentStream.removeTrack(track);
-        });
-
-        if (cameraTrack) {
-          currentStream.addTrack(cameraTrack);
-        }
-
-        const nextStream = new MediaStream(currentStream.getTracks());
-        localCallStreamRef.current = nextStream;
-        setLocalCallStream(nextStream);
-
-        if (cameraTrack) {
-          applySelectedDeviceIdsFromStream(nextStream);
-        }
-      }
-
-      screenShareStream?.getTracks().forEach((track) => {
-        track.onended = null;
-        track.stop();
-      });
-      screenShareStreamRef.current = null;
-      screenShareCameraTrackRef.current = null;
-      screenSharingRef.current = false;
-      setScreenSharing(false);
-      setScreenShareError('');
-
-      if (
-        notify &&
-        currentCall?.callId &&
-        canSendWebRtcSignalForCall(currentCall, currentCall.callId)
-      ) {
-        sendCallSignal({ eventType: 'SCREEN_SHARE_STOP', callId: currentCall.callId });
-      }
-    } catch (error) {
-      console.error('Failed to stop screen sharing:', error);
-      setScreenShareError('Unable to stop screen sharing.');
-    } finally {
-      screenShareStoppingRef.current = false;
-    }
-  }, [applySelectedDeviceIdsFromStream, sendCallSignal]);
-
-  const handleStartScreenShare = useCallback(async () => {
-    const currentCall = activeCallRef.current;
-    const currentStream = localCallStreamRef.current;
-    const peerConnection = peerConnectionRef.current;
-
-    if (
-      !currentCall?.callId ||
-      currentCall.type !== 'VIDEO' ||
-      !canSendWebRtcSignalForCall(currentCall, currentCall.callId)
-    ) {
-      return;
-    }
-
-    if (screenSharingRef.current || screenShareStoppingRef.current) {
-      return;
-    }
-
-    if (!navigator.mediaDevices?.getDisplayMedia) {
-      setScreenShareError('Browser does not support screen sharing.');
-      return;
-    }
-
-    if (!currentStream || !peerConnection) {
-      setScreenShareError('Call video is not ready.');
-      return;
-    }
-
-    setScreenShareError('');
-    let displayStream: MediaStream | null = null;
-
-    try {
-      displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-      const [screenTrack] = displayStream.getVideoTracks();
-      if (!screenTrack) {
-        throw new Error('No screen track selected.');
-      }
-
-      const sender = peerConnection
-        .getSenders()
-        .find((candidate) => candidate.track?.kind === 'video');
-      if (!sender) {
-        throw new Error('Video sender is not ready.');
-      }
-
-      const [cameraTrack] = currentStream.getVideoTracks();
-      screenShareCameraTrackRef.current = cameraTrack ?? null;
-
-      await sender.replaceTrack(screenTrack);
-
-      currentStream.getVideoTracks().forEach((track) => {
-        currentStream.removeTrack(track);
-      });
-      currentStream.addTrack(screenTrack);
-
-      const nextStream = new MediaStream(currentStream.getTracks());
-      localCallStreamRef.current = nextStream;
-      screenShareStreamRef.current = displayStream;
-      screenSharingRef.current = true;
-      setLocalCallStream(nextStream);
-      setScreenSharing(true);
-      setScreenShareError('');
-
-      screenTrack.onended = () => {
-        if (!screenShareStoppingRef.current) {
-          void handleStopScreenShare();
-        }
-      };
-
-      sendCallSignal({ eventType: 'SCREEN_SHARE_START', callId: currentCall.callId });
-    } catch (error) {
-      console.error('Failed to start screen sharing:', error);
-      displayStream?.getTracks().forEach((track) => {
-        track.onended = null;
-        track.stop();
-      });
-      screenShareStreamRef.current = null;
-      screenShareCameraTrackRef.current = null;
-      screenSharingRef.current = false;
-      setScreenSharing(false);
-      setScreenShareError(getScreenShareErrorMessage(error));
-    }
-  }, [handleStopScreenShare, sendCallSignal]);
-
   const handleAudioInputChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     void replaceLocalCallTrack('audio', event.target.value);
   }, [replaceLocalCallTrack]);
@@ -923,7 +787,19 @@ export function useCallFeature({
   );
 
   useEffect(() => () => {
-    peerConnectionRef.current?.close();
+    const peerConnection = peerConnectionRef.current;
+    if (peerConnection) {
+      peerConnection.onicecandidate = null;
+      peerConnection.ontrack = null;
+      peerConnection.onconnectionstatechange = null;
+      peerConnection.oniceconnectionstatechange = null;
+      peerConnection.close();
+    }
+    peerConnectionRef.current = null;
+    peerConnectionCallIdRef.current = null;
+    peerConnectionSetupRef.current = null;
+    pendingIceCandidatesRef.current = [];
+    activeCallRef.current = null;
     stopMediaStream(localCallStreamRef.current);
     stopMediaStream(preCallPreviewStreamRef.current);
     stopMediaStream(screenShareStreamRef.current);

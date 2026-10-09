@@ -52,39 +52,8 @@ export function useSharedContentManager({
     sharedLinksHasMore, setSharedLinksHasMore,
     sharedMediaNextBefore, setSharedMediaNextBefore,
     sharedLinksNextBefore, setSharedLinksNextBefore,
+    resetSharedContent,
   } = useSharedContent();
-
-  const resetSharedContentState = useCallback(() => {
-    setSharedMediaExpanded(false);
-    setSharedLinksExpanded(false);
-    setSharedMediaLoaded(false);
-    setSharedLinksLoaded(false);
-    setSharedMediaItems([]);
-    setSharedLinkItems([]);
-    setSharedMediaLoading(false);
-    setSharedLinksLoading(false);
-    setSharedMediaError('');
-    setSharedLinksError('');
-    setSharedMediaHasMore(false);
-    setSharedLinksHasMore(false);
-    setSharedMediaNextBefore(null);
-    setSharedLinksNextBefore(null);
-  }, [
-    setSharedLinkItems,
-    setSharedLinksError,
-    setSharedLinksHasMore,
-    setSharedLinksLoaded,
-    setSharedLinksLoading,
-    setSharedLinksNextBefore,
-    setSharedLinksExpanded,
-    setSharedMediaError,
-    setSharedMediaHasMore,
-    setSharedMediaItems,
-    setSharedMediaLoaded,
-    setSharedMediaLoading,
-    setSharedMediaNextBefore,
-    setSharedMediaExpanded,
-  ]);
 
   const addIncomingSharedContent = useCallback((incomingMessage: Message) => {
     if (!isActiveConversationMessage(
@@ -272,8 +241,8 @@ export function useSharedContentManager({
   ]);
 
   useEffect(() => {
-    resetSharedContentState();
-  }, [resetSharedContentState, selectedRoomId, selectedUserId]);
+    resetSharedContent();
+  }, [resetSharedContent, selectedRoomId, selectedUserId]);
 
   useEffect(() => {
     if (

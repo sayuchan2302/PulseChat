@@ -28,10 +28,12 @@ public class CorsConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(splitConfig(allowedOrigins));
+        configuration.setAllowedOriginPatterns(splitConfig(allowedOrigins));
         configuration.setAllowedMethods(splitConfig(allowedMethods));
         configuration.setAllowedHeaders(splitConfig(allowedHeaders));
+        configuration.setExposedHeaders(List.of("Authorization", "Content-Disposition", "Set-Cookie"));
         configuration.setAllowCredentials(allowCredentials);
+        configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);

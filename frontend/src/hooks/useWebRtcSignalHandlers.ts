@@ -12,19 +12,27 @@ import {
   canSendWebRtcSignalForCall,
   getCallMediaErrorMessage,
   isMediaDeviceBusyError,
+  stopMediaStream,
 } from '../utils/callUtils';
 import { getUserChatRoute } from '../utils/routeUtils';
 import { getUserDisplayName } from '../utils/userUtils';
 
 type MutableRef<T> = { current: T };
+type PendingIceCandidate = { callId: number; candidate: RTCIceCandidateInit };
+type PeerConnectionSetup = {
+  callId: number;
+  promise: Promise<RTCPeerConnection | null>;
+};
 
 type WebRtcSignalHandlersOptions = {
   activeCallRef: MutableRef<ActiveCall | null>;
   currentUserRef: MutableRef<User | null>;
   currentUserIdRef: MutableRef<number | null>;
   peerConnectionRef: MutableRef<RTCPeerConnection | null>;
+  peerConnectionCallIdRef: MutableRef<number | null>;
+  peerConnectionSetupRef: MutableRef<PeerConnectionSetup | null>;
   localCallStreamRef: MutableRef<MediaStream | null>;
-  pendingIceCandidatesRef: MutableRef<RTCIceCandidateInit[]>;
+  pendingIceCandidatesRef: MutableRef<PendingIceCandidate[]>;
   micMutedRef: MutableRef<boolean>;
   cameraOffRef: MutableRef<boolean>;
   getLocalCallMedia: (call: ActiveCall) => Promise<MediaStream>;
@@ -51,6 +59,8 @@ export function useWebRtcSignalHandlers({
   currentUserRef,
   currentUserIdRef,
   peerConnectionRef,
+  peerConnectionCallIdRef,
+  peerConnectionSetupRef,
   localCallStreamRef,
   pendingIceCandidatesRef,
   micMutedRef,
@@ -126,11 +136,42 @@ export function useWebRtcSignalHandlers({
     };
   }, [getCurrentCallRole]);
 
-  const flushPendingIceCandidates = useCallback(async (peerConnection: RTCPeerConnection) => {
-    const candidates = pendingIceCandidatesRef.current;
-    pendingIceCandidatesRef.current = [];
+  const isCallActive = useCallback((callId: number) => {
+    const call = activeCallRef.current;
+    return call?.callId === callId && call.status !== 'ending';
+  }, [activeCallRef]);
 
-    for (const candidate of candidates) {
+  const isCallEventForActiveCall = useCallback((event: CallSignalEvent) => {
+    const call = activeCallRef.current;
+    if (call?.callId === event.callId && call.status !== 'ending') {
+      return true;
+    }
+
+    // CALL_BUSY can be the server's first response to the optimistic outgoing call,
+    // before that call has received its persistent call id.
+    return event.eventType === 'CALL_BUSY'
+      && call !== null
+      && call.callId === undefined
+      && call.direction === 'outgoing'
+      && call.peer.id === event.receiver.id;
+  }, [activeCallRef]);
+
+  const isCurrentPeerConnection = useCallback((callId: number, peerConnection?: RTCPeerConnection) => (
+    isCallActive(callId)
+    && peerConnectionCallIdRef.current === callId
+    && (!peerConnection || peerConnectionRef.current === peerConnection)
+  ), [isCallActive, peerConnectionCallIdRef, peerConnectionRef]);
+
+  const flushPendingIceCandidates = useCallback(async (
+    peerConnection: RTCPeerConnection,
+    callId: number,
+  ) => {
+    const candidates = pendingIceCandidatesRef.current.filter((item) => item.callId === callId);
+    pendingIceCandidatesRef.current = pendingIceCandidatesRef.current.filter(
+      (item) => item.callId !== callId,
+    );
+
+    for (const { candidate } of candidates) {
       try {
         await peerConnection.addIceCandidate(candidate);
       } catch (error) {
@@ -140,90 +181,138 @@ export function useWebRtcSignalHandlers({
   }, [pendingIceCandidatesRef]);
 
   const createPeerConnection = useCallback(async (call: ActiveCall, initiator: boolean) => {
-    if (peerConnectionRef.current) return peerConnectionRef.current;
+    const callId = call.callId;
+    if (callId === undefined || !isCallActive(callId)) return null;
 
-    let localStream: MediaStream | null = null;
+    if (peerConnectionRef.current && peerConnectionCallIdRef.current === callId) {
+      return peerConnectionRef.current;
+    }
+
+    const pendingSetup = peerConnectionSetupRef.current;
+    if (pendingSetup?.callId === callId) {
+      return pendingSetup.promise;
+    }
+
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.onicecandidate = null;
+      peerConnectionRef.current.ontrack = null;
+      peerConnectionRef.current.onconnectionstatechange = null;
+      peerConnectionRef.current.oniceconnectionstatechange = null;
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+
+    peerConnectionCallIdRef.current = callId;
+    const setupPromise = (async (): Promise<RTCPeerConnection | null> => {
+      let localStream: MediaStream | null = null;
+      let mediaBusy = false;
+      try {
+        localStream = await getLocalCallMedia(call);
+      } catch (error) {
+        if (!isMediaDeviceBusyError(error)) throw error;
+        mediaBusy = true;
+      }
+
+      if (!isCallActive(callId) || peerConnectionCallIdRef.current !== callId) {
+        stopMediaStream(localStream);
+        return null;
+      }
+
+      if (mediaBusy) {
+        setCallError('Camera or microphone is used by another app or test tab. Joining without local media.');
+      }
+      if (localStream) {
+        localCallStreamRef.current = localStream;
+        localStream.getAudioTracks().forEach((track) => {
+          track.enabled = !micMutedRef.current;
+        });
+        localStream.getVideoTracks().forEach((track) => {
+          track.enabled = !cameraOffRef.current;
+        });
+        setLocalCallStream(localStream);
+        applySelectedDeviceIdsFromStream(localStream);
+      }
+      void loadCallDevices();
+      void refreshCallPermissions(call.type);
+
+      const peerConnection = new RTCPeerConnection({ iceServers: RTC_ICE_SERVERS });
+      peerConnectionRef.current = peerConnection;
+      setCallConnectionState('connecting');
+      localStream?.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
+
+      peerConnection.onicecandidate = (event) => {
+        if (!event.candidate || !isCurrentPeerConnection(callId, peerConnection)) return;
+
+        const currentCall = activeCallRef.current;
+        if (!canSendWebRtcSignalForCall(currentCall, callId)) return;
+        sendCallSignal({
+          eventType: 'ICE_CANDIDATE',
+          callId,
+          candidate: event.candidate.candidate,
+          sdpMid: event.candidate.sdpMid,
+          sdpMLineIndex: event.candidate.sdpMLineIndex,
+        });
+      };
+
+      peerConnection.ontrack = (event) => {
+        const [remoteStream] = event.streams;
+        if (remoteStream && isCurrentPeerConnection(callId, peerConnection)) {
+          setRemoteCallStream(remoteStream);
+        }
+      };
+
+      const updatePeerConnectionState = () => {
+        if (!isCurrentPeerConnection(callId, peerConnection)) return;
+
+        const connectionState = peerConnection.connectionState;
+        const iceConnectionState = peerConnection.iceConnectionState;
+        if (connectionState === 'connected' || iceConnectionState === 'connected' || iceConnectionState === 'completed') {
+          setCallConnectionState('connected');
+          setCallStartedAt((currentStartedAt) => currentStartedAt ?? Date.now());
+          setActiveCallState((currentCall) => currentCall?.callId === callId
+            ? { ...currentCall, status: 'connected' }
+            : currentCall);
+          setCallError('');
+        } else if (connectionState === 'connecting' || iceConnectionState === 'checking') {
+          setCallConnectionState('connecting');
+        } else if (connectionState === 'disconnected' || iceConnectionState === 'disconnected') {
+          setCallConnectionState('reconnecting');
+          setCallError('Poor connection. Trying to reconnect the call.');
+        } else if (connectionState === 'failed' || iceConnectionState === 'failed') {
+          setCallConnectionState('failed');
+          setCallError('Call connection failed.');
+        } else if (connectionState === 'closed' || iceConnectionState === 'closed') {
+          setCallConnectionState('closed');
+        }
+      };
+      peerConnection.onconnectionstatechange = updatePeerConnectionState;
+      peerConnection.oniceconnectionstatechange = updatePeerConnectionState;
+
+      if (initiator && canSendWebRtcSignalForCall(activeCallRef.current, callId)) {
+        const offer = await peerConnection.createOffer();
+        if (!isCurrentPeerConnection(callId, peerConnection)) return null;
+        await peerConnection.setLocalDescription(offer);
+        if (isCurrentPeerConnection(callId, peerConnection)
+          && canSendWebRtcSignalForCall(activeCallRef.current, callId)) {
+          sendCallSignal({ eventType: 'WEBRTC_OFFER', callId, sdp: offer.sdp });
+        }
+      }
+      return peerConnection;
+    })();
+    const setup = { callId, promise: setupPromise };
+    peerConnectionSetupRef.current = setup;
+
     try {
-      localStream = await getLocalCallMedia(call);
-      localCallStreamRef.current = localStream;
-      localStream.getAudioTracks().forEach((track) => {
-        track.enabled = !micMutedRef.current;
-      });
-      localStream.getVideoTracks().forEach((track) => {
-        track.enabled = !cameraOffRef.current;
-      });
-      setLocalCallStream(localStream);
-      applySelectedDeviceIdsFromStream(localStream);
-    } catch (error) {
-      if (!isMediaDeviceBusyError(error)) {
-        throw error;
-      }
-
-      setCallError('Camera or microphone is used by another app or test tab. Joining without local media.');
-    }
-    void loadCallDevices();
-    void refreshCallPermissions(call.type);
-
-    const peerConnection = new RTCPeerConnection({ iceServers: RTC_ICE_SERVERS });
-    peerConnectionRef.current = peerConnection;
-    setCallConnectionState('connecting');
-    localStream?.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
-
-    peerConnection.onicecandidate = (event) => {
-      const currentCall = activeCallRef.current;
-      const signalCallId = currentCall?.callId;
-      if (!event.candidate || signalCallId === undefined || !canSendWebRtcSignalForCall(currentCall, call.callId)) {
-        return;
-      }
-
-      sendCallSignal({
-        eventType: 'ICE_CANDIDATE',
-        callId: signalCallId,
-        candidate: event.candidate.candidate,
-        sdpMid: event.candidate.sdpMid,
-        sdpMLineIndex: event.candidate.sdpMLineIndex,
-      });
-    };
-
-    peerConnection.ontrack = (event) => {
-      const [remoteStream] = event.streams;
-      if (remoteStream) setRemoteCallStream(remoteStream);
-    };
-
-    const updatePeerConnectionState = () => {
-      const connectionState = peerConnection.connectionState;
-      const iceConnectionState = peerConnection.iceConnectionState;
-      if (connectionState === 'connected' || iceConnectionState === 'connected' || iceConnectionState === 'completed') {
-        setCallConnectionState('connected');
-        setCallStartedAt((currentStartedAt) => currentStartedAt ?? Date.now());
-        setActiveCallState((currentCall) => currentCall ? { ...currentCall, status: 'connected' } : currentCall);
-        setCallError('');
-      } else if (connectionState === 'connecting' || iceConnectionState === 'checking') {
-        setCallConnectionState('connecting');
-      } else if (connectionState === 'disconnected' || iceConnectionState === 'disconnected') {
-        setCallConnectionState('reconnecting');
-        setCallError('Poor connection. Trying to reconnect the call.');
-      } else if (connectionState === 'failed' || iceConnectionState === 'failed') {
-        setCallConnectionState('failed');
-        setCallError('Call connection failed.');
-      } else if (connectionState === 'closed' || iceConnectionState === 'closed') {
-        setCallConnectionState('closed');
-      }
-    };
-    peerConnection.onconnectionstatechange = updatePeerConnectionState;
-    peerConnection.oniceconnectionstatechange = updatePeerConnectionState;
-
-    if (initiator && canSendWebRtcSignalForCall(activeCallRef.current, call.callId)) {
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      if (canSendWebRtcSignalForCall(activeCallRef.current, call.callId)) {
-        sendCallSignal({ eventType: 'WEBRTC_OFFER', callId: call.callId, sdp: offer.sdp });
+      return await setupPromise;
+    } finally {
+      if (peerConnectionSetupRef.current === setup) {
+        peerConnectionSetupRef.current = null;
       }
     }
-    return peerConnection;
   }, [
     activeCallRef, applySelectedDeviceIdsFromStream, cameraOffRef, getLocalCallMedia,
-    loadCallDevices, localCallStreamRef, micMutedRef, peerConnectionRef,
+    isCallActive, isCurrentPeerConnection, loadCallDevices, localCallStreamRef,
+    micMutedRef, peerConnectionCallIdRef, peerConnectionRef, peerConnectionSetupRef,
     refreshCallPermissions, sendCallSignal, setActiveCallState, setCallConnectionState,
     setCallError, setCallStartedAt, setLocalCallStream, setRemoteCallStream,
   ]);
@@ -232,54 +321,95 @@ export function useWebRtcSignalHandlers({
     try {
       await createPeerConnection(call, initiator);
     } catch (error) {
+      if (call.callId === undefined || !isCallActive(call.callId)) return;
       console.error('Failed to start call media:', error);
       const message = getCallMediaErrorMessage(error, call.type);
       setCallError(message);
       if (call.callId) sendCallSignal({ eventType: 'CALL_END', callId: call.callId });
       finishCall(message);
     }
-  }, [createPeerConnection, finishCall, sendCallSignal, setCallError]);
+  }, [createPeerConnection, finishCall, isCallActive, sendCallSignal, setCallError]);
 
   const handleWebRtcOffer = useCallback(async (event: CallSignalEvent) => {
-    if (!event.sdp || isCallSignalFromCurrentUser(event)) return;
-    const call = activeCallRef.current ?? buildCallFromSignal(event, 'connecting');
-    if (!call) return;
-    setActiveCallState({ ...call, status: 'connecting' });
+    const callId = event.callId;
+    const call = activeCallRef.current;
+    if (
+      callId === undefined ||
+      !event.sdp ||
+      isCallSignalFromCurrentUser(event) ||
+      !call ||
+      call.callId !== callId ||
+      call.status === 'ending'
+    ) return;
+
+    setActiveCallState((currentCall) => currentCall?.callId === callId
+      ? { ...currentCall, status: 'connecting' }
+      : currentCall);
 
     try {
       const peerConnection = await createPeerConnection(call, false);
+      if (!peerConnection || !isCurrentPeerConnection(callId, peerConnection)) return;
       await peerConnection.setRemoteDescription({ type: 'offer', sdp: event.sdp });
-      await flushPendingIceCandidates(peerConnection);
+      if (!isCurrentPeerConnection(callId, peerConnection)) return;
+      await flushPendingIceCandidates(peerConnection, callId);
       const answer = await peerConnection.createAnswer();
+      if (!isCurrentPeerConnection(callId, peerConnection)) return;
       await peerConnection.setLocalDescription(answer);
-      sendCallSignal({ eventType: 'WEBRTC_ANSWER', callId: event.callId, sdp: answer.sdp });
+      if (isCurrentPeerConnection(callId, peerConnection)) {
+        sendCallSignal({ eventType: 'WEBRTC_ANSWER', callId, sdp: answer.sdp });
+      }
     } catch (error) {
+      if (!isCallActive(callId)) return;
       console.error('Failed to handle WebRTC offer:', error);
       setCallError('Unable to connect the call.');
-      sendCallSignal({ eventType: 'CALL_END', callId: event.callId });
+      sendCallSignal({ eventType: 'CALL_END', callId });
       finishCall('Unable to connect the call.');
     }
   }, [
-    activeCallRef, buildCallFromSignal, createPeerConnection, finishCall,
-    flushPendingIceCandidates, isCallSignalFromCurrentUser, sendCallSignal,
-    setActiveCallState, setCallError,
+    activeCallRef, createPeerConnection, finishCall, flushPendingIceCandidates,
+    isCallActive, isCallSignalFromCurrentUser, isCurrentPeerConnection,
+    sendCallSignal, setActiveCallState, setCallError,
   ]);
 
   const handleWebRtcAnswer = useCallback(async (event: CallSignalEvent) => {
-    if (!event.sdp || isCallSignalFromCurrentUser(event)) return;
+    const callId = event.callId;
+    if (
+      callId === undefined ||
+      !event.sdp ||
+      isCallSignalFromCurrentUser(event) ||
+      !isCallActive(callId) ||
+      peerConnectionCallIdRef.current !== callId
+    ) return;
     const peerConnection = peerConnectionRef.current;
-    if (!peerConnection) return;
+    if (!peerConnection || !isCurrentPeerConnection(callId, peerConnection)) return;
     try {
       await peerConnection.setRemoteDescription({ type: 'answer', sdp: event.sdp });
-      await flushPendingIceCandidates(peerConnection);
+      if (isCurrentPeerConnection(callId, peerConnection)) {
+        await flushPendingIceCandidates(peerConnection, callId);
+      }
     } catch (error) {
+      if (!isCurrentPeerConnection(callId, peerConnection)) return;
       console.error('Failed to handle WebRTC answer:', error);
       setCallError('Unable to complete the call connection.');
     }
-  }, [flushPendingIceCandidates, isCallSignalFromCurrentUser, peerConnectionRef, setCallError]);
+  }, [
+    flushPendingIceCandidates, isCallActive, isCallSignalFromCurrentUser,
+    isCurrentPeerConnection, peerConnectionCallIdRef, peerConnectionRef, setCallError,
+  ]);
 
   const handleIceCandidate = useCallback(async (event: CallSignalEvent) => {
-    if (!event.candidate || isCallSignalFromCurrentUser(event)) return;
+    const callId = event.callId;
+    if (
+      callId === undefined ||
+      !event.candidate ||
+      isCallSignalFromCurrentUser(event) ||
+      !isCallActive(callId)
+    ) return;
+
+    if (peerConnectionCallIdRef.current !== null && peerConnectionCallIdRef.current !== callId) {
+      return;
+    }
+
     const candidate: RTCIceCandidateInit = {
       candidate: event.candidate,
       sdpMid: event.sdpMid ?? undefined,
@@ -287,32 +417,43 @@ export function useWebRtcSignalHandlers({
     };
     const peerConnection = peerConnectionRef.current;
     if (!peerConnection || !peerConnection.remoteDescription) {
-      pendingIceCandidatesRef.current.push(candidate);
+      pendingIceCandidatesRef.current.push({ callId, candidate });
       return;
     }
+    if (!isCurrentPeerConnection(callId, peerConnection)) return;
     try {
       await peerConnection.addIceCandidate(candidate);
     } catch (error) {
       console.error('Failed to add ICE candidate:', error);
     }
-  }, [isCallSignalFromCurrentUser, peerConnectionRef, pendingIceCandidatesRef]);
+  }, [
+    isCallActive, isCallSignalFromCurrentUser, isCurrentPeerConnection,
+    peerConnectionCallIdRef, peerConnectionRef, pendingIceCandidatesRef,
+  ]);
 
   return useCallback((event: CallSignalEvent) => {
     const currentRole = getCurrentCallRole(event);
-    if (!currentRole) return;
+    if (!currentRole || event.callId === undefined) return;
     const isFromCurrentUser = isCallSignalFromCurrentUser(event);
     const nextCall = buildCallFromSignal(event, 'ringing');
     if (!nextCall) return;
 
     if (event.eventType === 'CALL_INVITE') {
+      const currentCall = activeCallRef.current;
       if (currentRole === 'caller') {
+        if (currentCall?.callId === event.callId) return;
+        if (currentCall && (
+          currentCall.callId !== undefined ||
+          currentCall.direction !== 'outgoing' ||
+          currentCall.peer.id !== event.receiver.id
+        )) return;
         setActiveCallState(nextCall);
         setCallError('');
         setRemoteScreenSharing(false);
         setScreenShareError('');
         return;
       }
-      const currentCall = activeCallRef.current;
+      if (currentCall?.callId === event.callId) return;
       if (currentCall && currentCall.callId !== event.callId) {
         sendCallSignal({ eventType: 'CALL_REJECT', callId: event.callId });
         return;
@@ -333,9 +474,9 @@ export function useWebRtcSignalHandlers({
       return;
     }
 
-    if (activeCallRef.current?.callId !== event.callId && ![
-      'WEBRTC_OFFER', 'WEBRTC_ANSWER', 'ICE_CANDIDATE', 'SCREEN_SHARE_START', 'SCREEN_SHARE_STOP',
-    ].includes(event.eventType)) {
+    if (!isCallEventForActiveCall(event)) return;
+
+    if (activeCallRef.current?.callId !== event.callId) {
       setActiveCallState(nextCall);
     }
 
@@ -367,6 +508,7 @@ export function useWebRtcSignalHandlers({
     if (event.eventType === 'ICE_CANDIDATE') void handleIceCandidate(event);
   }, [
     activeCallRef, buildCallFromSignal, finishCall, getCurrentCallRole,
+    isCallEventForActiveCall,
     handleIceCandidate, handleWebRtcAnswer, handleWebRtcOffer,
     isCallSignalFromCurrentUser, notifyWithBrowserNotification, sendCallSignal,
     setActiveCallState, setCallError, setPreCallSetup, setRemoteScreenSharing,
