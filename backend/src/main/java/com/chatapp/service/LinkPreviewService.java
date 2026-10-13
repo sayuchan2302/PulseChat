@@ -1,22 +1,34 @@
 package com.chatapp.service;
 
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.client5.http.config.ConnectionConfig;
+import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
+import org.apache.hc.core5.http.HttpEntity;
+import org.apache.hc.core5.util.Timeout;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.IDN;
-import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Arrays;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -48,17 +60,54 @@ public class LinkPreviewService {
             "&#39;", "'"
     );
 
-    private final HttpClient httpClient;
+    private final CloseableHttpClient httpClient;
+    private final ThreadPoolExecutor previewExecutor = new ThreadPoolExecutor(
+            4,
+            4,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(16),
+            runnable -> {
+                Thread thread = new Thread(runnable, "link-preview-fetch");
+                thread.setDaemon(true);
+                return thread;
+            },
+            new ThreadPoolExecutor.AbortPolicy());
 
     public LinkPreviewService() {
-        this(HttpClient.newBuilder()
-                .connectTimeout(CONNECT_TIMEOUT)
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build());
+        this(createHttpClient());
     }
 
-    LinkPreviewService(HttpClient httpClient) {
+    LinkPreviewService(CloseableHttpClient httpClient) {
         this.httpClient = httpClient;
+    }
+
+    private static CloseableHttpClient createHttpClient() {
+        PoolingHttpClientConnectionManager connectionManager = PoolingHttpClientConnectionManagerBuilder.create()
+                .setDnsResolver(new PublicOnlyDnsResolver())
+                .setDefaultConnectionConfig(ConnectionConfig.custom()
+                        .setConnectTimeout(Timeout.ofMilliseconds(CONNECT_TIMEOUT.toMillis()))
+                        .build())
+                .build();
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectionRequestTimeout(Timeout.ofMilliseconds(CONNECT_TIMEOUT.toMillis()))
+                .setResponseTimeout(Timeout.ofMilliseconds(REQUEST_TIMEOUT.toMillis()))
+                .setRedirectsEnabled(false)
+                .build();
+
+        return HttpClients.custom()
+                .setConnectionManager(connectionManager)
+                .setDefaultRequestConfig(requestConfig)
+                .disableRedirectHandling()
+                .disableCookieManagement()
+                .disableAuthCaching()
+                .build();
+    }
+
+    @PreDestroy
+    void closeHttpClient() throws IOException {
+        previewExecutor.shutdownNow();
+        httpClient.close();
     }
 
     public LinkPreviewMetadata resolveFirstPreview(String content) {
@@ -116,41 +165,55 @@ public class LinkPreviewService {
     }
 
     private LinkPreviewMetadata fetchPreview(URI uri) {
-        HttpRequest request = HttpRequest.newBuilder(uri)
-                .timeout(REQUEST_TIMEOUT)
-                .header("User-Agent", "ChatAppLinkPreview/1.0")
-                .header("Accept", "text/html,application/xhtml+xml")
-                .GET()
-                .build();
+        HttpGet request = new HttpGet(uri);
+        request.setHeader("User-Agent", "ChatAppLinkPreview/1.0");
+        request.setHeader("Accept", "text/html,application/xhtml+xml");
+
+        final Future<LinkPreviewMetadata> fetch;
+        try {
+            fetch = previewExecutor.submit(() -> executePreviewRequest(uri, request));
+        } catch (RejectedExecutionException exception) {
+            log.debug("Link preview queue is full for {}", uri);
+            return null;
+        }
 
         try {
-            HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            int status = response.statusCode();
-            if (status < 200 || status >= 300 || !isHtmlResponse(response)) {
-                closeQuietly(response.body());
-                return null;
-            }
-
-            try (InputStream body = response.body()) {
-                return buildPreview(uri, readLimitedHtml(body));
-            }
-        } catch (IOException exception) {
-            log.debug("Unable to resolve link preview for {}", uri, exception);
+            return fetch.get(REQUEST_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException exception) {
+            request.cancel();
+            fetch.cancel(true);
+            previewExecutor.remove((Runnable) fetch);
+            log.debug("Link preview timed out for {}", uri);
             return null;
         } catch (InterruptedException exception) {
+            request.cancel();
+            fetch.cancel(true);
+            previewExecutor.remove((Runnable) fetch);
             Thread.currentThread().interrupt();
             return null;
-        } catch (IllegalArgumentException exception) {
-            log.debug("Invalid link preview request for {}", uri, exception);
+        } catch (ExecutionException exception) {
+            log.debug("Unable to resolve link preview for {}", uri, exception.getCause());
             return null;
         }
     }
 
-    private boolean isHtmlResponse(HttpResponse<?> response) {
-        String contentType = response.headers()
-                .firstValue("content-type")
-                .orElse("")
-                .toLowerCase(Locale.ROOT);
+    private LinkPreviewMetadata executePreviewRequest(URI uri, HttpGet request) throws IOException {
+        return httpClient.execute(request, response -> {
+            int status = response.getCode();
+            HttpEntity entity = response.getEntity();
+            if (status < 200 || status >= 300 || entity == null || !isHtmlResponse(entity)) {
+                return null;
+            }
+
+            try (InputStream body = entity.getContent()) {
+                return buildPreview(uri, readLimitedHtml(body));
+            }
+        });
+    }
+
+    private boolean isHtmlResponse(HttpEntity entity) {
+        String contentType = entity.getContentType();
+        contentType = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
 
         return contentType.isBlank()
                 || contentType.startsWith("text/html")
@@ -255,25 +318,11 @@ public class LinkPreviewService {
         }
 
         try {
-            InetAddress[] addresses = InetAddress.getAllByName(host);
-            return addresses.length == 0 || Arrays.stream(addresses).anyMatch(this::isBlockedAddress);
+            new PublicOnlyDnsResolver().resolve(host);
+            return false;
         } catch (UnknownHostException exception) {
             return true;
         }
-    }
-
-    private boolean isBlockedAddress(InetAddress address) {
-        return address.isAnyLocalAddress()
-                || address.isLoopbackAddress()
-                || address.isLinkLocalAddress()
-                || address.isSiteLocalAddress()
-                || address.isMulticastAddress()
-                || isUniqueLocalIpv6(address);
-    }
-
-    private boolean isUniqueLocalIpv6(InetAddress address) {
-        byte[] bytes = address.getAddress();
-        return bytes.length == 16 && (bytes[0] & 0xfe) == 0xfc;
     }
 
     private String stripTrailingPunctuation(String rawUrl) {
@@ -325,13 +374,6 @@ public class LinkPreviewService {
     private String displayDomain(URI uri) {
         String host = uri.getHost();
         return host == null ? null : host.replaceFirst("^www\\.", "");
-    }
-
-    private void closeQuietly(InputStream inputStream) {
-        try {
-            inputStream.close();
-        } catch (IOException ignored) {
-        }
     }
 
     private record MetaTag(String key, String content) {

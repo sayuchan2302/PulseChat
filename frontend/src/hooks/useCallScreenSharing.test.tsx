@@ -220,4 +220,50 @@ describe('useCallScreenSharing', () => {
     expect(context.setters.setLocalCallStream).toHaveBeenCalledOnce();
     expect(context.refs.screenSharingRef.current).toBe(false);
   });
+
+  it('finishes stopping screen sharing if a microphone switch replaces the local stream wrapper', async () => {
+    const screenTrack = createTrack();
+    const displayStreamPromise = Promise.resolve(
+      new MockMediaStream([screenTrack]) as unknown as MediaStream,
+    );
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getDisplayMedia: vi.fn(() => displayStreamPromise) },
+    });
+    const stopResult = deferred<void>();
+    const context = createCallContext();
+    context.replaceTrack
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(() => stopResult.promise);
+
+    await act(async () => {
+      await context.result.current.handleStartScreenShare();
+    });
+
+    const replacementAudioTrack = createTrack('audio');
+    const latestLocalStream = new MockMediaStream([screenTrack, replacementAudioTrack]) as unknown as MediaStream;
+    let stopPromise!: Promise<void>;
+    act(() => {
+      stopPromise = context.result.current.handleStopScreenShare();
+    });
+    expect(context.replaceTrack).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      context.refs.localCallStreamRef.current = latestLocalStream;
+    });
+    stopResult.resolve();
+
+    await act(async () => {
+      await stopPromise;
+    });
+
+    expect(context.refs.localCallStreamRef.current?.getAudioTracks()).toEqual([replacementAudioTrack]);
+    expect(context.refs.localCallStreamRef.current?.getVideoTracks()).toEqual([context.cameraTrack]);
+    expect(screenTrack.stop).toHaveBeenCalledOnce();
+    expect(context.refs.screenSharingRef.current).toBe(false);
+    expect(context.setters.sendCallSignal).toHaveBeenCalledWith({
+      eventType: 'SCREEN_SHARE_STOP',
+      callId: 42,
+    });
+  });
 });

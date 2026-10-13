@@ -90,7 +90,6 @@ export function useCallScreenSharing({
     screenShareStoppingRef.current = true;
     const currentCall = activeCallRef.current;
     const callId = currentCall?.callId;
-    const currentStream = localCallStreamRef.current;
     const peerConnection = peerConnectionRef.current;
     const screenShareStream = screenShareStreamRef.current;
     const cameraTrack = screenShareCameraTrackRef.current;
@@ -100,8 +99,9 @@ export function useCallScreenSharing({
         callId !== undefined &&
         activeCall?.callId === callId &&
         activeCall.status !== 'ending' &&
-        localCallStreamRef.current === currentStream &&
-        peerConnectionRef.current === peerConnection;
+        peerConnectionRef.current === peerConnection &&
+        screenShareStreamRef.current === screenShareStream &&
+        screenShareCameraTrackRef.current === cameraTrack;
     };
 
     try {
@@ -118,6 +118,7 @@ export function useCallScreenSharing({
 
       if (!isCurrentStop()) return;
 
+      const currentStream = localCallStreamRef.current;
       if (currentStream) {
         currentStream.getVideoTracks().forEach((track) => {
           currentStream.removeTrack(track);

@@ -21,6 +21,7 @@
     <properties>
         <java.version>17</java.version>
         <lombok.version>1.18.46</lombok.version>
+        <tika.version>3.3.2</tika.version>
     </properties>
 
     <dependencies>
@@ -47,6 +48,25 @@
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
+        </dependency>
+
+        <!-- Content-based upload validation without loading document parsers. -->
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-core</artifactId>
+            <version>${tika.version}</version>
+        </dependency>
+
+        <!-- Versioned schema migrations are enabled in the production profile. -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+
+        <!-- Apache HttpClient lets link previews pin each connection to vetted DNS results. -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
         </dependency>
 
         <!-- Spring Security -->

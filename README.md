@@ -131,6 +131,12 @@ npm run build
 - Keep sensitive keys and credentials in `.env` files only; never commit them to version control.
 - `spring.jpa.hibernate.ddl-auto=update` is configured for local development convenience.
 
+### Production database schema
+
+Set `SPRING_PROFILES_ACTIVE=prod` to enable Flyway migrations and Hibernate schema validation. A new production database is created from `backend/src/main/resources/db/migration/V1__initial_schema.sql`; future schema changes should be added as new numbered Flyway migrations.
+
+For an existing database created by this application, Flyway baselines the current schema at version 1 and leaves its data in place. Back up the database and confirm it matches the current entities before the first production startup. `ddl-auto=validate` then fails startup if the application schema does not match the entities.
+
 ## 📄 License
 
 MIT

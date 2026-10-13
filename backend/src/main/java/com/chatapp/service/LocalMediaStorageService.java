@@ -3,6 +3,7 @@ package com.chatapp.service;
 import com.chatapp.dto.response.LocalMediaUploadResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
+import org.apache.tika.Tika;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -18,6 +19,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -58,6 +60,21 @@ public class LocalMediaStorageService {
             Map.entry("text/plain", "txt"),
             Map.entry("text/csv", "csv"),
             Map.entry("application/json", "json"));
+
+    private static final Map<String, Set<String>> DETECTED_TYPE_ALIASES = Map.ofEntries(
+            Map.entry("image/jpg", Set.of("image/jpeg")),
+            Map.entry("audio/mp3", Set.of("audio/mpeg")),
+            Map.entry("audio/x-wav", Set.of("audio/wav")),
+            Map.entry("application/x-zip-compressed", Set.of("application/zip")),
+            Map.entry("application/vnd.openxmlformats-officedocument.wordprocessingml.document", Set.of("application/zip")),
+            Map.entry("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", Set.of("application/zip")),
+            Map.entry("application/vnd.openxmlformats-officedocument.presentationml.presentation", Set.of("application/zip")),
+            Map.entry("video/x-msvideo", Set.of("video/avi")),
+            Map.entry("text/csv", Set.of("text/plain", "application/csv")),
+            Map.entry("audio/webm", Set.of("video/webm")),
+            Map.entry("audio/mp4", Set.of("video/mp4")));
+
+    private static final Tika CONTENT_DETECTOR = new Tika();
 
     @Value("${app.uploads.media-dir:uploads/media}")
     private String mediaDirectory;
@@ -122,6 +139,7 @@ public class LocalMediaStorageService {
         validateFileSize(mediaFile, isImage, isVideo, isAudio);
 
         String format = determineFormat(contentType);
+        validateFileContent(mediaFile, contentType);
         String publicId = UUID.randomUUID().toString();
         String filename = publicId + "." + format;
 
@@ -177,6 +195,31 @@ public class LocalMediaStorageService {
         }
 
         return format;
+    }
+
+    private void validateFileContent(MultipartFile file, String declaredContentType) {
+        final String detectedContentType;
+        try (InputStream inputStream = file.getInputStream()) {
+            detectedContentType = CONTENT_DETECTOR.detect(inputStream).toLowerCase(Locale.ROOT);
+        } catch (IOException exception) {
+            throw new AppException(ErrorCode.INVALID_MEDIA_FILE);
+        }
+
+        String declared = declaredContentType.toLowerCase(Locale.ROOT).split(";", 2)[0].trim();
+        if (declared.equals(detectedContentType)) {
+            return;
+        }
+
+        boolean compatible = DETECTED_TYPE_ALIASES
+                .getOrDefault(declared, Set.of())
+                .contains(detectedContentType);
+        if ("text/plain".equals(declared) && "application/json".equals(detectedContentType)) {
+            compatible = true;
+        }
+
+        if (!compatible) {
+            throw new AppException(ErrorCode.INVALID_MEDIA_FILE);
+        }
     }
 
     private String normalizedContextPath() {
