@@ -129,6 +129,9 @@ public class Message {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
+    @Column(name = "edited_at")
+    private LocalDateTime editedAt;
+
     public enum MessageType {
         TEXT, IMAGE, VIDEO, AUDIO, FILE, CALL
     }

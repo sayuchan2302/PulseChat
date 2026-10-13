@@ -16,6 +16,7 @@ import com.chatapp.exception.AppException;
 import com.chatapp.service.ChatRoomService;
 import com.chatapp.service.GeminiGroupSummaryService;
 import com.chatapp.service.MessageService;
+import com.chatapp.service.MessageQueryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -46,6 +47,7 @@ public class ChatRoomController {
         private final ChatRoomService chatRoomService;
         private final GeminiGroupSummaryService geminiGroupSummaryService;
         private final MessageService messageService;
+    private final MessageQueryService messageQueryService;
         private final SimpMessagingTemplate messagingTemplate;
 
         @GetMapping
@@ -69,7 +71,7 @@ public class ChatRoomController {
                         @PathVariable Long roomId,
                         @RequestParam(required = false) Long before,
                         @RequestParam(required = false) Integer size) {
-                return messageService.getRoomMessages(authentication.getName(), roomId, before, size);
+                return messageQueryService.getRoomMessages(authentication.getName(), roomId, before, size);
         }
 
         @PostMapping("/{roomId}/summaries")
@@ -85,7 +87,7 @@ public class ChatRoomController {
                         @PathVariable Long roomId,
                         @RequestParam(required = false) Long before,
                         @RequestParam(required = false) Integer size) {
-                return messageService.getRoomMedia(authentication.getName(), roomId, before, size);
+                return messageQueryService.getRoomMedia(authentication.getName(), roomId, before, size);
         }
 
         @GetMapping("/{roomId}/links")
@@ -94,7 +96,7 @@ public class ChatRoomController {
                         @PathVariable Long roomId,
                         @RequestParam(required = false) Long before,
                         @RequestParam(required = false) Integer size) {
-                return messageService.getRoomLinks(authentication.getName(), roomId, before, size);
+                return messageQueryService.getRoomLinks(authentication.getName(), roomId, before, size);
         }
 
         @GetMapping("/{roomId}/search")
@@ -104,7 +106,7 @@ public class ChatRoomController {
                         @RequestParam String query,
                         @RequestParam(required = false) Long before,
                         @RequestParam(required = false) Integer size) {
-                return messageService.searchRoom(authentication.getName(), roomId, query, before, size);
+                return messageQueryService.searchRoom(authentication.getName(), roomId, query, before, size);
         }
 
         @GetMapping("/{roomId}/around/{messageId}")
@@ -113,7 +115,7 @@ public class ChatRoomController {
                         @PathVariable Long roomId,
                         @PathVariable Long messageId,
                         @RequestParam(required = false) Integer size) {
-                return messageService.getRoomAroundMessage(authentication.getName(), roomId, messageId, size);
+                return messageQueryService.getRoomAroundMessage(authentication.getName(), roomId, messageId, size);
         }
 
         @GetMapping("/{roomId}/messages/{messageId}/seen-by")
@@ -121,7 +123,7 @@ public class ChatRoomController {
                         Authentication authentication,
                         @PathVariable Long roomId,
                         @PathVariable Long messageId) {
-                return messageService.getRoomMessageSeenBy(authentication.getName(), roomId, messageId);
+                return messageQueryService.getRoomMessageSeenBy(authentication.getName(), roomId, messageId);
         }
 
         @PatchMapping("/{roomId}/read")

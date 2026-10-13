@@ -5097,6 +5097,11 @@ button.main-list-item {
   align-items: center;
 }
 
+.message-edited-label {
+  font-style: italic;
+  color: var(--gray-500);
+}
+
 .message.sent .message-time {
   justify-content: flex-end;
 }
@@ -5758,6 +5763,87 @@ button.main-list-item {
 
 .delete-conversation-backdrop {
   z-index: 40;
+}
+
+.edit-message-backdrop {
+  z-index: 45;
+}
+
+.edit-message-modal {
+  width: min(520px, 100%);
+  padding: 24px;
+  border-radius: 16px;
+  background: var(--white);
+  color: var(--gray-900);
+  box-shadow: 0 24px 64px rgba(17, 24, 39, 0.28);
+}
+
+.edit-message-modal h3 {
+  margin: 0 0 16px;
+  font-size: 18px;
+}
+
+.edit-message-textarea {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: 10px;
+  color: var(--gray-900);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.edit-message-textarea:focus {
+  outline: 2px solid var(--purple-500);
+  border-color: transparent;
+}
+
+.edit-message-meta,
+.edit-message-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.edit-message-save-btn {
+  min-height: 46px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  background: var(--purple-600);
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.edit-message-save-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.edit-message-error {
+  color: #dc2626;
+}
+
+.edit-message-actions {
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+[data-theme='dark'] .edit-message-modal {
+  background: #1e1f2f;
+  color: #f1f5f9;
+}
+
+[data-theme='dark'] .edit-message-textarea {
+  border-color: #4a4d6e;
+  background: #151625;
+  color: #f1f5f9;
 }
 
 .delete-conversation-modal {

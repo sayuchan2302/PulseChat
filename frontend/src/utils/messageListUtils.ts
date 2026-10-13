@@ -1,4 +1,4 @@
-import type { ChatRoom } from '../types';
+import type { ChatRoom, User } from '../types';
 import type { ChatMessage, MessageListItem } from '../types/chat.types';
 import { formatMessageDateDivider, getLocalDateKey } from './formatUtils';
 import { shouldGroupAdjacentMessages } from './messageUtils';
@@ -43,4 +43,38 @@ export function buildMessageListItems(
   });
 
   return items;
+}
+
+export function buildLatestRoomSeenByMessageId(
+  messages: ChatMessage[],
+  seenByMessageId: Record<number, User[]>,
+): Record<number, User[]> {
+  const result: Record<number, User[]> = {};
+  const placedUserIds = new Set<number>();
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || message.id <= 0 || message.recalled) {
+      continue;
+    }
+
+    const readers = seenByMessageId[message.id];
+    if (!readers?.length) {
+      continue;
+    }
+
+    const latestReaders = readers.filter((reader) => {
+      if (placedUserIds.has(reader.id)) {
+        return false;
+      }
+      placedUserIds.add(reader.id);
+      return true;
+    });
+
+    if (latestReaders.length > 0) {
+      result[message.id] = latestReaders;
+    }
+  }
+
+  return result;
 }

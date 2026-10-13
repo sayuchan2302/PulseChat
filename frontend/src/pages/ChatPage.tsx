@@ -127,7 +127,7 @@ import GroupSeenBy from '../components/chat/GroupSeenBy';
 import SharedContentSections from '../components/chat/SharedContentSections';
 import type { LightboxMediaItem } from '../components/chat/MediaLightbox';
 import type { ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
-import { buildMessageListItems } from '../utils/messageListUtils';
+import { buildLatestRoomSeenByMessageId, buildMessageListItems } from '../utils/messageListUtils';
 import './ChatPage.css';
 
 export default function ChatPage() {
@@ -144,6 +144,7 @@ export default function ChatPage() {
   const [replyingToMessage, setReplyingToMessage] = useState<ChatMessage | null>(null);
   const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<ChatMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionStartIndex, setMentionStartIndex] = useState<number>(-1);
   const [mentionActiveIndex, setMentionActiveIndex] = useState<number>(0);
@@ -917,6 +918,11 @@ export default function ChatPage() {
 
   const applyMessageUpdate = useCallback((updatedMessage: Message) => {
     setMessages((currentMessages) => mergeKnownMessageUpdate(currentMessages, updatedMessage));
+    setPinnedMessage((currentPinnedMessage) =>
+      currentPinnedMessage?.id === updatedMessage.id
+        ? { ...currentPinnedMessage, ...updatedMessage }
+        : currentPinnedMessage
+    );
     updateSharedContentFromMessage(updatedMessage);
     if (updatedMessage.recalled && updatedMessage.chatRoomId) {
       roomSeenByLoadedMessageIdsRef.current.delete(updatedMessage.id);
@@ -1479,11 +1485,11 @@ export default function ChatPage() {
 
   const {
     handleReplyToMessage, handleCancelReply, handleCopyMessage,
-    handleReactToMessage, handleRecallMessage, handlePinMessage,
+    handleEditMessage, saveEditedMessage, handleReactToMessage, handleRecallMessage, handlePinMessage,
     handleUnpinMessage, handleForwardMessage, sendForwardMessage,
   } = useMessageActions({
-    currentUser, selectedUser, selectedRoom, replyingToMessage, forwardingMessage,
-    messageInputRef, setReplyingToMessage, setForwardingMessage, setPinnedMessage,
+    currentUser, selectedUser, selectedRoom, replyingToMessage, forwardingMessage, editingMessage,
+    messageInputRef, setReplyingToMessage, setForwardingMessage, setEditingMessage, setPinnedMessage,
     setEmojiPickerOpen, setMessagesError, applyMessageUpdate,
   });
 
@@ -1723,36 +1729,7 @@ export default function ChatPage() {
     if (!selectedRoom || Object.keys(roomSeenByByMessageId).length === 0) {
       return {};
     }
-
-    const result: Record<number, User[]> = {};
-    const placedUserIds = new Set<number>();
-
-    // Iterate backwards through messages so only the latest read message claims each reader's avatar
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const msg = messages[index];
-      if (!msg || msg.id <= 0 || msg.recalled) {
-        continue;
-      }
-
-      const readers = roomSeenByByMessageId[msg.id];
-      if (!readers || readers.length === 0) {
-        continue;
-      }
-
-      const uniqueLatestReaders: User[] = [];
-      for (const reader of readers) {
-        if (!placedUserIds.has(reader.id)) {
-          placedUserIds.add(reader.id);
-          uniqueLatestReaders.push(reader);
-        }
-      }
-
-      if (uniqueLatestReaders.length > 0) {
-        result[msg.id] = uniqueLatestReaders;
-      }
-    }
-
-    return result;
+    return buildLatestRoomSeenByMessageId(messages, roomSeenByByMessageId);
   }, [messages, roomSeenByByMessageId, selectedRoom]);
   const mediaViewerUrl = getMediaUrl(mediaViewerMessage?.mediaUrl);
   const mediaViewerType = mediaViewerMessage ? getMessageType(mediaViewerMessage) : 'IMAGE';
@@ -1796,6 +1773,7 @@ export default function ChatPage() {
       currentUserId={currentUser?.id ?? null} pinnedMessage={pinnedMessage}
       onReact={(target, emoji) => void handleReactToMessage(target, emoji)}
       onReply={handleReplyToMessage} onCopy={(target) => void handleCopyMessage(target)}
+      onEdit={handleEditMessage}
       onRecall={(target) => void handleRecallMessage(target)} onPin={(target) => void handlePinMessage(target)}
       onForward={handleForwardMessage}
     />
@@ -2362,6 +2340,9 @@ export default function ChatPage() {
         onCloseConversationDelete={() => setConversationDeleteTarget(null)}
         onDeleteConversation={() => void handleDeleteConversation()}
         forwardingMessage={forwardingMessage}
+        editingMessage={editingMessage}
+        onCloseEditMessage={() => setEditingMessage(null)}
+        onSaveEditMessage={saveEditedMessage}
         friends={friends}
         rooms={rooms}
         onCloseForward={() => setForwardingMessage(null)}

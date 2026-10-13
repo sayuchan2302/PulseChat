@@ -1,6 +1,7 @@
 package com.chatapp.service;
 
 import com.chatapp.dto.request.MediaAttachmentRequest;
+import com.chatapp.dto.request.EditMessageRequest;
 import com.chatapp.dto.request.MessageReactionRequest;
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.response.MessagePageResponse;
@@ -83,6 +84,9 @@ class MessageServiceTest {
         @InjectMocks
         private MessageService messageService;
 
+        @InjectMocks
+        private MessageQueryService messageQueryService;
+
         @Test
         void reusedClientIdCannotReturnAnotherConversation() {
                 User sender = user(1L, "alice");
@@ -124,7 +128,7 @@ class MessageServiceTest {
                                                 privateMessage(2L, "two", otherUser, currentUser),
                                                 privateMessage(1L, "one", currentUser, otherUser)));
 
-                MessagePageResponse page = messageService.getConversation("sayu", otherUser.getId(), null, 2);
+                MessagePageResponse page = messageQueryService.getConversation("sayu", otherUser.getId(), null, 2);
 
                 assertTrue(page.hasMore());
                 assertEquals(2L, page.nextBefore());
@@ -144,7 +148,7 @@ class MessageServiceTest {
                 when(messageRepository.findConversationPage(eq(1L), eq(2L), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of());
 
-                MessagePageResponse page = messageService.getConversation("sayu", otherUser.getId(), null, 30);
+                MessagePageResponse page = messageQueryService.getConversation("sayu", otherUser.getId(), null, 30);
 
                 assertTrue(page.items().isEmpty());
                 verify(messageRepository).findConversationPage(eq(1L), eq(2L), isNull(), any(Pageable.class));
@@ -161,7 +165,7 @@ class MessageServiceTest {
                                                 roomMessage(7L, "older", sender, room),
                                                 roomMessage(6L, "oldest", sender, room)));
 
-                MessagePageResponse page = messageService.getRoomMessages("sayu", room.getId(), 8L, null);
+                MessagePageResponse page = messageQueryService.getRoomMessages("sayu", room.getId(), 8L, null);
 
                 assertFalse(page.hasMore());
                 assertNull(page.nextBefore());
@@ -182,7 +186,7 @@ class MessageServiceTest {
                                 eq(1L), eq(2L), any(), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of());
 
-                MessagePageResponse page = messageService.getConversationMedia("sayu", otherUser.getId(), null, 12);
+                MessagePageResponse page = messageQueryService.getConversationMedia("sayu", otherUser.getId(), null, 12);
 
                 assertTrue(page.items().isEmpty());
                 verify(messageRepository).findConversationMediaPage(
@@ -205,7 +209,7 @@ class MessageServiceTest {
                                                 mediaMessage(8L, otherUser, currentUser, MessageType.VIDEO),
                                                 mediaMessage(7L, currentUser, otherUser, MessageType.IMAGE)));
 
-                MessagePageResponse page = messageService.getConversationMedia("sayu", otherUser.getId(), 10L, 2);
+                MessagePageResponse page = messageQueryService.getConversationMedia("sayu", otherUser.getId(), 10L, 2);
 
                 assertTrue(page.hasMore());
                 assertEquals(8L, page.nextBefore());
@@ -232,7 +236,7 @@ class MessageServiceTest {
                                                 linkMessage(6L, currentUser, otherUser),
                                                 linkMessage(5L, otherUser, currentUser)));
 
-                MessagePageResponse page = messageService.getConversationLinks("sayu", otherUser.getId(), null, 2);
+                MessagePageResponse page = messageQueryService.getConversationLinks("sayu", otherUser.getId(), null, 2);
 
                 assertFalse(page.hasMore());
                 assertNull(page.nextBefore());
@@ -246,7 +250,7 @@ class MessageServiceTest {
 
                 AppException exception = assertThrows(
                                 AppException.class,
-                                () -> messageService.getRoomMedia("sayu", 10L, null, 12));
+                                () -> messageQueryService.getRoomMedia("sayu", 10L, null, 12));
 
                 assertEquals(ErrorCode.ROOM_ACCESS_DENIED, exception.getErrorCode());
                 verify(messageRepository, never()).findRoomMediaPage(any(), any(), any(), any());
@@ -264,7 +268,7 @@ class MessageServiceTest {
                                                 roomLinkMessage(18L, sender, room),
                                                 roomLinkMessage(17L, sender, room)));
 
-                MessagePageResponse page = messageService.getRoomLinks("sayu", room.getId(), 20L, 2);
+                MessagePageResponse page = messageQueryService.getRoomLinks("sayu", room.getId(), 20L, 2);
 
                 assertTrue(page.hasMore());
                 assertEquals(18L, page.nextBefore());
@@ -281,7 +285,7 @@ class MessageServiceTest {
                                 eq(1L), eq(2L), any(), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of());
 
-                MessagePageResponse page = messageService.searchConversation(
+                MessagePageResponse page = messageQueryService.searchConversation(
                                 "sayu", otherUser.getId(), "hello", null, 12);
 
                 assertTrue(page.items().isEmpty());
@@ -305,7 +309,7 @@ class MessageServiceTest {
                                                 privateMessage(10L, "hello older", otherUser, currentUser),
                                                 privateMessage(9L, "hello oldest", currentUser, otherUser)));
 
-                MessagePageResponse page = messageService.searchConversation("sayu", otherUser.getId(), " Hello ", 12L,
+                MessagePageResponse page = messageQueryService.searchConversation("sayu", otherUser.getId(), " Hello ", 12L,
                                 2);
 
                 assertTrue(page.hasMore());
@@ -329,7 +333,7 @@ class MessageServiceTest {
 
                 AppException exception = assertThrows(
                                 AppException.class,
-                                () -> messageService.searchRoom("sayu", 10L, "hello", null, 12));
+                                () -> messageQueryService.searchRoom("sayu", 10L, "hello", null, 12));
 
                 assertEquals(ErrorCode.ROOM_ACCESS_DENIED, exception.getErrorCode());
                 verify(messageRepository, never()).findRoomSearchPage(any(), any(), any(), any());
@@ -356,7 +360,7 @@ class MessageServiceTest {
                                                 privateMessage(11L, "after 11", otherUser, currentUser),
                                                 privateMessage(12L, "after 12", currentUser, otherUser)));
 
-                MessagePageResponse page = messageService.getConversationAroundMessage(
+                MessagePageResponse page = messageQueryService.getConversationAroundMessage(
                                 "sayu",
                                 otherUser.getId(),
                                 anchor.getId(),
@@ -378,7 +382,7 @@ class MessageServiceTest {
 
                 AppException exception = assertThrows(
                                 AppException.class,
-                                () -> messageService.getConversationAroundMessage("sayu", otherUser.getId(), 30L, 30));
+                                () -> messageQueryService.getConversationAroundMessage("sayu", otherUser.getId(), 30L, 30));
 
                 assertEquals(ErrorCode.MESSAGE_NOT_FOUND, exception.getErrorCode());
                 verify(messageRepository, never()).findConversationMessagesBefore(any(), any(), any(), any());
@@ -402,7 +406,7 @@ class MessageServiceTest {
                                                 roomMessage(16L, "after", sender, room),
                                                 roomMessage(17L, "after newer", sender, room)));
 
-                MessagePageResponse page = messageService.getRoomAroundMessage("sayu", room.getId(), anchor.getId(), 4);
+                MessagePageResponse page = messageQueryService.getRoomAroundMessage("sayu", room.getId(), anchor.getId(), 4);
 
                 assertFalse(page.hasMore());
                 assertNull(page.nextBefore());
@@ -431,7 +435,7 @@ class MessageServiceTest {
                                                 readState(room, reader, message.getTimestamp().plusMinutes(1)),
                                                 readState(room, sender, message.getTimestamp().plusMinutes(2))));
 
-                MessageSeenByResponse response = messageService.getRoomMessageSeenBy(
+                MessageSeenByResponse response = messageQueryService.getRoomMessageSeenBy(
                                 "sayu",
                                 room.getId(),
                                 message.getId());
@@ -689,6 +693,96 @@ class MessageServiceTest {
 
                 assertTrue(response.recalled());
                 assertEquals("", response.content());
+        }
+
+        @Test
+        void editMessageUpdatesContentTimestampAndClearsStalePreview() {
+                User sender = user(1L, "sayu");
+                User receiver = user(2L, "thinh");
+                Message message = linkMessage(20L, sender, receiver);
+                when(userService.findByUsername("sayu")).thenReturn(sender);
+                when(messageRepository.findById(message.getId())).thenReturn(Optional.of(message));
+                when(messageRepository.saveAndFlush(any(Message.class)))
+                                .thenAnswer(invocation -> invocation.getArgument(0));
+
+                MessageResponse response = messageService.editMessage(
+                                "sayu", message.getId(), new EditMessageRequest("Updated text"));
+
+                assertEquals("Updated text", response.content());
+                assertTrue(response.editedAt() != null);
+                assertNull(response.linkPreview());
+                verify(linkPreviewService).resolveFirstPreview("Updated text");
+        }
+
+        @Test
+        void editMessageRequiresTheSender() {
+                User sender = user(1L, "sayu");
+                User receiver = user(2L, "thinh");
+                Message message = privateMessage(20L, "Hello", sender, receiver);
+                when(userService.findByUsername("thinh")).thenReturn(receiver);
+                when(messageRepository.findById(message.getId())).thenReturn(Optional.of(message));
+
+                AppException exception = assertThrows(AppException.class,
+                                () -> messageService.editMessage("thinh", message.getId(),
+                                                new EditMessageRequest("Updated text")));
+
+                assertEquals(ErrorCode.MESSAGE_EDIT_NOT_ALLOWED, exception.getErrorCode());
+                verify(linkPreviewService, never()).resolveFirstPreview(any());
+                verify(messageRepository, never()).saveAndFlush(any(Message.class));
+        }
+
+        @Test
+        void editMessageRejectsRecalledAndNonTextMessages() {
+                User sender = user(1L, "sayu");
+                User receiver = user(2L, "thinh");
+                Message recalledMessage = privateMessage(20L, "Hello", sender, receiver);
+                recalledMessage.setRecalled(true);
+                Message mediaMessage = mediaMessage(21L, sender, receiver, MessageType.IMAGE);
+                when(userService.findByUsername("sayu")).thenReturn(sender);
+                when(messageRepository.findById(20L)).thenReturn(Optional.of(recalledMessage));
+                when(messageRepository.findById(21L)).thenReturn(Optional.of(mediaMessage));
+
+                AppException recalledException = assertThrows(AppException.class,
+                                () -> messageService.editMessage("sayu", 20L, new EditMessageRequest("Updated")));
+                AppException mediaException = assertThrows(AppException.class,
+                                () -> messageService.editMessage("sayu", 21L, new EditMessageRequest("Updated")));
+
+                assertEquals(ErrorCode.MESSAGE_EDIT_NOT_ALLOWED, recalledException.getErrorCode());
+                assertEquals(ErrorCode.MESSAGE_EDIT_NOT_ALLOWED, mediaException.getErrorCode());
+                verify(messageRepository, never()).saveAndFlush(any(Message.class));
+        }
+
+        @Test
+        void editRoomMessageRecalculatesMentions() {
+                User sender = user(1L, "sayu");
+                User previousMention = user(2L, "thinh");
+                User newMention = user(3L, "mika");
+                ChatRoom room = room(10L, "team");
+                room.addMember(sender);
+                room.addMember(previousMention);
+                room.addMember(newMention);
+                Message message = roomMessage(30L, "Hi @thinh", sender, room);
+                message.setMentions(java.util.Set.of(previousMention));
+                when(userService.findByUsername("sayu")).thenReturn(sender);
+                when(messageRepository.findById(message.getId())).thenReturn(Optional.of(message));
+                when(chatRoomService.findGroupRoomForMember(sender, room.getId())).thenReturn(room);
+                when(messageRepository.saveAndFlush(any(Message.class)))
+                                .thenAnswer(invocation -> invocation.getArgument(0));
+
+                MessageResponse response = messageService.editMessage(
+                                "sayu", message.getId(), new EditMessageRequest("Hi @mika"));
+
+                assertEquals(List.of(newMention.getId()), response.mentionedUserIds());
+                assertEquals(List.of("mika"), response.mentionedUsernames());
+        }
+
+        @Test
+        void editMessageRejectsBlankContentBeforeLookingUpMessage() {
+                AppException exception = assertThrows(AppException.class,
+                                () -> messageService.editMessage("sayu", 20L, new EditMessageRequest("  ")));
+
+                assertEquals(ErrorCode.INVALID_MESSAGE_CONTENT, exception.getErrorCode());
+                verify(messageRepository, never()).findById(any());
         }
 
         @Test

@@ -98,6 +98,7 @@ export interface Message {
   receiverId?: number | null;
   chatRoomId?: number | null;
   timestamp: string;
+  editedAt?: string | null;
   read: boolean;
   clientId?: string | null;
   pinnedBy?: number | null;

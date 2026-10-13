@@ -1,6 +1,7 @@
 package com.chatapp.controller;
 
 import com.chatapp.dto.request.ForwardMessageRequest;
+import com.chatapp.dto.request.EditMessageRequest;
 import com.chatapp.dto.request.MessageReactionRequest;
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.response.MessagePageResponse;
@@ -8,6 +9,7 @@ import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.dto.response.ReadReceiptResponse;
 import com.chatapp.dto.response.UnreadCountResponse;
 import com.chatapp.service.MessageService;
+import com.chatapp.service.MessageQueryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -34,11 +36,12 @@ public class MessageController {
     private static final String MESSAGE_UPDATE_QUEUE = "/queue/message-updates";
 
     private final MessageService messageService;
+    private final MessageQueryService messageQueryService;
     private final SimpMessagingTemplate messagingTemplate;
 
     @GetMapping("/unread-counts")
     public List<UnreadCountResponse> getUnreadCounts(Authentication authentication) {
-        return messageService.getUnreadCounts(authentication.getName());
+        return messageQueryService.getUnreadCounts(authentication.getName());
     }
 
     @GetMapping("/{userId}")
@@ -47,7 +50,7 @@ public class MessageController {
             @PathVariable Long userId,
             @RequestParam(required = false) Long before,
             @RequestParam(required = false) Integer size) {
-        return messageService.getConversation(authentication.getName(), userId, before, size);
+        return messageQueryService.getConversation(authentication.getName(), userId, before, size);
     }
 
     @GetMapping("/{userId}/media")
@@ -56,7 +59,7 @@ public class MessageController {
             @PathVariable Long userId,
             @RequestParam(required = false) Long before,
             @RequestParam(required = false) Integer size) {
-        return messageService.getConversationMedia(authentication.getName(), userId, before, size);
+        return messageQueryService.getConversationMedia(authentication.getName(), userId, before, size);
     }
 
     @GetMapping("/{userId}/links")
@@ -65,7 +68,7 @@ public class MessageController {
             @PathVariable Long userId,
             @RequestParam(required = false) Long before,
             @RequestParam(required = false) Integer size) {
-        return messageService.getConversationLinks(authentication.getName(), userId, before, size);
+        return messageQueryService.getConversationLinks(authentication.getName(), userId, before, size);
     }
 
     @GetMapping("/{userId}/search")
@@ -75,7 +78,7 @@ public class MessageController {
             @RequestParam String query,
             @RequestParam(required = false) Long before,
             @RequestParam(required = false) Integer size) {
-        return messageService.searchConversation(authentication.getName(), userId, query, before, size);
+        return messageQueryService.searchConversation(authentication.getName(), userId, query, before, size);
     }
 
     @GetMapping("/{userId}/around/{messageId}")
@@ -84,7 +87,7 @@ public class MessageController {
             @PathVariable Long userId,
             @PathVariable Long messageId,
             @RequestParam(required = false) Integer size) {
-        return messageService.getConversationAroundMessage(authentication.getName(), userId, messageId, size);
+        return messageQueryService.getConversationAroundMessage(authentication.getName(), userId, messageId, size);
     }
 
     @PatchMapping("/{userId}/read")
@@ -136,6 +139,16 @@ public class MessageController {
             Authentication authentication,
             @PathVariable Long messageId) {
         MessageResponse message = messageService.recallMessage(authentication.getName(), messageId);
+        notifyMessageUpdateParticipants(authentication.getName(), messageId, message);
+        return message;
+    }
+
+    @PatchMapping("/{messageId}")
+    public MessageResponse editMessage(
+            Authentication authentication,
+            @PathVariable Long messageId,
+            @Valid @RequestBody EditMessageRequest request) {
+        MessageResponse message = messageService.editMessage(authentication.getName(), messageId, request);
         notifyMessageUpdateParticipants(authentication.getName(), messageId, message);
         return message;
     }

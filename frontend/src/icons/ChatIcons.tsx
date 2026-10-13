@@ -303,6 +303,15 @@ export function ReplyIcon({ className }: HeaderIconProps) {
     );
 }
 
+export function EditIcon({ className }: HeaderIconProps) {
+    return (
+        <svg className={className} {...SVG_BASE}>
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
+        </svg>
+    );
+}
+
 export function CopyIcon({ className }: HeaderIconProps) {
     return (
         <svg className={className} {...SVG_BASE}>

@@ -44,6 +44,8 @@ public enum ErrorCode {
         MESSAGE_RECALL_NOT_ALLOWED(HttpStatus.FORBIDDEN, "MESSAGE_009", "You can only recall your own messages"),
         NON_FRIEND_TEXT_ONLY(HttpStatus.FORBIDDEN, "MESSAGE_010",
                         "Only text messages are available until you become friends"),
+        MESSAGE_EDIT_NOT_ALLOWED(HttpStatus.FORBIDDEN, "MESSAGE_012",
+                        "You can only edit your own active text messages"),
 
         CLOUDINARY_PUBLIC_UPLOAD_DISABLED(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_004", "Public Cloudinary uploads are disabled"),
         CLOUDINARY_CONFIG_MISSING(

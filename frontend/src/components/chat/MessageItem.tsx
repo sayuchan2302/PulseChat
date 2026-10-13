@@ -181,6 +181,7 @@ export function MessageItem({
             </div>
             {hasVisibleMessageTime ? (
                 <div className="message-time">
+                    {message.editedAt ? <span className="message-edited-label">Edited</span> : null}
                     <span>{formatMessageTime(message.timestamp)}</span>
                     {isSentByCurrentUser ? (
                         <>

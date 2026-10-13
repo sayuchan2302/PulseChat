@@ -6,6 +6,7 @@ import type { ReactionDetailGroup } from './ReactionSummaryModal';
 import { CloseIcon, TrashIcon } from '../../icons/ChatIcons';
 import { getUserDisplayName } from '../../utils/userUtils';
 import ForwardPickerBody from './ForwardPickerBody';
+import EditMessageModal from './EditMessageModal';
 
 const MediaLightbox = lazy(() => import('./MediaLightbox'));
 const GroupSeenByModal = lazy(() => import('./GroupSeenByModal'));
@@ -30,6 +31,9 @@ export interface ChatDialogLayerProps {
   rooms: ChatRoom[];
   onCloseForward: () => void;
   onForward: (targetUserId: number | null, targetRoomId: number | null) => void;
+  editingMessage: ChatMessage | null;
+  onCloseEditMessage: () => void;
+  onSaveEditMessage: (content: string) => Promise<void>;
   addMembersModalOpen: boolean;
   selectedRoom: ChatRoom | null;
   addMemberCandidates: User[];
@@ -73,6 +77,9 @@ export function ChatDialogLayer({
   rooms,
   onCloseForward,
   onForward,
+  editingMessage,
+  onCloseEditMessage,
+  onSaveEditMessage,
   addMembersModalOpen,
   selectedRoom,
   addMemberCandidates,
@@ -101,6 +108,8 @@ export function ChatDialogLayer({
   onCloseReactionSummary,
 }: ChatDialogLayerProps) {
   return <>
+    {editingMessage ? <EditMessageModal message={editingMessage} onClose={onCloseEditMessage} onSave={onSaveEditMessage} /> : null}
+
     {mediaViewerUrl ? <div className="modal-backdrop media-viewer-backdrop" onClick={onCloseMediaViewer}>
       <div className="media-viewer-modal" role="dialog" aria-modal="true" aria-label={mediaViewerType === 'VIDEO' ? 'Video preview' : 'Image preview'} onClick={(event) => event.stopPropagation()}>
         <button type="button" className="media-viewer-close" onClick={onCloseMediaViewer} aria-label="Close media preview"><CloseIcon className="media-viewer-close-icon" /></button>
