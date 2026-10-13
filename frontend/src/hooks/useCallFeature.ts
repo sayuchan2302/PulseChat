@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChangeEvent } from 'react';
 import { CALL_RINGING_TIMEOUT_MS } from '../config/constants';
 import { CALL_RECONNECT_TIMEOUT_MS } from '../constants/chatConstants';
 import type { CallSignalPayload, CallType, User } from '../types';
@@ -13,7 +12,6 @@ import type {
 import { wsService } from '../services/websocket';
 import {
   buildCallMediaConstraints,
-  canSendWebRtcSignalForCall,
   getCallMediaErrorMessage,
   queryCallPermission,
   stopMediaStream,
@@ -21,6 +19,7 @@ import {
 import { canChatWithUser } from '../utils/userUtils';
 import { useCallLifecycleActions } from './useCallLifecycleActions';
 import { useCallMediaControls } from './useCallMediaControls';
+import { useCallDeviceSwitching } from './useCallDeviceSwitching';
 import { useCallScreenSharing } from './useCallScreenSharing';
 import { useCallSession } from './useCallSession';
 import { useWebRtcSignalHandlers } from './useWebRtcSignalHandlers';
@@ -668,97 +667,22 @@ export function useCallFeature({
     setCallError,
   });
 
-  const replaceLocalCallTrack = useCallback(async (kind: 'audio' | 'video', deviceId: string) => {
-    if (kind === 'audio') {
-      setSelectedAudioInputId(deviceId);
-    } else {
-      setSelectedVideoInputId(deviceId);
-    }
-
-    const currentCall = activeCallRef.current;
-    if (kind === 'video' && screenSharingRef.current) {
-      return;
-    }
-
-    if (!currentCall || (kind === 'video' && currentCall.type !== 'VIDEO')) {
-      return;
-    }
-
-    const currentStream = localCallStreamRef.current;
-    if (!currentStream) {
-      return;
-    }
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setCallDeviceError('Browser does not support media device switching.');
-      return;
-    }
-
-    setCallDeviceError('');
-
-    try {
-      const constraints: MediaStreamConstraints =
-        kind === 'audio'
-          ? { audio: deviceId ? { deviceId: { exact: deviceId } } : true, video: false }
-          : { audio: false, video: deviceId ? { deviceId: { exact: deviceId } } : true };
-      const replacementStream = await navigator.mediaDevices.getUserMedia(constraints);
-      const [replacementTrack] = kind === 'audio'
-        ? replacementStream.getAudioTracks()
-        : replacementStream.getVideoTracks();
-
-      if (!replacementTrack) {
-        throw new Error(`No ${kind} track found for selected device.`);
-      }
-
-      replacementTrack.enabled = kind === 'audio' ? !micMuted : !cameraOff;
-
-      const sender = peerConnectionRef.current
-        ?.getSenders()
-        .find((candidate) => candidate.track?.kind === kind);
-      if (sender) {
-        await sender.replaceTrack(replacementTrack);
-      }
-
-      const oldTracks = kind === 'audio'
-        ? currentStream.getAudioTracks()
-        : currentStream.getVideoTracks();
-      oldTracks.forEach((track) => {
-        currentStream.removeTrack(track);
-        track.stop();
-      });
-      currentStream.addTrack(replacementTrack);
-      replacementStream
-        .getTracks()
-        .filter((track) => track !== replacementTrack)
-        .forEach((track) => track.stop());
-
-      const nextStream = new MediaStream(currentStream.getTracks());
-      localCallStreamRef.current = nextStream;
-      setLocalCallStream(nextStream);
-
-      const nextDeviceId = replacementTrack.getSettings().deviceId || deviceId;
-      if (kind === 'audio') {
-        setSelectedAudioInputId(nextDeviceId);
-      } else {
-        setSelectedVideoInputId(nextDeviceId);
-      }
-
-      void loadCallDevices();
-    } catch (error) {
-      console.error(`Failed to switch ${kind} device:`, error);
-      setCallDeviceError(
-        kind === 'audio' ? 'Unable to switch microphone.' : 'Unable to switch camera.'
-      );
-    }
-  }, [cameraOff, loadCallDevices, micMuted]);
-
-  const handleAudioInputChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-    void replaceLocalCallTrack('audio', event.target.value);
-  }, [replaceLocalCallTrack]);
-
-  const handleVideoInputChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-    void replaceLocalCallTrack('video', event.target.value);
-  }, [replaceLocalCallTrack]);
+  const {
+    handleAudioInputChange,
+    handleVideoInputChange,
+  } = useCallDeviceSwitching({
+    activeCallRef,
+    peerConnectionRef,
+    localCallStreamRef,
+    screenSharingRef,
+    micMutedRef,
+    cameraOffRef,
+    loadCallDevices,
+    setCallDeviceError,
+    setLocalCallStream,
+    setSelectedAudioInputId,
+    setSelectedVideoInputId,
+  });
 
   const handleMinimizeActiveCall = useCallback(() => {
     const currentCall = activeCallRef.current;

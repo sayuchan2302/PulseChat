@@ -45,6 +45,7 @@ import { useGroupAvatar } from '../hooks/useGroupAvatar';
 import { useGroupSettingsActions } from '../hooks/useGroupSettingsActions';
 import { useGroupCreation } from '../hooks/useGroupCreation';
 import { useCallFeature } from '../hooks/useCallFeature';
+import { useRoomSummary } from '../hooks/useRoomSummary';
 import { useChatNotifications } from '../hooks/useChatNotifications';
 import { useChatInteractionSignals } from '../hooks/useChatInteractionSignals';
 import { useMessageSearchControls } from '../hooks/useMessageSearchControls';
@@ -67,7 +68,7 @@ import {
 import type {
   ChatMessage,
   PendingMedia,
-  MainView, ConversationFilter, RoomSummaryResponse,
+  MainView, ConversationFilter,
   ConversationTarget,
 } from '../types/chat.types';
 import {
@@ -139,11 +140,6 @@ export default function ChatPage() {
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageInput, setMessageInput] = useState('');
-  const [roomSummary, setRoomSummary] = useState<RoomSummaryResponse | null>(null);
-  const [roomSummaryRoomId, setRoomSummaryRoomId] = useState<number | null>(null);
-  const [roomSummaryLoading, setRoomSummaryLoading] = useState(false);
-  const [roomSummaryError, setRoomSummaryError] = useState('');
-  const roomSummaryRequestRef = useRef(0);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [replyingToMessage, setReplyingToMessage] = useState<ChatMessage | null>(null);
   const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
@@ -157,14 +153,6 @@ export default function ChatPage() {
   useEffect(() => {
     return soundService.onMuteChange((muted) => setSoundMuted(muted));
   }, []);
-
-  useEffect(() => {
-    roomSummaryRequestRef.current += 1;
-    setRoomSummary(null);
-    setRoomSummaryRoomId(null);
-    setRoomSummaryLoading(false);
-    setRoomSummaryError('');
-  }, [selectedRoom?.id]);
 
   const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null);
   const [mediaUploading, setMediaUploading] = useState(false);
@@ -261,6 +249,19 @@ export default function ChatPage() {
   const hasConnectedRef = useRef(false);
   const realtimeActiveRef = useRef(false);
   const hasLoadedInitialUsersRef = useRef(false);
+  const {
+    roomSummary,
+    roomSummaryRoomId,
+    roomSummaryLoading,
+    roomSummaryError,
+    requestRoomSummary,
+    setRoomSummary,
+    setRoomSummaryRoomId,
+    setRoomSummaryError,
+  } = useRoomSummary({
+    selectedRoomId: selectedRoom?.id ?? null,
+    selectedRoomIdRef,
+  });
   const {
     unreadDividerMessageId,
     unreadDividerMessageIdRef,
@@ -1518,12 +1519,11 @@ export default function ChatPage() {
 
   const { handleSendMessage, handleRetryMessage } = useMessageSending({
     currentUser, selectedUser, selectedRoom, messageInput, pendingMedia, mediaUploading,
-    replyingToMessage, roomSummaryLoading, roomSummaryRequestRef, userSearchQueryRef,
+    replyingToMessage, roomSummaryLoading, requestRoomSummary, userSearchQueryRef,
     selectedUserIdRef, selectedRoomIdRef, getNextOptimisticMessageId, clearPendingMedia, stopTyping, stopRoomTyping,
     sendOptimisticMessage, sendOptimisticRoomMessage, setMessageInput, setEmojiPickerOpen,
     setReplyingToMessage, setMediaUploading, setMediaError, setMessagesError, setMessages,
-    setUsers, setFriends, setSelectedUser, setRooms, setSelectedRoom, setRoomSummary,
-    setRoomSummaryRoomId, setRoomSummaryError, setRoomSummaryLoading,
+    setUsers, setFriends, setSelectedUser, setRooms, setSelectedRoom,
   });
 
   const {

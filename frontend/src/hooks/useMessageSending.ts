@@ -1,10 +1,9 @@
 import { dbService } from '../services/dbService';
 import { useCallback, useRef } from 'react';
 import type { Dispatch, FormEvent, MutableRefObject, SetStateAction } from 'react';
-import { apiClient } from '../services/api';
 import { soundService } from '../services/soundService';
 import type { ChatRoom, MediaAttachment, MessageType, User } from '../types';
-import type { ChatMessage, PendingMedia, RoomSummaryResponse, SendMessagePayload, SendRoomMessagePayload } from '../types/chat.types';
+import type { ChatMessage, PendingMedia, SendMessagePayload, SendRoomMessagePayload } from '../types/chat.types';
 import {
   appendOptimisticMessage, createOptimisticMessage,
   createOptimisticRoomMessage, createReplyFromMessage, createClientId,
@@ -28,7 +27,7 @@ interface Options {
   mediaUploading: boolean;
   replyingToMessage: ChatMessage | null;
   roomSummaryLoading: boolean;
-  roomSummaryRequestRef: MutableRefObject<number>;
+  requestRoomSummary: (roomId: number) => Promise<void>;
   userSearchQueryRef: MutableRefObject<string>;
   getNextOptimisticMessageId: () => number;
   clearPendingMedia: () => void;
@@ -48,21 +47,16 @@ interface Options {
   setSelectedUser: Dispatch<SetStateAction<User | null>>;
   setRooms: Dispatch<SetStateAction<ChatRoom[]>>;
   setSelectedRoom: Dispatch<SetStateAction<ChatRoom | null>>;
-  setRoomSummary: Dispatch<SetStateAction<RoomSummaryResponse | null>>;
-  setRoomSummaryRoomId: Dispatch<SetStateAction<number | null>>;
-  setRoomSummaryError: Dispatch<SetStateAction<string>>;
-  setRoomSummaryLoading: Dispatch<SetStateAction<boolean>>;
 }
 
 export function useMessageSending(options: Options) {
   const {
     selectedUserIdRef, selectedRoomIdRef, currentUser, selectedUser, selectedRoom, messageInput, pendingMedia, mediaUploading,
-    replyingToMessage, roomSummaryLoading, roomSummaryRequestRef, userSearchQueryRef,
+    replyingToMessage, roomSummaryLoading, requestRoomSummary, userSearchQueryRef,
     getNextOptimisticMessageId, clearPendingMedia, stopTyping, stopRoomTyping,
     sendOptimisticMessage, sendOptimisticRoomMessage, setMessageInput, setEmojiPickerOpen,
     setReplyingToMessage, setMediaUploading, setMediaError, setMessagesError, setMessages,
-    setUsers, setFriends, setSelectedUser, setRooms, setSelectedRoom, setRoomSummary,
-    setRoomSummaryRoomId, setRoomSummaryError, setRoomSummaryLoading,
+    setUsers, setFriends, setSelectedUser, setRooms, setSelectedRoom,
   } = options;
 
   const persisting = useRef(false);
@@ -75,26 +69,10 @@ export function useMessageSending(options: Options) {
     if (!mediaToSend && selectedRoom && /^\/summary$/i.test(content)) {
       if (roomSummaryLoading) return;
       const roomId = selectedRoom.id;
-      const requestId = ++roomSummaryRequestRef.current;
       setMessageInput('');
       setEmojiPickerOpen(false);
       setReplyingToMessage(null);
-      setRoomSummary(null);
-      setRoomSummaryRoomId(roomId);
-      setRoomSummaryError('');
-      setRoomSummaryLoading(true);
-      try {
-        const response = await apiClient.post<RoomSummaryResponse>(`/rooms/${roomId}/summaries`);
-        if (roomSummaryRequestRef.current === requestId) setRoomSummary(response.data);
-      } catch (error) {
-        console.error('Failed to summarize room messages:', error);
-        if (roomSummaryRequestRef.current === requestId) {
-          const responseError = error as { response?: { data?: { message?: string } } };
-          setRoomSummaryError(responseError.response?.data?.message || 'Unable to summarize recent messages.');
-        }
-      } finally {
-        if (roomSummaryRequestRef.current === requestId) setRoomSummaryLoading(false);
-      }
+      void requestRoomSummary(roomId);
       return;
     }
 
@@ -161,11 +139,11 @@ export function useMessageSending(options: Options) {
     }
   }, [
     clearPendingMedia, currentUser, getNextOptimisticMessageId, mediaUploading, messageInput,
-    selectedUserIdRef, selectedRoomIdRef, pendingMedia, replyingToMessage, roomSummaryLoading, roomSummaryRequestRef, selectedRoom,
+    selectedUserIdRef, selectedRoomIdRef, pendingMedia, replyingToMessage, requestRoomSummary,
+    roomSummaryLoading, selectedRoom,
     selectedUser, sendOptimisticMessage, sendOptimisticRoomMessage, setEmojiPickerOpen,
     setFriends, setMediaError, setMediaUploading, setMessageInput, setMessages, setMessagesError,
-    setReplyingToMessage, setRoomSummary, setRoomSummaryError, setRoomSummaryLoading,
-    setRoomSummaryRoomId, setRooms, setSelectedRoom, setSelectedUser, setUsers, stopRoomTyping,
+    setReplyingToMessage, setRooms, setSelectedRoom, setSelectedUser, setUsers, stopRoomTyping,
     stopTyping, userSearchQueryRef,
   ]);
 
