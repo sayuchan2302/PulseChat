@@ -4734,6 +4734,27 @@ button.main-list-item {
   flex: 0 0 auto;
 }
 
+.call-message-delete {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--gray-500);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.call-message-delete:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.call-message-delete:focus-visible {
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
+}
+
 .message-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -5767,6 +5788,57 @@ button.main-list-item {
 
 .edit-message-backdrop {
   z-index: 45;
+}
+
+.delete-message-for-me-backdrop {
+  z-index: 50;
+}
+
+.delete-message-for-me-modal {
+  width: min(420px, 100%);
+  padding: 24px;
+  border: 1px solid var(--gray-200);
+  border-radius: 16px;
+  background: var(--white);
+  color: var(--gray-900);
+  box-shadow: 0 24px 64px rgba(17, 24, 39, 0.28);
+}
+
+.delete-message-for-me-modal h3 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.delete-message-for-me-modal p {
+  margin: 0;
+  color: var(--gray-600);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.delete-message-confirm-btn {
+  min-height: 46px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.delete-message-confirm-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+[data-theme='dark'] .delete-message-for-me-modal {
+  border-color: #3c3d51;
+  background: #1e1f2f;
+  color: #f1f5f9;
+}
+
+[data-theme='dark'] .delete-message-for-me-modal p {
+  color: #cbd5e1;
 }
 
 .edit-message-modal {

@@ -8,6 +8,7 @@ import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.request.SendRoomMessageRequest;
 import com.chatapp.dto.response.ReadReceiptResponse;
 import com.chatapp.dto.response.MessageResponse;
+import com.chatapp.dto.response.MessageHiddenResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.CallSession;
@@ -78,7 +79,7 @@ public class MessageService {
 
         if (clientId != null) {
             return messageRepository.findBySenderIdAndClientId(sender.getId(), clientId)
-                    .map(existing -> replayForConversation(existing, receiver.getId(), null))
+                    .map(existing -> replayForConversation(existing, receiver.getId(), null, sender.getId()))
                     .orElseGet(() -> {
                         return saveMessage(
                                 sender,
@@ -118,11 +119,11 @@ public class MessageService {
 
         MessagePayloadMapper.validate(type, content, request.media());
         mediaAccessService.validateAttachment(currentUsername, request.media());
-        Message replyToMessage = resolveRoomReplyTarget(room, request.replyToMessageId());
+        Message replyToMessage = resolveRoomReplyTarget(sender, room, request.replyToMessageId());
 
         if (clientId != null) {
             return messageRepository.findBySenderIdAndClientId(sender.getId(), clientId)
-                    .map(existing -> replayForConversation(existing, null, room.getId()))
+                    .map(existing -> replayForConversation(existing, null, room.getId(), sender.getId()))
                     .orElseGet(() -> {
                         return saveRoomMessage(
                                 sender,
@@ -147,18 +148,18 @@ public class MessageService {
         return transactionTemplate.execute(status -> {
             User sender = userService.findByUsername(username);
             return messageRepository.findBySenderIdAndClientId(sender.getId(), clientId)
-                    .map(existing -> replayForConversation(existing, receiverId, roomId))
+                    .map(existing -> replayForConversation(existing, receiverId, roomId, sender.getId()))
                     .orElseThrow(() -> conflict);
         });
     }
 
-    private MessageResponse replayForConversation(Message existing, Long receiverId, Long roomId) {
+    private MessageResponse replayForConversation(Message existing, Long receiverId, Long roomId, long currentUserId) {
         Long actualReceiver = existing.getReceiver() == null ? null : existing.getReceiver().getId();
         Long actualRoom = existing.getChatRoom() == null ? null : existing.getChatRoom().getId();
         if (!Objects.equals(actualReceiver, receiverId) || !Objects.equals(actualRoom, roomId)) {
             throw new AppException(ErrorCode.CLIENT_ID_CONFLICT);
         }
-        return MessageResponse.from(existing);
+        return MessageResponse.from(existing, currentUserId);
     }
 
     @Transactional
@@ -175,7 +176,7 @@ public class MessageService {
         message.setContent(formatCallHistoryContent(callSession));
         message.setRead(false);
 
-        return MessageResponse.from(messageRepository.saveAndFlush(message));
+        return MessageResponse.from(messageRepository.saveAndFlush(message), actor.getId());
     }
 
     @Transactional
@@ -196,7 +197,7 @@ public class MessageService {
 
         reaction.setEmoji(emoji);
         messageReactionRepository.saveAndFlush(reaction);
-        return MessageResponse.from(message);
+        return MessageResponse.from(message, currentUser.getId());
     }
 
     @Transactional
@@ -212,7 +213,7 @@ public class MessageService {
                     messageReactionRepository.flush();
                 });
 
-        return MessageResponse.from(message);
+        return MessageResponse.from(message, currentUser.getId());
     }
 
     @Transactional
@@ -224,11 +225,11 @@ public class MessageService {
         }
 
         if (Boolean.TRUE.equals(message.getRecalled())) {
-            return MessageResponse.from(message);
+            return MessageResponse.from(message, currentUser.getId());
         }
 
         message.setRecalled(true);
-        return MessageResponse.from(messageRepository.saveAndFlush(message));
+        return MessageResponse.from(messageRepository.saveAndFlush(message), currentUser.getId());
     }
 
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
@@ -253,8 +254,39 @@ public class MessageService {
             if (message.getChatRoom() != null) {
                 message.setMentions(MessageMentionResolver.resolve(message.getChatRoom(), currentUser, content));
             }
-            return MessageResponse.from(messageRepository.saveAndFlush(message));
+            return MessageResponse.from(messageRepository.saveAndFlush(message), currentUser.getId());
         });
+    }
+
+    @Transactional
+    public MessageHiddenResponse deleteMessageForCurrentUser(String currentUsername, Long messageId) {
+        User currentUser = userService.findByUsername(currentUsername);
+        Message message = findAccessibleMessageIncludingHidden(currentUser, messageId);
+        boolean alreadyHidden = message.getHiddenByUsers().stream()
+                .anyMatch(user -> user.getId().equals(currentUser.getId()));
+        if (!alreadyHidden) {
+            message.getHiddenByUsers().add(currentUser);
+            messageRepository.saveAndFlush(message);
+        }
+
+        clearPrivatePinnedMessage(currentUser, message);
+        return new MessageHiddenResponse(messageId);
+    }
+
+    private void clearPrivatePinnedMessage(User currentUser, Message message) {
+        if (message.getChatRoom() != null || message.getReceiver() == null) {
+            return;
+        }
+
+        Long otherUserId = message.getSender().getId().equals(currentUser.getId())
+                ? message.getReceiver().getId()
+                : message.getSender().getId();
+        conversationSettingRepository.findByUserIdAndTargetUserId(currentUser.getId(), otherUserId)
+                .filter(setting -> Objects.equals(setting.getPinnedMessageId(), message.getId()))
+                .ifPresent(setting -> {
+                    setting.setPinnedMessageId(null);
+                    conversationSettingRepository.save(setting);
+                });
     }
 
     private void validateMessageCanBeEdited(User currentUser, Message message) {
@@ -300,7 +332,7 @@ public class MessageService {
         Message msg = buildForwardedMessage(sender, source);
         msg.setReceiver(target);
         msg.setRead(false);
-        return MessageResponse.from(messageRepository.saveAndFlush(msg));
+        return MessageResponse.from(messageRepository.saveAndFlush(msg), sender.getId());
     }
 
     private MessageResponse saveForwardedRoomMessage(User sender, Message source, ChatRoom room) {
@@ -308,7 +340,7 @@ public class MessageService {
         msg.setChatRoom(room);
         msg.setMentions(MessageMentionResolver.resolve(room, sender, msg.getContent()));
         msg.setRead(false);
-        return MessageResponse.from(messageRepository.saveAndFlush(msg));
+        return MessageResponse.from(messageRepository.saveAndFlush(msg), sender.getId());
     }
 
     private Message buildForwardedMessage(User sender, Message source) {
@@ -343,6 +375,9 @@ public class MessageService {
         if (!isPrivateMessageParticipant(participants.currentUser(), message)
                 || message.getChatRoom() != null) {
             throw new AppException(ErrorCode.MESSAGE_ACCESS_DENIED);
+        }
+        if (isHiddenForUser(message, participants.currentUser().getId())) {
+            throw new AppException(ErrorCode.MESSAGE_NOT_FOUND);
         }
 
         upsertConversationPinnedMessage(participants.currentUser().getId(), participants.otherUser().getId(),
@@ -382,6 +417,13 @@ public class MessageService {
     }
 
     @Transactional(readOnly = true)
+    public MessageResponse getMessageResponseForUser(String username, Long messageId) {
+        User currentUser = userService.findByUsername(username);
+        Message message = findAccessibleMessage(currentUser, messageId);
+        return MessageResponse.from(message, currentUser.getId());
+    }
+
+    @Transactional(readOnly = true)
     public String getUsernameById(Long userId) {
         try {
             return userService.findById(userId).getUsername();
@@ -408,7 +450,7 @@ public class MessageService {
         message.setRead(false);
 
         Message savedMessage = messageRepository.saveAndFlush(message);
-        return MessageResponse.from(savedMessage);
+        return MessageResponse.from(savedMessage, sender.getId());
     }
 
     private MessageResponse saveRoomMessage(
@@ -430,7 +472,7 @@ public class MessageService {
         message.setMentions(MessageMentionResolver.resolve(room, sender, content));
 
         Message savedMessage = messageRepository.saveAndFlush(message);
-        return MessageResponse.from(savedMessage);
+        return MessageResponse.from(savedMessage, sender.getId());
     }
 
     private Message resolvePrivateReplyTarget(User sender, User receiver, Long replyToMessageId) {
@@ -448,11 +490,14 @@ public class MessageService {
         if (!sameConversation) {
             throw new AppException(ErrorCode.INVALID_REPLY_TARGET);
         }
+        if (isHiddenForUser(replyToMessage, sender.getId())) {
+            throw new AppException(ErrorCode.INVALID_REPLY_TARGET);
+        }
 
         return replyToMessage;
     }
 
-    private Message resolveRoomReplyTarget(ChatRoom room, Long replyToMessageId) {
+    private Message resolveRoomReplyTarget(User sender, ChatRoom room, Long replyToMessageId) {
         if (replyToMessageId == null) {
             return null;
         }
@@ -460,6 +505,9 @@ public class MessageService {
         Message replyToMessage = findMessageById(replyToMessageId);
         Long replyRoomId = replyToMessage.getChatRoom() == null ? null : replyToMessage.getChatRoom().getId();
         if (!Objects.equals(replyRoomId, room.getId())) {
+            throw new AppException(ErrorCode.INVALID_REPLY_TARGET);
+        }
+        if (isHiddenForUser(replyToMessage, sender.getId())) {
             throw new AppException(ErrorCode.INVALID_REPLY_TARGET);
         }
 
@@ -551,6 +599,14 @@ public class MessageService {
     }
 
     private Message findAccessibleMessage(User currentUser, Long messageId) {
+        Message message = findAccessibleMessageIncludingHidden(currentUser, messageId);
+        if (isHiddenForUser(message, currentUser.getId())) {
+            throw new AppException(ErrorCode.MESSAGE_NOT_FOUND);
+        }
+        return message;
+    }
+
+    private Message findAccessibleMessageIncludingHidden(User currentUser, Long messageId) {
         Message message = findMessageById(messageId);
         if (message.getChatRoom() != null) {
             chatRoomService.findGroupRoomForMember(currentUser, message.getChatRoom().getId());
@@ -562,6 +618,10 @@ public class MessageService {
         }
 
         throw new AppException(ErrorCode.MESSAGE_ACCESS_DENIED);
+    }
+
+    private boolean isHiddenForUser(Message message, Long userId) {
+        return message.getHiddenByUsers().stream().anyMatch(user -> user.getId().equals(userId));
     }
 
     private boolean isPrivateMessageParticipant(User currentUser, Message message) {

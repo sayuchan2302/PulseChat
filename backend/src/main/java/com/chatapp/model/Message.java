@@ -119,6 +119,12 @@ public class Message {
     })
     private Set<User> mentions = new HashSet<>();
 
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(name = "message_hidden_users", joinColumns = @JoinColumn(name = "message_id"), inverseJoinColumns = @JoinColumn(name = "user_id"), indexes = {
+            @Index(name = "idx_message_hidden_users_user_id", columnList = "user_id")
+    })
+    private Set<User> hiddenByUsers = new HashSet<>();
+
     @Column(nullable = false)
     private Boolean read = false;
 

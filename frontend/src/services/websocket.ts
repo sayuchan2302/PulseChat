@@ -8,6 +8,7 @@ import type {
   ConnectionStatus,
   Friendship,
   Message,
+  MessageHiddenEvent,
   PresenceEvent,
   ReadReceiptEvent,
   RoomReadReceiptEvent,
@@ -16,6 +17,7 @@ import type {
 
 type MessageHandler = (message: Message) => void;
 type MessageUpdateHandler = (message: Message) => void;
+type MessageHiddenHandler = (event: MessageHiddenEvent) => void;
 type CallSignalHandler = (event: CallSignalEvent) => void;
 type PresenceHandler = (presence: PresenceEvent) => void;
 type TypingHandler = (typing: TypingEvent) => void;
@@ -34,6 +36,7 @@ export class WebSocketService {
   private status: ConnectionStatus = 'offline';
   private onMessageReceived: MessageHandler | null = null;
   private onMessageUpdateReceived: MessageUpdateHandler | null = null;
+  private onMessageHiddenReceived: MessageHiddenHandler | null = null;
   private onCallSignalReceived: CallSignalHandler | null = null;
   private onPresenceReceived: PresenceHandler | null = null;
   private onTypingReceived: TypingHandler | null = null;
@@ -53,10 +56,12 @@ export class WebSocketService {
     onFriendRequestReceived?: FriendRequestHandler,
     onMessageUpdateReceived?: MessageUpdateHandler,
     onRoomReadReceiptReceived?: RoomReadReceiptHandler,
-    onCallSignalReceived?: CallSignalHandler
+    onCallSignalReceived?: CallSignalHandler,
+    onMessageHiddenReceived?: MessageHiddenHandler
   ): Promise<void> {
     this.onMessageReceived = onMessageReceived;
     this.onMessageUpdateReceived = onMessageUpdateReceived ?? null;
+    this.onMessageHiddenReceived = onMessageHiddenReceived ?? null;
     this.onCallSignalReceived = onCallSignalReceived ?? null;
     this.onPresenceReceived = onPresenceReceived ?? null;
     this.onTypingReceived = onTypingReceived ?? null;
@@ -145,6 +150,10 @@ export class WebSocketService {
 
           client.subscribe('/user/queue/message-updates', (message) => {
             this.handleIncomingMessageUpdate(message.body);
+          });
+
+          client.subscribe('/user/queue/message-hides', (message) => {
+            this.handleIncomingMessageHidden(message.body);
           });
 
           client.subscribe('/topic/presence', (message) => {
@@ -260,6 +269,7 @@ export class WebSocketService {
     this.updateStatus('offline');
     this.onMessageReceived = null;
     this.onMessageUpdateReceived = null;
+    this.onMessageHiddenReceived = null;
     this.onCallSignalReceived = null;
     this.onPresenceReceived = null;
     this.onTypingReceived = null;
@@ -315,6 +325,15 @@ export class WebSocketService {
       this.onMessageUpdateReceived?.(message);
     } catch (error) {
       console.error('Failed to parse WebSocket message update:', error);
+    }
+  }
+
+  private handleIncomingMessageHidden(body: string) {
+    try {
+      const event = JSON.parse(body) as MessageHiddenEvent;
+      this.onMessageHiddenReceived?.(event);
+    } catch (error) {
+      console.error('Failed to parse WebSocket message hide event:', error);
     }
   }
 

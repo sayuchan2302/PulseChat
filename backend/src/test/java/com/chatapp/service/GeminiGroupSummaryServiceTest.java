@@ -43,7 +43,7 @@ class GeminiGroupSummaryServiceTest {
         message.setId(10L);
         message.setSender(sender);
         message.setContent("Release on Friday");
-        when(repository.findRecentSummarizableRoomMessages(eq(5L), eq(Message.MessageType.TEXT), any()))
+        when(repository.findRecentSummarizableRoomMessages(eq(5L), eq(Message.MessageType.TEXT), eq("alice"), any()))
                 .thenAnswer(invocation -> { assertTrue(inTransaction.get()); return List.of(message); });
         when(response.statusCode()).thenReturn(200);
         when(response.body()).thenReturn("""

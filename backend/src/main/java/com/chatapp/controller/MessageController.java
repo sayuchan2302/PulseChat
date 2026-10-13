@@ -6,6 +6,7 @@ import com.chatapp.dto.request.MessageReactionRequest;
 import com.chatapp.dto.request.SendMessageRequest;
 import com.chatapp.dto.response.MessagePageResponse;
 import com.chatapp.dto.response.MessageResponse;
+import com.chatapp.dto.response.MessageHiddenResponse;
 import com.chatapp.dto.response.ReadReceiptResponse;
 import com.chatapp.dto.response.UnreadCountResponse;
 import com.chatapp.service.MessageService;
@@ -143,6 +144,16 @@ public class MessageController {
         return message;
     }
 
+    @DeleteMapping("/{messageId}/me")
+    public ResponseEntity<MessageHiddenResponse> deleteMessageForMe(
+            Authentication authentication,
+            @PathVariable Long messageId) {
+        MessageHiddenResponse response = messageService.deleteMessageForCurrentUser(authentication.getName(), messageId);
+        messagingTemplate.convertAndSendToUser(
+                authentication.getName(), "/queue/message-hides", response);
+        return ResponseEntity.ok(response);
+    }
+
     @PatchMapping("/{messageId}")
     public MessageResponse editMessage(
             Authentication authentication,
@@ -201,6 +212,6 @@ public class MessageController {
                 .forEach(username -> messagingTemplate.convertAndSendToUser(
                         username,
                         queue,
-                        message));
+                        messageService.getMessageResponseForUser(username, messageId)));
     }
 }

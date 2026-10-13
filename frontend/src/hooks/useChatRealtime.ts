@@ -5,6 +5,7 @@ import type {
   ConnectionStatus,
   Friendship,
   Message,
+  MessageHiddenEvent,
   PresenceEvent,
   ReadReceiptEvent,
   RoomReadReceiptEvent,
@@ -22,6 +23,7 @@ export interface ChatRealtimeHandlers {
   onRoom: (room: ChatRoom) => void;
   onFriendship: (friendship: Friendship) => void;
   onMessageUpdate: (message: Message) => void;
+  onMessageHidden: (event: MessageHiddenEvent) => void;
   onRoomReadReceipt: (receipt: RoomReadReceiptEvent) => void;
   onCallSignal: (event: CallSignalEvent) => void;
   onDisconnect: () => void;
@@ -79,6 +81,9 @@ export function useChatRealtime(
       },
       (event) => {
         if (active) handlersRef.current.onCallSignal(event);
+      },
+      (event) => {
+        if (active) handlersRef.current.onMessageHidden(event);
       },
     ).catch((error) => {
       if (active) {

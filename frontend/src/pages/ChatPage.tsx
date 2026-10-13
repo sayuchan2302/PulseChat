@@ -145,6 +145,7 @@ export default function ChatPage() {
   const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<ChatMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+  const [messageToDeleteForMe, setMessageToDeleteForMe] = useState<ChatMessage | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionStartIndex, setMentionStartIndex] = useState<number>(-1);
   const [mentionActiveIndex, setMentionActiveIndex] = useState<number>(0);
@@ -412,6 +413,7 @@ export default function ChatPage() {
     loadSharedContent,
     addIncomingSharedContent,
     updateSharedContentFromMessage,
+    removeSharedContentMessage,
   } = useSharedContentManager({
     currentUserIdRef,
     selectedUserIdRef,
@@ -980,6 +982,20 @@ export default function ChatPage() {
     );
   }, [updateSharedContentFromMessage]);
 
+  const applyMessageHidden = useCallback((event: { messageId: number }) => {
+    const { messageId } = event;
+    setMessages((currentMessages) => currentMessages.filter((message) => message.id !== messageId));
+    setPinnedMessage((currentMessage) => currentMessage?.id === messageId ? null : currentMessage);
+    setReplyingToMessage((currentMessage) => currentMessage?.id === messageId ? null : currentMessage);
+    setForwardingMessage((currentMessage) => currentMessage?.id === messageId ? null : currentMessage);
+    setEditingMessage((currentMessage) => currentMessage?.id === messageId ? null : currentMessage);
+    setMessageToDeleteForMe((currentMessage) => currentMessage?.id === messageId ? null : currentMessage);
+    removeSharedContentMessage(messageId);
+    const ownerId = currentUserIdRef.current;
+    if (ownerId !== null) void dbService.removeMessageFromCaches(ownerId, messageId);
+    void Promise.all([loadUsers({ silent: true }), loadRooms({ silent: true })]);
+  }, [loadRooms, loadUsers, removeSharedContentMessage]);
+
   const applyConversationSetting = useCallback((setting: ConversationSetting) => {
     if (setting.targetUserId) {
       setUsers((currentUsers) =>
@@ -1020,6 +1036,7 @@ export default function ChatPage() {
     loadIncomingFriendRequests, loadFriendSummary, loadMessages, loadRoomMessages,
     markConversationAsRead, markRoomAsRead, applyRoomMembershipUpdate,
     buildFriendshipNotification, notifyWithBrowserNotification, applyMessageUpdate,
+    applyMessageHidden,
     applyRoomReadReceipt, handleCallSignal, clearTypingTimeout, clearRemoteTypingTimeout,
     clearOptimisticSendTimeouts, sendActiveCallCloseSignal, stopCallMedia,
   });
@@ -1486,11 +1503,13 @@ export default function ChatPage() {
   const {
     handleReplyToMessage, handleCancelReply, handleCopyMessage,
     handleEditMessage, saveEditedMessage, handleReactToMessage, handleRecallMessage, handlePinMessage,
+    handleRequestDeleteMessageForMe, deleteMessageForMe,
     handleUnpinMessage, handleForwardMessage, sendForwardMessage,
   } = useMessageActions({
     currentUser, selectedUser, selectedRoom, replyingToMessage, forwardingMessage, editingMessage,
-    messageInputRef, setReplyingToMessage, setForwardingMessage, setEditingMessage, setPinnedMessage,
-    setEmojiPickerOpen, setMessagesError, applyMessageUpdate,
+    messageToDeleteForMe, messageInputRef, setReplyingToMessage, setForwardingMessage, setEditingMessage,
+    setMessageToDeleteForMe, setPinnedMessage,
+    setEmojiPickerOpen, setMessagesError, applyMessageUpdate, applyMessageHidden,
   });
 
   const {
@@ -1774,6 +1793,7 @@ export default function ChatPage() {
       onReact={(target, emoji) => void handleReactToMessage(target, emoji)}
       onReply={handleReplyToMessage} onCopy={(target) => void handleCopyMessage(target)}
       onEdit={handleEditMessage}
+      onDeleteForMe={handleRequestDeleteMessageForMe}
       onRecall={(target) => void handleRecallMessage(target)} onPin={(target) => void handlePinMessage(target)}
       onForward={handleForwardMessage}
     />
@@ -1787,6 +1807,7 @@ export default function ChatPage() {
         peer={peer}
         canCallBack={Boolean(peer && canChatWithUser(peer) && !activeCall)}
         onCallBack={handleCallBackFromMessage}
+        onDeleteForMe={handleRequestDeleteMessageForMe}
       />
     );
   };
@@ -2343,6 +2364,9 @@ export default function ChatPage() {
         editingMessage={editingMessage}
         onCloseEditMessage={() => setEditingMessage(null)}
         onSaveEditMessage={saveEditedMessage}
+        messageToDeleteForMe={messageToDeleteForMe}
+        onCloseDeleteForMe={() => setMessageToDeleteForMe(null)}
+        onConfirmDeleteForMe={deleteMessageForMe}
         friends={friends}
         rooms={rooms}
         onCloseForward={() => setForwardingMessage(null)}

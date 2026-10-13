@@ -22,12 +22,16 @@ class ProductionSchemaMigrationTest {
                 .locations("classpath:db/migration")
                 .load();
 
-        assertEquals(2, flyway.migrate().migrationsExecuted);
+        assertEquals(3, flyway.migrate().migrationsExecuted);
         try (Connection connection = dataSource.getConnection();
              ResultSet tables = connection.getMetaData().getTables(null, "PUBLIC", "MESSAGES", new String[]{"TABLE"})) {
             assertTrue(tables.next());
             try (ResultSet columns = connection.getMetaData().getColumns(null, "PUBLIC", "MESSAGES", "EDITED_AT")) {
                 assertTrue(columns.next());
+            }
+            try (ResultSet hiddenMessages = connection.getMetaData().getTables(
+                    null, "PUBLIC", "MESSAGE_HIDDEN_USERS", new String[]{"TABLE"})) {
+                assertTrue(hiddenMessages.next());
             }
         }
     }

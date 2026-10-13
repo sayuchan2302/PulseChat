@@ -65,7 +65,7 @@ public class ChatRoomService {
                 .map(userService::findById)
                 .forEach(user -> room.addMember(user, ChatRoomMember.Role.MEMBER));
 
-        return ChatRoomResponse.from(chatRoomRepository.saveAndFlush(room));
+        return ChatRoomResponse.from(chatRoomRepository.saveAndFlush(room), null, 0, null, creator.getId());
     }
 
     @Transactional(readOnly = true)
@@ -77,7 +77,7 @@ public class ChatRoomService {
                         currentUser.getId(),
                         ChatRoom.RoomType.GROUP);
         List<Long> roomIds = rooms.stream().map(ChatRoom::getId).toList();
-        Map<Long, Message> latestMessagesByRoomId = findLatestMessagesByRoomId(roomIds);
+        Map<Long, Message> latestMessagesByRoomId = findLatestMessagesByRoomId(roomIds, currentUser.getId());
         Map<Long, Long> unreadCountsByRoomId = countUnreadMessagesByRoomId(currentUser.getId(), roomIds);
         Map<Long, ConversationSetting> settingsByRoomId = findSettingsByRoomId(currentUser.getId(), roomIds);
 
@@ -90,7 +90,8 @@ public class ChatRoomService {
                         room,
                         latestMessagesByRoomId.get(room.getId()),
                         unreadCountsByRoomId.getOrDefault(room.getId(), 0L),
-                        settingsByRoomId.get(room.getId())))
+                        settingsByRoomId.get(room.getId()),
+                        currentUser.getId()))
                 .sorted(this::compareByConversationActivity)
                 .toList();
     }
@@ -118,8 +119,9 @@ public class ChatRoomService {
         readState.setLastReadAt(LocalDateTime.now());
         chatRoomReadStateRepository.saveAndFlush(readState);
 
-        Message latestMessage = findLatestMessagesByRoomId(List.of(room.getId())).get(room.getId());
-        return ChatRoomResponse.from(room, latestMessage, 0, findSetting(currentUser.getId(), room.getId()));
+        Message latestMessage = findLatestMessagesByRoomId(List.of(room.getId()), currentUser.getId()).get(room.getId());
+        return ChatRoomResponse.from(room, latestMessage, 0, findSetting(currentUser.getId(), room.getId()),
+                currentUser.getId());
     }
 
     @Transactional
@@ -300,8 +302,9 @@ public class ChatRoomService {
         }
 
         ChatRoom savedRoom = chatRoomRepository.saveAndFlush(room);
-        Message latestMessage = findLatestMessagesByRoomId(List.of(savedRoom.getId())).get(savedRoom.getId());
-        return ChatRoomResponse.from(savedRoom, latestMessage, 0, findSetting(currentUser.getId(), savedRoom.getId()));
+        Message latestMessage = findLatestMessagesByRoomId(List.of(savedRoom.getId()), currentUser.getId()).get(savedRoom.getId());
+        return ChatRoomResponse.from(savedRoom, latestMessage, 0,
+                findSetting(currentUser.getId(), savedRoom.getId()), currentUser.getId());
     }
 
     @Transactional
@@ -396,6 +399,9 @@ public class ChatRoomService {
         if (message.getChatRoom() == null || !message.getChatRoom().getId().equals(roomId)) {
             throw new AppException(ErrorCode.MESSAGE_NOT_FOUND);
         }
+        if (message.getHiddenByUsers().stream().anyMatch(user -> user.getId().equals(currentUser.getId()))) {
+            throw new AppException(ErrorCode.MESSAGE_NOT_FOUND);
+        }
 
         room.setPinnedMessage(message);
         return toGroupResponseForUser(currentUser, chatRoomRepository.saveAndFlush(room));
@@ -436,7 +442,7 @@ public class ChatRoomService {
     }
 
     private ChatRoomResponse toGroupResponseForUser(User currentUser, ChatRoom room) {
-        Message latestMessage = findLatestMessagesByRoomId(List.of(room.getId())).get(room.getId());
+        Message latestMessage = findLatestMessagesByRoomId(List.of(room.getId()), currentUser.getId()).get(room.getId());
         long unreadCount = countUnreadMessagesByRoomId(currentUser.getId(), List.of(room.getId()))
                 .getOrDefault(room.getId(), 0L);
 
@@ -444,7 +450,8 @@ public class ChatRoomService {
                 room,
                 latestMessage,
                 unreadCount,
-                findSetting(currentUser.getId(), room.getId()));
+                findSetting(currentUser.getId(), room.getId()),
+                currentUser.getId());
     }
 
     private void validateGroupOwner(ChatRoom room, User currentUser) {
@@ -496,12 +503,12 @@ public class ChatRoomService {
         return nickname.trim();
     }
 
-    private Map<Long, Message> findLatestMessagesByRoomId(List<Long> roomIds) {
+    private Map<Long, Message> findLatestMessagesByRoomId(List<Long> roomIds, Long currentUserId) {
         if (roomIds.isEmpty()) {
             return Map.of();
         }
 
-        return messageRepository.findLatestMessagesForRooms(roomIds)
+        return messageRepository.findLatestMessagesForRooms(roomIds, currentUserId)
                 .stream()
                 .collect(Collectors.toMap(
                         message -> message.getChatRoom().getId(),

@@ -44,7 +44,7 @@ public record MessageResponse(
         String forwardedFromSenderName,
         List<Long> mentionedUserIds,
         List<String> mentionedUsernames) {
-    public static MessageResponse from(Message message) {
+    public static MessageResponse from(Message message, long currentUserId) {
         boolean recalled = Boolean.TRUE.equals(message.getRecalled());
         CallSession callSession = message.getCallSession();
         return new MessageResponse(
@@ -60,7 +60,7 @@ public record MessageResponse(
                 recalled ? null : message.getMediaHeight(),
                 recalled ? null : message.getMediaDuration(),
                 recalled ? null : LinkPreviewResponse.from(message),
-                MessageReplyResponse.from(message.getReplyToMessage()),
+                MessageReplyResponse.from(message.getReplyToMessage(), currentUserId),
                 message.getReactions()
                         .stream()
                         .sorted(Comparator.comparing(MessageResponse::reactionSortKey))

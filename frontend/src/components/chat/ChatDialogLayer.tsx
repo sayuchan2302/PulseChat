@@ -7,6 +7,7 @@ import { CloseIcon, TrashIcon } from '../../icons/ChatIcons';
 import { getUserDisplayName } from '../../utils/userUtils';
 import ForwardPickerBody from './ForwardPickerBody';
 import EditMessageModal from './EditMessageModal';
+import DeleteMessageForMeModal from './DeleteMessageForMeModal';
 
 const MediaLightbox = lazy(() => import('./MediaLightbox'));
 const GroupSeenByModal = lazy(() => import('./GroupSeenByModal'));
@@ -34,6 +35,9 @@ export interface ChatDialogLayerProps {
   editingMessage: ChatMessage | null;
   onCloseEditMessage: () => void;
   onSaveEditMessage: (content: string) => Promise<void>;
+  messageToDeleteForMe: ChatMessage | null;
+  onCloseDeleteForMe: () => void;
+  onConfirmDeleteForMe: () => Promise<void>;
   addMembersModalOpen: boolean;
   selectedRoom: ChatRoom | null;
   addMemberCandidates: User[];
@@ -80,6 +84,9 @@ export function ChatDialogLayer({
   editingMessage,
   onCloseEditMessage,
   onSaveEditMessage,
+  messageToDeleteForMe,
+  onCloseDeleteForMe,
+  onConfirmDeleteForMe,
   addMembersModalOpen,
   selectedRoom,
   addMemberCandidates,
@@ -109,6 +116,7 @@ export function ChatDialogLayer({
 }: ChatDialogLayerProps) {
   return <>
     {editingMessage ? <EditMessageModal message={editingMessage} onClose={onCloseEditMessage} onSave={onSaveEditMessage} /> : null}
+    {messageToDeleteForMe ? <DeleteMessageForMeModal message={messageToDeleteForMe} onClose={onCloseDeleteForMe} onConfirm={onConfirmDeleteForMe} /> : null}
 
     {mediaViewerUrl ? <div className="modal-backdrop media-viewer-backdrop" onClick={onCloseMediaViewer}>
       <div className="media-viewer-modal" role="dialog" aria-modal="true" aria-label={mediaViewerType === 'VIDEO' ? 'Video preview' : 'Image preview'} onClick={(event) => event.stopPropagation()}>

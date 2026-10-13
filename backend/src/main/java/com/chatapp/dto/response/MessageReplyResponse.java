@@ -13,14 +13,17 @@ public record MessageReplyResponse(
         String senderName,
         Boolean recalled
 ) {
-    public static MessageReplyResponse from(Message message) {
+    public static MessageReplyResponse from(Message message, long currentUserId) {
         if (message == null) {
             return null;
         }
 
+        boolean hiddenForCurrentUser = message.getHiddenByUsers().stream()
+                .anyMatch(user -> user.getId().equals(currentUserId));
+
         return new MessageReplyResponse(
                 message.getId(),
-                MessagePreviewFormatter.previewContent(message),
+                hiddenForCurrentUser ? "Message deleted for you" : MessagePreviewFormatter.previewContent(message),
                 message.getType() == null ? MessageType.TEXT : message.getType(),
                 message.getSender().getId(),
                 displayName(message),

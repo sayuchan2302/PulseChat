@@ -18,6 +18,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             where m.mediaPublicId = :publicId
               and m.mediaUrl like concat('%/uploads/media/', :filename)
               and m.recalled = false
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.username = :username)
               and ((m.chatRoom is null and (m.sender.username = :username or receiver.username = :username))
                    or exists (select member from ChatRoomMember member
                               where member.chatRoom = m.chatRoom and member.user.username = :username))
@@ -47,6 +49,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                   (m.sender.id = :currentUserId and m.receiver.id = :otherUserId)
                   or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
               )
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
               and (:before is null or m.id < :before)
             order by m.id desc
             """)
@@ -67,6 +71,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                   or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
               )
               and m.recalled = false
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
               and m.mediaUrl is not null
               and m.type in :mediaTypes
               and (:before is null or m.id < :before)
@@ -90,6 +96,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                   or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
               )
               and m.recalled = false
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
               and m.linkPreviewUrl is not null
               and (:before is null or m.id < :before)
             order by m.id desc
@@ -111,6 +119,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                   or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
               )
               and m.recalled = false
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
               and (
                   lower(m.content) like :queryPattern
                   or lower(coalesce(m.linkPreviewTitle, '')) like :queryPattern
@@ -138,6 +148,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                   (m.sender.id = :currentUserId and m.receiver.id = :otherUserId)
                   or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
               )
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
             """)
     Optional<Message> findConversationMessageById(
             @Param("currentUserId") Long currentUserId,
@@ -154,6 +166,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                   (m.sender.id = :currentUserId and m.receiver.id = :otherUserId)
                   or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
               )
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
               and m.id < :anchorId
             order by m.id desc
             """)
@@ -173,6 +187,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                   (m.sender.id = :currentUserId and m.receiver.id = :otherUserId)
                   or (m.sender.id = :otherUserId and m.receiver.id = :currentUserId)
               )
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
               and m.id > :anchorId
             order by m.id asc
             """)
@@ -191,6 +207,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                 select max(latest.id)
                 from Message latest
                 where latest.chatRoom is null
+                  and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                                  where hiddenMessage = latest and hidden.id = :currentUserId)
                   and (
                       (latest.sender.id = :currentUserId and latest.receiver.id in :friendIds)
                       or (latest.receiver.id = :currentUserId and latest.sender.id in :friendIds)
@@ -225,16 +243,21 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                 select max(latest.id)
                 from Message latest
                 where latest.chatRoom.id in :roomIds
+                  and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                                  where hiddenMessage = latest and hidden.id = :currentUserId)
                 group by latest.chatRoom.id
             )
             """)
-    List<Message> findLatestMessagesForRooms(@Param("roomIds") List<Long> roomIds);
+    List<Message> findLatestMessagesForRooms(@Param("roomIds") List<Long> roomIds,
+                                             @Param("currentUserId") Long currentUserId);
 
     @Query("""
             select m.sender.id as userId, count(m) as unreadCount
             from Message m
             where m.receiver.id = :receiverId
               and m.read = false
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :receiverId)
             group by m.sender.id
             """)
     List<UnreadCountProjection> countUnreadMessagesGroupedBySender(@Param("receiverId") Long receiverId);
@@ -247,6 +270,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
              and readState.user.id = :currentUserId
             where m.chatRoom.id in :roomIds
               and m.sender.id <> :currentUserId
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
               and (readState.id is null or m.timestamp > readState.lastReadAt)
             group by m.chatRoom.id
             """)
@@ -277,10 +302,13 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             left join fetch m.receiver
             where m.chatRoom.id = :roomId
               and (:before is null or m.id < :before)
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
             order by m.id desc
             """)
     List<Message> findRoomMessagePage(
             @Param("roomId") Long roomId,
+            @Param("currentUserId") Long currentUserId,
             @Param("before") Long before,
             Pageable pageable
     );
@@ -291,11 +319,14 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             where m.chatRoom.id = :roomId
               and m.recalled = false
               and m.type = :messageType
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.username = :username)
             order by m.id desc
             """)
     List<Message> findRecentSummarizableRoomMessages(
             @Param("roomId") Long roomId,
             @Param("messageType") MessageType messageType,
+            @Param("username") String username,
             Pageable pageable
     );
 
@@ -306,6 +337,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             left join fetch m.receiver
             where m.chatRoom.id = :roomId
               and m.recalled = false
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
               and m.mediaUrl is not null
               and m.type in :mediaTypes
               and (:before is null or m.id < :before)
@@ -314,6 +347,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     List<Message> findRoomMediaPage(
             @Param("roomId") Long roomId,
             @Param("mediaTypes") List<MessageType> mediaTypes,
+            @Param("currentUserId") Long currentUserId,
             @Param("before") Long before,
             Pageable pageable
     );
@@ -325,12 +359,15 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             left join fetch m.receiver
             where m.chatRoom.id = :roomId
               and m.recalled = false
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
               and m.linkPreviewUrl is not null
               and (:before is null or m.id < :before)
             order by m.id desc
             """)
     List<Message> findRoomLinkPage(
             @Param("roomId") Long roomId,
+            @Param("currentUserId") Long currentUserId,
             @Param("before") Long before,
             Pageable pageable
     );
@@ -342,6 +379,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             left join fetch m.receiver
             where m.chatRoom.id = :roomId
               and m.recalled = false
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
               and (
                   lower(m.content) like :queryPattern
                   or lower(coalesce(m.linkPreviewTitle, '')) like :queryPattern
@@ -354,6 +393,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     List<Message> findRoomSearchPage(
             @Param("roomId") Long roomId,
             @Param("queryPattern") String queryPattern,
+            @Param("currentUserId") Long currentUserId,
             @Param("before") Long before,
             Pageable pageable
     );
@@ -365,10 +405,13 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             left join fetch m.receiver
             where m.chatRoom.id = :roomId
               and m.id = :messageId
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
             """)
     Optional<Message> findRoomMessageById(
             @Param("roomId") Long roomId,
-            @Param("messageId") Long messageId
+            @Param("messageId") Long messageId,
+            @Param("currentUserId") Long currentUserId
     );
 
     @Query("""
@@ -377,12 +420,15 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             join fetch m.chatRoom
             left join fetch m.receiver
             where m.chatRoom.id = :roomId
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
               and m.id < :anchorId
             order by m.id desc
             """)
     List<Message> findRoomMessagesBefore(
             @Param("roomId") Long roomId,
             @Param("anchorId") Long anchorId,
+            @Param("currentUserId") Long currentUserId,
             Pageable pageable
     );
 
@@ -392,12 +438,15 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             join fetch m.chatRoom
             left join fetch m.receiver
             where m.chatRoom.id = :roomId
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
               and m.id > :anchorId
             order by m.id asc
             """)
     List<Message> findRoomMessagesAfter(
             @Param("roomId") Long roomId,
             @Param("anchorId") Long anchorId,
+            @Param("currentUserId") Long currentUserId,
             Pageable pageable
     );
 }

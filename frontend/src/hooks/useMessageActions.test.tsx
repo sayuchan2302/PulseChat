@@ -6,7 +6,7 @@ import type { ChatMessage } from '../types/chat.types';
 import { apiClient } from '../services/api';
 import { useMessageActions } from './useMessageActions';
 
-vi.mock('../services/api', () => ({ apiClient: { patch: vi.fn() } }));
+vi.mock('../services/api', () => ({ apiClient: { patch: vi.fn(), delete: vi.fn() } }));
 
 const setMessage = vi.fn() as unknown as Dispatch<SetStateAction<ChatMessage | null>>;
 const message: ChatMessage = {
@@ -18,7 +18,7 @@ const message: ChatMessage = {
   read: true,
 };
 
-function createOptions(editingMessage: ChatMessage | null = null) {
+function createOptions(editingMessage: ChatMessage | null = null, messageToDeleteForMe: ChatMessage | null = null) {
   return {
     currentUser: { id: 1 } as User,
     selectedUser: null,
@@ -26,14 +26,17 @@ function createOptions(editingMessage: ChatMessage | null = null) {
     replyingToMessage: null,
     forwardingMessage: null,
     editingMessage,
+    messageToDeleteForMe,
     messageInputRef: { current: null } as MutableRefObject<HTMLTextAreaElement | null>,
     setReplyingToMessage: vi.fn() as unknown as Dispatch<SetStateAction<ChatMessage | null>>,
     setForwardingMessage: vi.fn() as unknown as Dispatch<SetStateAction<ChatMessage | null>>,
     setEditingMessage: setMessage,
+    setMessageToDeleteForMe: setMessage,
     setPinnedMessage: vi.fn() as unknown as Dispatch<SetStateAction<Message | null>>,
     setEmojiPickerOpen: vi.fn() as unknown as Dispatch<SetStateAction<boolean>>,
     setMessagesError: vi.fn() as unknown as Dispatch<SetStateAction<string>>,
     applyMessageUpdate: vi.fn(),
+    applyMessageHidden: vi.fn(),
   };
 }
 
@@ -59,6 +62,27 @@ describe('useMessageActions message editing', () => {
 
     expect(apiClient.patch).toHaveBeenCalledWith('/messages/42', { content: 'Updated text' });
     expect(options.applyMessageUpdate).toHaveBeenCalledWith(updatedMessage);
+    expect(setMessage).toHaveBeenCalledWith(null);
+  });
+
+  it('requests confirmation before deleting a message for this user', () => {
+    const { result } = renderHook(() => useMessageActions(createOptions()));
+
+    act(() => result.current.handleRequestDeleteMessageForMe(message));
+
+    expect(setMessage).toHaveBeenCalledWith(message);
+  });
+
+  it('deletes for the current user and applies the hidden event', async () => {
+    const event = { messageId: message.id };
+    vi.mocked(apiClient.delete).mockResolvedValue({ data: event } as never);
+    const options = createOptions(null, message);
+    const { result } = renderHook(() => useMessageActions(options));
+
+    await act(async () => result.current.deleteMessageForMe());
+
+    expect(apiClient.delete).toHaveBeenCalledWith('/messages/42/me');
+    expect(options.applyMessageHidden).toHaveBeenCalledWith(event);
     expect(setMessage).toHaveBeenCalledWith(null);
   });
 });

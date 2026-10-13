@@ -129,6 +129,12 @@ export function useSharedContentManager({
     setSharedMediaItems,
   ]);
 
+  const removeSharedContentMessage = useCallback((messageId: number) => {
+    setSharedMediaItems((currentMessages) => currentMessages.filter((message) => message.id !== messageId));
+    setSharedLinkItems((currentMessages) => currentMessages.filter((message) => message.id !== messageId));
+    setMessageSearchItems((currentMessages) => currentMessages.filter((message) => message.id !== messageId));
+  }, [setMessageSearchItems, setSharedLinkItems, setSharedMediaItems]);
+
   const loadSharedContent = useCallback(async (
     kind: SharedContentKind,
     options: SharedContentLoadOptions = {},
@@ -300,6 +306,7 @@ export function useSharedContentManager({
     loadSharedContent,
     addIncomingSharedContent,
     updateSharedContentFromMessage,
+    removeSharedContentMessage,
   };
 }
 

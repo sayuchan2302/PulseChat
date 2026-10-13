@@ -108,6 +108,10 @@ export interface Message {
   mentionedUsernames?: string[];
 }
 
+export interface MessageHiddenEvent {
+  messageId: number;
+}
+
 
 export interface MessagePage {
   items: Message[];

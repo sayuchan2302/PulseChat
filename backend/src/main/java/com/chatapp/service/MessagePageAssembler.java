@@ -20,7 +20,8 @@ final class MessagePageAssembler {
         return new MessagePageResponse(List.of(), false, null);
     }
 
-    static MessagePageResponse fromNewestFirst(List<Message> newestFirstMessages, int pageSize) {
+    static MessagePageResponse fromNewestFirst(
+            List<Message> newestFirstMessages, int pageSize, long currentUserId) {
         boolean hasMore = newestFirstMessages.size() > pageSize;
         List<Message> pageMessages = hasMore
                 ? newestFirstMessages.subList(0, pageSize)
@@ -28,21 +29,22 @@ final class MessagePageAssembler {
 
         List<MessageResponse> items = pageMessages.stream()
                 .sorted(Comparator.comparing(Message::getId))
-                .map(MessageResponse::from)
+                .map(message -> MessageResponse.from(message, currentUserId))
                 .toList();
         Long nextBefore = hasMore && !items.isEmpty() ? items.get(0).id() : null;
 
         return new MessagePageResponse(items, hasMore, nextBefore);
     }
 
-    static MessagePageResponse galleryFromNewestFirst(List<Message> newestFirstMessages, int pageSize) {
+    static MessagePageResponse galleryFromNewestFirst(
+            List<Message> newestFirstMessages, int pageSize, long currentUserId) {
         boolean hasMore = newestFirstMessages.size() > pageSize;
         List<Message> pageMessages = hasMore
                 ? newestFirstMessages.subList(0, pageSize)
                 : newestFirstMessages;
 
         List<MessageResponse> items = pageMessages.stream()
-                .map(MessageResponse::from)
+                .map(message -> MessageResponse.from(message, currentUserId))
                 .toList();
         Long nextBefore = hasMore && !items.isEmpty() ? items.get(items.size() - 1).id() : null;
 
@@ -52,6 +54,7 @@ final class MessagePageAssembler {
     static MessagePageResponse aroundAnchor(
             Message anchorMessage,
             int pageSize,
+            long currentUserId,
             BiFunction<Long, Pageable, List<Message>> beforeLoader,
             BiFunction<Long, Pageable, List<Message>> afterLoader) {
         int beforeSize = Math.max((pageSize - 1) / 2, 0);
@@ -71,7 +74,7 @@ final class MessagePageAssembler {
                         Stream.concat(visibleBeforeMessages.stream(), Stream.of(anchorMessage)),
                         afterMessages.stream())
                 .sorted(Comparator.comparing(Message::getId))
-                .map(MessageResponse::from)
+                .map(message -> MessageResponse.from(message, currentUserId))
                 .toList();
         Long nextBefore = hasMoreBeforeMessages && !items.isEmpty() ? items.get(0).id() : null;
 

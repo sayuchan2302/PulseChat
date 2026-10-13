@@ -33,20 +33,18 @@ public record ChatRoomResponse(
         Boolean archived,
         Long pinnedMessageId,
         MessageResponse pinnedMessage) {
-    public static ChatRoomResponse from(ChatRoom room) {
-        return from(room, null, 0);
-    }
-
-    public static ChatRoomResponse from(ChatRoom room, Message lastMessage, long unreadCount) {
-        return from(room, lastMessage, unreadCount, null);
-    }
-
     public static ChatRoomResponse from(
             ChatRoom room,
             Message lastMessage,
             long unreadCount,
-            ConversationSetting setting) {
+            ConversationSetting setting,
+            long currentUserId) {
         User owner = findEffectiveOwner(room);
+        Message pinnedMessage = room.getPinnedMessage();
+        if (pinnedMessage != null && pinnedMessage.getHiddenByUsers().stream()
+                .anyMatch(user -> user.getId().equals(currentUserId))) {
+            pinnedMessage = null;
+        }
         return new ChatRoomResponse(
                 room.getId(),
                 room.getName(),
@@ -71,8 +69,8 @@ public record ChatRoomResponse(
                 isEnabled(setting == null ? null : setting.getPinned()),
                 isEnabled(setting == null ? null : setting.getMuted()),
                 isEnabled(setting == null ? null : setting.getArchived()),
-                room.getPinnedMessage() == null ? null : room.getPinnedMessage().getId(),
-                room.getPinnedMessage() == null ? null : MessageResponse.from(room.getPinnedMessage()));
+                pinnedMessage == null ? null : pinnedMessage.getId(),
+                pinnedMessage == null ? null : MessageResponse.from(pinnedMessage, currentUserId));
     }
 
     private static User findEffectiveOwner(ChatRoom room) {

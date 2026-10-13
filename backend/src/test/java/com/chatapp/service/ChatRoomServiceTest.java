@@ -121,7 +121,7 @@ class ChatRoomServiceTest {
         when(userService.findByUsername("sayu")).thenReturn(sayu);
         when(chatRoomRepository.findDistinctByMembersUserIdAndTypeOrderByCreatedAtDesc(1L, ChatRoom.RoomType.GROUP))
                 .thenReturn(List.of(olderRoom, activeRoom));
-        when(messageRepository.findLatestMessagesForRooms(List.of(10L, 20L))).thenReturn(List.of(latestMessage));
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L, 20L), 1L)).thenReturn(List.of(latestMessage));
         when(messageRepository.countUnreadRoomMessages(1L, List.of(10L, 20L)))
                 .thenReturn(List.of(roomUnreadCount(20L, 2)));
 
@@ -145,7 +145,7 @@ class ChatRoomServiceTest {
         when(userService.findByUsername("sayu")).thenReturn(sayu);
         when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
         when(chatRoomReadStateRepository.findByChatRoomIdAndUserId(10L, 1L)).thenReturn(Optional.empty());
-        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of(latestMessage));
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L), 1L)).thenReturn(List.of(latestMessage));
 
         ChatRoomResponse response = chatRoomService.markGroupAsRead("sayu", 10L);
 
@@ -206,7 +206,7 @@ class ChatRoomServiceTest {
         when(userService.findByUsername("sayu")).thenReturn(sayu);
         when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
         when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of());
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L), 1L)).thenReturn(List.of());
         when(messageRepository.countUnreadRoomMessages(1L, List.of(10L))).thenReturn(List.of());
 
         ChatRoomResponse response = chatRoomService.updateGroup(
@@ -231,7 +231,7 @@ class ChatRoomServiceTest {
         when(userService.findById(4L)).thenReturn(charlie);
         when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
         when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of());
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L), 1L)).thenReturn(List.of());
         when(messageRepository.countUnreadRoomMessages(1L, List.of(10L))).thenReturn(List.of());
 
         ChatRoomResponse response = chatRoomService.addMembers(
@@ -259,7 +259,7 @@ class ChatRoomServiceTest {
         when(userService.findByUsername("sayu")).thenReturn(sayu);
         when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
         when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of());
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L), 1L)).thenReturn(List.of());
 
         ChatRoomResponse response = chatRoomService.leaveGroup("sayu", 10L);
 
@@ -284,7 +284,7 @@ class ChatRoomServiceTest {
         when(userService.findByUsername("sayu")).thenReturn(sayu);
         when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
         when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of());
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L), 1L)).thenReturn(List.of());
         when(messageRepository.countUnreadRoomMessages(1L, List.of(10L))).thenReturn(List.of());
 
         ChatRoomResponse response = chatRoomService.transferOwner(
@@ -327,7 +327,7 @@ class ChatRoomServiceTest {
         when(userService.findByUsername("sayu")).thenReturn(sayu);
         when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
         when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of());
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L), 1L)).thenReturn(List.of());
         when(messageRepository.countUnreadRoomMessages(1L, List.of(10L))).thenReturn(List.of());
 
         ChatRoomResponse response = chatRoomService.removeMember("sayu", 10L, 4L);
@@ -375,7 +375,7 @@ class ChatRoomServiceTest {
         when(userService.findByUsername("sayu")).thenReturn(sayu);
         when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
         when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(messageRepository.findLatestMessagesForRooms(List.of(10L))).thenReturn(List.of());
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L), 1L)).thenReturn(List.of());
         when(messageRepository.countUnreadRoomMessages(1L, List.of(10L))).thenReturn(List.of());
 
         ChatRoomResponse response = chatRoomService.updateMemberNickname(

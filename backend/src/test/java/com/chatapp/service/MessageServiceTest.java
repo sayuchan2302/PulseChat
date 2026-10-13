@@ -160,7 +160,7 @@ class MessageServiceTest {
                 User sender = user(1L, "sayu");
                 when(userService.findByUsername("sayu")).thenReturn(sender);
                 when(chatRoomService.findGroupRoomForMember("sayu", room.getId())).thenReturn(room);
-                when(messageRepository.findRoomMessagePage(eq(room.getId()), eq(8L), any(Pageable.class)))
+                when(messageRepository.findRoomMessagePage(eq(room.getId()), eq(1L), eq(8L), any(Pageable.class)))
                                 .thenReturn(List.of(
                                                 roomMessage(7L, "older", sender, room),
                                                 roomMessage(6L, "oldest", sender, room)));
@@ -172,7 +172,7 @@ class MessageServiceTest {
                 assertEquals(List.of(6L, 7L), page.items().stream().map(message -> message.id()).toList());
 
                 ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-                verify(messageRepository).findRoomMessagePage(eq(room.getId()), eq(8L), pageableCaptor.capture());
+                verify(messageRepository).findRoomMessagePage(eq(room.getId()), eq(1L), eq(8L), pageableCaptor.capture());
                 assertEquals(31, pageableCaptor.getValue().getPageSize());
         }
 
@@ -253,7 +253,7 @@ class MessageServiceTest {
                                 () -> messageQueryService.getRoomMedia("sayu", 10L, null, 12));
 
                 assertEquals(ErrorCode.ROOM_ACCESS_DENIED, exception.getErrorCode());
-                verify(messageRepository, never()).findRoomMediaPage(any(), any(), any(), any());
+                verify(messageRepository, never()).findRoomMediaPage(any(), any(), any(), any(), any());
         }
 
         @Test
@@ -262,7 +262,7 @@ class MessageServiceTest {
                 User sender = user(1L, "sayu");
                 when(userService.findByUsername("sayu")).thenReturn(sender);
                 when(chatRoomService.findGroupRoomForMember("sayu", room.getId())).thenReturn(room);
-                when(messageRepository.findRoomLinkPage(eq(room.getId()), eq(20L), any(Pageable.class)))
+                when(messageRepository.findRoomLinkPage(eq(room.getId()), eq(1L), eq(20L), any(Pageable.class)))
                                 .thenReturn(List.of(
                                                 roomLinkMessage(19L, sender, room),
                                                 roomLinkMessage(18L, sender, room),
@@ -336,7 +336,7 @@ class MessageServiceTest {
                                 () -> messageQueryService.searchRoom("sayu", 10L, "hello", null, 12));
 
                 assertEquals(ErrorCode.ROOM_ACCESS_DENIED, exception.getErrorCode());
-                verify(messageRepository, never()).findRoomSearchPage(any(), any(), any(), any());
+                verify(messageRepository, never()).findRoomSearchPage(any(), any(), any(), any(), any());
         }
 
         @Test
@@ -396,12 +396,12 @@ class MessageServiceTest {
                 Message anchor = roomMessage(15L, "anchor", sender, room);
                 when(userService.findByUsername("sayu")).thenReturn(sender);
                 when(chatRoomService.findGroupRoomForMember("sayu", room.getId())).thenReturn(room);
-                when(messageRepository.findRoomMessageById(room.getId(), anchor.getId()))
+                when(messageRepository.findRoomMessageById(room.getId(), anchor.getId(), sender.getId()))
                                 .thenReturn(Optional.of(anchor));
                 when(messageRepository.findRoomMessagesBefore(eq(room.getId()), eq(anchor.getId()),
-                                any(Pageable.class)))
+                                eq(sender.getId()), any(Pageable.class)))
                                 .thenReturn(List.of(roomMessage(14L, "before", sender, room)));
-                when(messageRepository.findRoomMessagesAfter(eq(room.getId()), eq(anchor.getId()), any(Pageable.class)))
+                when(messageRepository.findRoomMessagesAfter(eq(room.getId()), eq(anchor.getId()), eq(sender.getId()), any(Pageable.class)))
                                 .thenReturn(List.of(
                                                 roomMessage(16L, "after", sender, room),
                                                 roomMessage(17L, "after newer", sender, room)));
@@ -427,7 +427,7 @@ class MessageServiceTest {
 
                 when(userService.findByUsername("sayu")).thenReturn(sender);
                 when(chatRoomService.findGroupRoomForMember(sender, room.getId())).thenReturn(room);
-                when(messageRepository.findRoomMessageById(room.getId(), message.getId()))
+                when(messageRepository.findRoomMessageById(room.getId(), message.getId(), sender.getId()))
                                 .thenReturn(Optional.of(message));
                 when(chatRoomReadStateRepository.findByChatRoomIdAndLastReadAtGreaterThanEqualOrderByLastReadAtDesc(
                                 room.getId(),
@@ -783,6 +783,41 @@ class MessageServiceTest {
 
                 assertEquals(ErrorCode.INVALID_MESSAGE_CONTENT, exception.getErrorCode());
                 verify(messageRepository, never()).findById(any());
+        }
+
+        @Test
+        void deleteMessageForCurrentUserIsIdempotentAndDoesNotChangeOtherParticipants() {
+                User sender = user(1L, "sayu");
+                User receiver = user(2L, "thinh");
+                Message message = privateMessage(20L, "Keep for the other person", sender, receiver);
+                when(userService.findByUsername("sayu")).thenReturn(sender);
+                when(messageRepository.findById(message.getId())).thenReturn(Optional.of(message));
+                when(messageRepository.saveAndFlush(any(Message.class)))
+                                .thenAnswer(invocation -> invocation.getArgument(0));
+
+                messageService.deleteMessageForCurrentUser("sayu", message.getId());
+                messageService.deleteMessageForCurrentUser("sayu", message.getId());
+
+                assertEquals("Keep for the other person", message.getContent());
+                assertTrue(message.getHiddenByUsers().stream().anyMatch(user -> user.getId().equals(sender.getId())));
+                assertTrue(message.getHiddenByUsers().stream().noneMatch(user -> user.getId().equals(receiver.getId())));
+                verify(messageRepository, org.mockito.Mockito.times(1)).saveAndFlush(message);
+        }
+
+        @Test
+        void deleteMessageForCurrentUserRequiresConversationAccess() {
+                User sender = user(1L, "sayu");
+                User receiver = user(2L, "thinh");
+                User outsider = user(3L, "mika");
+                Message message = privateMessage(20L, "Private message", sender, receiver);
+                when(userService.findByUsername("mika")).thenReturn(outsider);
+                when(messageRepository.findById(message.getId())).thenReturn(Optional.of(message));
+
+                AppException exception = assertThrows(AppException.class,
+                                () -> messageService.deleteMessageForCurrentUser("mika", message.getId()));
+
+                assertEquals(ErrorCode.MESSAGE_ACCESS_DENIED, exception.getErrorCode());
+                verify(messageRepository, never()).saveAndFlush(any(Message.class));
         }
 
         @Test

@@ -128,6 +128,17 @@ export class DBService {
         return messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     }
 
+    async removeMessageFromCaches(userId: number, messageId: number): Promise<void> {
+        await this.run(userId, 'messages', 'readwrite', (store) => {
+            const cursor = store.index('userId').openCursor(userId);
+            cursor.onsuccess = () => {
+                if (!cursor.result) return;
+                if (cursor.result.value.id === messageId) cursor.result.delete();
+                cursor.result.continue();
+            };
+        }, undefined);
+    }
+
     async enqueuePendingMessage(userId: number, item: OfflinePendingMessage): Promise<boolean> {
         return Boolean(await this.run<IDBValidKey>(userId, 'pendingQueue', 'readwrite',
             (store) => store.put({ ...item, userId }), ''));

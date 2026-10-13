@@ -58,7 +58,7 @@ public class GeminiGroupSummaryService {
         SummarySnapshot snapshot = transactionTemplate.execute(status -> {
             chatRoomService.findGroupRoomForMember(currentUsername, roomId);
             List<Message> messages = new ArrayList<>(messageRepository.findRecentSummarizableRoomMessages(
-                    roomId, Message.MessageType.TEXT, PageRequest.of(0, MAX_MESSAGES)));
+                    roomId, Message.MessageType.TEXT, currentUsername, PageRequest.of(0, MAX_MESSAGES)));
             Collections.reverse(messages);
             if (messages.isEmpty()) throw new AppException(ErrorCode.AI_SUMMARY_NO_MESSAGES);
             // Materialize all lazy properties before releasing the database transaction.

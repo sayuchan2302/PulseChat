@@ -5,6 +5,7 @@ import type {
   ChatRoom,
   ConnectionStatus,
   Friendship,
+  MessageHiddenEvent,
   PresenceEvent,
   ReadReceiptEvent,
   RoomReadReceiptEvent,
@@ -48,6 +49,7 @@ interface Options {
   buildFriendshipNotification: (friendship: Friendship) => ChatBrowserNotification | null;
   notifyWithBrowserNotification: (notification: ChatBrowserNotification, isMention?: boolean) => void;
   applyMessageUpdate: (message: ChatMessage) => void;
+  applyMessageHidden: (event: MessageHiddenEvent) => void;
   applyRoomReadReceipt: (receipt: RoomReadReceiptEvent) => void;
   handleCallSignal: (event: CallSignalEvent) => void;
   clearTypingTimeout: () => void;
@@ -66,6 +68,7 @@ export function useRealtimeEventHandlers(options: Options): EventHandlers {
     loadIncomingFriendRequests, loadFriendSummary, loadMessages, loadRoomMessages,
     markConversationAsRead, markRoomAsRead, applyRoomMembershipUpdate,
     buildFriendshipNotification, notifyWithBrowserNotification, applyMessageUpdate,
+    applyMessageHidden,
     applyRoomReadReceipt, handleCallSignal, clearTypingTimeout, clearRemoteTypingTimeout,
     clearOptimisticSendTimeouts, sendActiveCallCloseSignal, stopCallMedia,
   } = options;
@@ -141,6 +144,9 @@ export function useRealtimeEventHandlers(options: Options): EventHandlers {
     onMessageUpdate: (message: ChatMessage) => {
       if (realtimeActiveRef.current) applyMessageUpdate(message);
     },
+    onMessageHidden: (event: MessageHiddenEvent) => {
+      if (realtimeActiveRef.current) applyMessageHidden(event);
+    },
     onRoomReadReceipt: (receipt: RoomReadReceiptEvent) => {
       if (realtimeActiveRef.current) applyRoomReadReceipt(receipt);
     },
@@ -157,7 +163,7 @@ export function useRealtimeEventHandlers(options: Options): EventHandlers {
       stopCallMedia();
     },
   }), [
-    applyMessageUpdate, applyRoomMembershipUpdate, applyRoomReadReceipt, buildFriendshipNotification,
+    applyMessageHidden, applyMessageUpdate, applyRoomMembershipUpdate, applyRoomReadReceipt, buildFriendshipNotification,
     clearOptimisticSendTimeouts, clearRemoteTypingTimeout, clearTypingTimeout,
     currentUserIdRef, getBrowserAwareConnectionStatus, handleCallSignal, hasConnectedRef,
     hideRemoteTyping, loadFriendSummary, loadIncomingFriendRequests, loadMessages, loadRoomMessages,
