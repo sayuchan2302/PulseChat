@@ -40,6 +40,7 @@ public class FriendshipService {
     private final MessageRepository messageRepository;
     private final ConversationSettingRepository conversationSettingRepository;
     private final UserService userService;
+    private final UserBlockService userBlockService;
 
     @Transactional(readOnly = true)
     public List<UserResponse> listFriends(String currentUsername) {
@@ -176,6 +177,7 @@ public class FriendshipService {
         User requester = userService.findByUsername(currentUsername);
         User receiver = userService.findById(request.receiverId());
         validateNotSelf(requester, receiver);
+        userBlockService.ensureNotBlocked(requester, receiver);
 
         PairKey pairKey = pairKey(requester, receiver);
         Friendship friendship = friendshipRepository
@@ -192,6 +194,7 @@ public class FriendshipService {
         Friendship friendship = findById(requestId);
         validateReceiver(friendship, receiver);
         validatePending(friendship);
+        userBlockService.ensureNotBlocked(friendship.getRequester(), receiver);
 
         friendship.setStatus(FriendshipStatus.ACCEPTED);
         return FriendshipResponse.from(friendshipRepository.saveAndFlush(friendship));
@@ -222,6 +225,9 @@ public class FriendshipService {
 
     @Transactional(readOnly = true)
     public boolean areFriends(User firstUser, User secondUser) {
+        if (userBlockService.isBlocked(firstUser, secondUser)) {
+            return false;
+        }
         PairKey pairKey = pairKey(firstUser, secondUser);
         return friendshipRepository.existsByUserLowIdAndUserHighIdAndStatus(
                 pairKey.userLowId(),

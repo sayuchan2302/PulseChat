@@ -28,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -47,6 +48,9 @@ class FriendshipServiceTest {
 
     @Mock
     private UserService userService;
+
+    @Mock
+    private UserBlockService userBlockService;
 
     @InjectMocks
     private FriendshipService friendshipService;
@@ -81,6 +85,24 @@ class FriendshipServiceTest {
         );
 
         assertEquals(ErrorCode.SELF_FRIEND_REQUEST_NOT_ALLOWED, exception.getErrorCode());
+        verify(friendshipRepository, never()).saveAndFlush(any(Friendship.class));
+    }
+
+    @Test
+    void sendRequestRejectsBlockedPair() {
+        User requester = user(3L, "sayu");
+        User receiver = user(7L, "thinh");
+        when(userService.findByUsername("sayu")).thenReturn(requester);
+        when(userService.findById(receiver.getId())).thenReturn(receiver);
+        doThrow(new AppException(ErrorCode.USER_BLOCKED))
+                .when(userBlockService).ensureNotBlocked(requester, receiver);
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> friendshipService.sendRequest("sayu", new CreateFriendRequest(receiver.getId()))
+        );
+
+        assertEquals(ErrorCode.USER_BLOCKED, exception.getErrorCode());
         verify(friendshipRepository, never()).saveAndFlush(any(Friendship.class));
     }
 

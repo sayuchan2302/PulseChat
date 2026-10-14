@@ -111,6 +111,7 @@ import ConversationSidebar from '../components/chat/ConversationSidebar';
 import DetailsSidebar from '../components/chat/DetailsSidebar';
 import { FriendsPanel, FriendRequestsPanel } from '../components/chat/PeoplePanels';
 import ProfileViewerModal from '../components/chat/ProfileViewerModal';
+import BlockedUsersModal from '../components/chat/BlockedUsersModal';
 import ProfileEditorModal from '../components/chat/ProfileEditorModal';
 import CreateGroupModal from '../components/chat/CreateGroupModal';
 import SidebarContent from '../components/chat/SidebarContent';
@@ -186,6 +187,11 @@ export default function ChatPage() {
     incomingCount: 0,
     outgoingCount: 0,
   });
+  const [blockedUsers, setBlockedUsers] = useState<User[]>([]);
+  const [blockedUsersOpen, setBlockedUsersOpen] = useState(false);
+  const [blockedUsersLoading, setBlockedUsersLoading] = useState(false);
+  const [blockedUsersError, setBlockedUsersError] = useState('');
+  const [blockActionPendingUserId, setBlockActionPendingUserId] = useState<number | null>(null);
   const [friendActionKeys, setFriendActionKeys] = useState<string[]>([]);
   const [groupName, setGroupName] = useState('');
   const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<number[]>([]);
@@ -328,6 +334,11 @@ export default function ChatPage() {
     roomsRef,
     navigate,
   });
+  const mutedPrivateConversationUserIds = useMemo(() => Array.from(new Set(
+    [...users, ...friends]
+      .filter((user) => user.muted)
+      .map((user) => user.id)
+  )), [friends, users]);
   const {
     activeCall,
     activeCallRef,
@@ -389,6 +400,7 @@ export default function ChatPage() {
     currentUserRef,
     currentUserIdRef,
     selectedUser,
+    mutedPrivateConversationUserIds,
     notifyWithBrowserNotification,
     startIncomingCallRingtone,
     stopIncomingCallRingtone,
@@ -615,6 +627,20 @@ export default function ChatPage() {
     setRoomsError,
     setFriendRequestsError,
   });
+
+  const loadBlockedUsers = useCallback(async () => {
+    setBlockedUsersLoading(true);
+    setBlockedUsersError('');
+    try {
+      const response = await apiClient.get<User[]>('/blocks');
+      setBlockedUsers(response.data);
+    } catch (error) {
+      console.error('Failed to load blocked users:', error);
+      setBlockedUsersError('Unable to load blocked users.');
+    } finally {
+      setBlockedUsersLoading(false);
+    }
+  }, []);
 
   const { loadMessages, loadRoomMessages } = useMessageLoaders({
     currentUserIdRef, messagesRef,
@@ -858,6 +884,11 @@ export default function ChatPage() {
     void loadIncomingFriendRequests();
     void loadFriendSummary();
   }, [currentUser?.id, loadFriendSummary, loadIncomingFriendRequests]);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    void loadBlockedUsers();
+  }, [currentUser?.id, loadBlockedUsers]);
 
   const {
     clearTypingTimeout,
@@ -1304,6 +1335,52 @@ export default function ChatPage() {
     setProfileMenuOpen((currentOpen) => !currentOpen);
   };
 
+  const handleOpenBlockedUsers = () => {
+    setProfileMenuOpen(false);
+    setBlockedUsersOpen(true);
+    void loadBlockedUsers();
+  };
+
+  const handleToggleUserBlock = async (user: User) => {
+    const isBlocked = blockedUsers.some((blockedUser) => blockedUser.id === user.id);
+    setBlockActionPendingUserId(user.id);
+    setProfileActionError('');
+    setBlockedUsersError('');
+    try {
+      if (isBlocked) {
+        await apiClient.delete(`/blocks/${user.id}`);
+        setBlockedUsers((current) => current.filter((blockedUser) => blockedUser.id !== user.id));
+      } else {
+        const response = await apiClient.put<User>(`/blocks/${user.id}`);
+        setBlockedUsers((current) => current.some((blockedUser) => blockedUser.id === user.id)
+          ? current
+          : [response.data, ...current]);
+        setFriends((current) => current.filter((friend) => friend.id !== user.id));
+        setUsers((current) => current.map((listedUser) => listedUser.id === user.id
+          ? { ...listedUser, friendshipStatus: 'none', friendshipId: undefined }
+          : listedUser));
+        setSelectedUser((current) => current?.id === user.id
+          ? { ...current, friendshipStatus: 'none', friendshipId: undefined }
+          : current);
+        setViewedProfileUser((current) => current?.id === user.id
+          ? { ...current, friendshipStatus: 'none', friendshipId: undefined }
+          : current);
+        await Promise.all([
+          loadUsers({ search: '', silent: true }),
+          loadIncomingFriendRequests({ silent: true }),
+          loadFriendSummary({ silent: true }),
+        ]);
+      }
+    } catch (error) {
+      console.error(isBlocked ? 'Failed to unblock user:' : 'Failed to block user:', error);
+      const message = isBlocked ? 'Unable to unblock user.' : 'Unable to block user.';
+      setProfileActionError(message);
+      setBlockedUsersError(message);
+    } finally {
+      setBlockActionPendingUserId(null);
+    }
+  };
+
   const handleToggleConversationDetails = () => {
     setProfileMenuOpen(false);
     if (detailsOpen && rightSidebarTab === 'details') {
@@ -1631,6 +1708,10 @@ export default function ChatPage() {
   };
 
   const currentUserDisplayName = getUserDisplayName(currentUser) || 'Profile';
+  const activeProfileUserIsBlocked = Boolean(activeViewedProfileUser &&
+    blockedUsers.some((blockedUser) => blockedUser.id === activeViewedProfileUser.id));
+  const selectedUserIsBlocked = Boolean(selectedUser &&
+    blockedUsers.some((blockedUser) => blockedUser.id === selectedUser.id));
   const currentUserOnline = Boolean(currentUser?.online);
   const activeCallConversationOpen = Boolean(
     activeCall &&
@@ -2004,6 +2085,7 @@ export default function ChatPage() {
         onOpenRequests={handleOpenRequestsPanel}
         onToggleProfileMenu={handleToggleProfileMenu}
         onOpenProfileEditor={handleOpenProfileEditor}
+        onOpenBlockedUsers={handleOpenBlockedUsers}
         onLogout={() => void handleLogout()}
       />
 
@@ -2036,6 +2118,7 @@ export default function ChatPage() {
             selectedUserId={selectedUserId}
             selectedRoomId={selectedRoomId}
             friendActionKeys={friendActionKeys}
+            blockedUserIds={blockedUsers.map((user) => user.id)}
             openConversationMenuKey={openConversationMenuKey}
             pendingConversationKey={conversationSettingPendingKey}
             onLoadUsers={(options) => void loadUsers(options)}
@@ -2153,6 +2236,7 @@ export default function ChatPage() {
                 mediaError,
                 mediaUploading,
                 canAttachMedia: Boolean(selectedRoom || (selectedUser && canChatWithUser(selectedUser))),
+                blocked: selectedUserIsBlocked,
                 onClearPendingMedia: clearPendingMedia,
                 onOpenMediaPicker: handleOpenMediaPicker,
                 onOpenDocumentPicker: handleOpenDocPicker,
@@ -2296,6 +2380,8 @@ export default function ChatPage() {
         actionError={profileActionError}
         pendingActionKeys={friendActionKeys}
         callActive={Boolean(activeCall)}
+        blockedByCurrentUser={activeProfileUserIsBlocked}
+        blockActionPending={blockActionPendingUserId === activeViewedProfileUser?.id}
         onClose={handleCloseUserProfile}
         onOpenChat={(user) => {
           handleCloseUserProfile();
@@ -2309,6 +2395,17 @@ export default function ChatPage() {
         onAcceptFriendRequest={(requestId, actionKey) => void handleAcceptFriendRequest(requestId, actionKey)}
         onDeclineFriendRequest={(requestId, actionKey) => void handleDeclineFriendRequest(requestId, actionKey)}
         onCancelFriendRequest={(user) => void handleCancelFriendRequest(user)}
+        onToggleBlock={(user) => void handleToggleUserBlock(user)}
+      />
+
+      <BlockedUsersModal
+        open={blockedUsersOpen}
+        users={blockedUsers}
+        loading={blockedUsersLoading}
+        error={blockedUsersError}
+        pendingUserId={blockActionPendingUserId}
+        onClose={() => setBlockedUsersOpen(false)}
+        onUnblock={(user) => void handleToggleUserBlock(user)}
       />
 
       <ProfileEditorModal

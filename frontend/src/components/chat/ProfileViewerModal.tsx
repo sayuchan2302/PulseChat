@@ -10,6 +10,8 @@ export interface ProfileViewerModalProps {
   actionError: string;
   pendingActionKeys: string[];
   callActive: boolean;
+  blockedByCurrentUser: boolean;
+  blockActionPending: boolean;
   onClose: () => void;
   onOpenChat: (user: User) => void;
   onStartCall: (user: User, callType: CallType) => void;
@@ -17,6 +19,7 @@ export interface ProfileViewerModalProps {
   onAcceptFriendRequest: (requestId: number, actionKey: string) => void;
   onDeclineFriendRequest: (requestId: number, actionKey: string) => void;
   onCancelFriendRequest: (user: User) => void;
+  onToggleBlock: (user: User) => void;
 }
 
 type ProfileActionsProps = Pick<
@@ -85,6 +88,8 @@ export function ProfileViewerModal({
   actionError,
   pendingActionKeys,
   callActive,
+  blockedByCurrentUser,
+  blockActionPending,
   onClose,
   onOpenChat,
   onStartCall,
@@ -92,6 +97,7 @@ export function ProfileViewerModal({
   onAcceptFriendRequest,
   onDeclineFriendRequest,
   onCancelFriendRequest,
+  onToggleBlock,
 }: ProfileViewerModalProps) {
   if (!user) return null;
 
@@ -113,17 +119,22 @@ export function ProfileViewerModal({
             <div className="profile-info-item"><span>Relationship</span><strong>{getRelationshipLabel(user)}</strong></div>
           </div>
           <div className="profile-action-row">
-            <ProfileActions
-              user={user}
-              pendingActionKeys={pendingActionKeys}
-              callActive={callActive}
-              onOpenChat={onOpenChat}
-              onStartCall={onStartCall}
-              onSendFriendRequest={onSendFriendRequest}
-              onAcceptFriendRequest={onAcceptFriendRequest}
-              onDeclineFriendRequest={onDeclineFriendRequest}
-              onCancelFriendRequest={onCancelFriendRequest}
-            />
+            {blockedByCurrentUser ? <span className="profile-blocked-status">You blocked this user.</span> : (
+              <ProfileActions
+                user={user}
+                pendingActionKeys={pendingActionKeys}
+                callActive={callActive}
+                onOpenChat={onOpenChat}
+                onStartCall={onStartCall}
+                onSendFriendRequest={onSendFriendRequest}
+                onAcceptFriendRequest={onAcceptFriendRequest}
+                onDeclineFriendRequest={onDeclineFriendRequest}
+                onCancelFriendRequest={onCancelFriendRequest}
+              />
+            )}
+            <button type="button" className="profile-block-btn" disabled={blockActionPending} onClick={() => onToggleBlock(user)}>
+              {blockActionPending ? 'Saving…' : blockedByCurrentUser ? 'Unblock user' : 'Block user'}
+            </button>
           </div>
           {actionError ? <div className="profile-action-error">{actionError}</div> : null}
         </div>

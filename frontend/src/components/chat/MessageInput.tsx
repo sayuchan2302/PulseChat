@@ -18,6 +18,7 @@ export interface MessageInputProps {
   mediaError: string;
   mediaUploading: boolean;
   canAttachMedia: boolean;
+  blocked: boolean;
   onClearPendingMedia: () => void;
   onOpenMediaPicker: () => void;
   onOpenDocumentPicker: () => void;
@@ -44,7 +45,7 @@ export interface MessageInputProps {
 export function MessageInput(props: MessageInputProps) {
   const {
     onSubmit, mediaFileInputRef, docFileInputRef, mediaAccept, onFileChange,
-    replyPreview, onCancelReply, pendingMedia, mediaError, mediaUploading, canAttachMedia,
+    replyPreview, onCancelReply, pendingMedia, mediaError, mediaUploading, canAttachMedia, blocked,
     onClearPendingMedia, onOpenMediaPicker, onOpenDocumentPicker, onVoiceRecorded,
     emojiButtonRef, emojiPickerOpen, onToggleEmojiPicker, messageInputRef,
     messageInput, onMessageInputChange, onMessageInputKeyDown,
@@ -55,6 +56,7 @@ export function MessageInput(props: MessageInputProps) {
 
   return (
     <form onSubmit={onSubmit} className="message-input-form">
+      {blocked ? <div className="blocked-message-notice" role="status">You blocked this user. Unblock them from their profile to send a private message.</div> : null}
       <input ref={mediaFileInputRef} type="file" className="media-file-input" accept={mediaAccept} onChange={onFileChange} disabled={!canAttachMedia} />
       <input ref={docFileInputRef} type="file" className="media-file-input" accept="*/*" onChange={onFileChange} disabled={!canAttachMedia} />
 
@@ -110,7 +112,7 @@ export function MessageInput(props: MessageInputProps) {
             className={`composer-icon-btn emoji-toggle-btn ${emojiPickerOpen ? 'active' : ''}`}
             onMouseDown={(event) => event.preventDefault()}
             onClick={onToggleEmojiPicker}
-            disabled={mediaUploading}
+            disabled={mediaUploading || blocked}
             aria-label={emojiPickerOpen ? 'Close emoji picker' : 'Open emoji picker'}
             aria-expanded={emojiPickerOpen}
             aria-controls="emoji-picker-panel"
@@ -130,7 +132,7 @@ export function MessageInput(props: MessageInputProps) {
             placeholder={`Message ${selectedConversationName}`}
             className="message-input"
             rows={1}
-            disabled={mediaUploading}
+            disabled={mediaUploading || blocked}
           />
 
           {mentionQuery !== null && mentionCandidates.length > 0 ? (
@@ -210,7 +212,7 @@ export function MessageInput(props: MessageInputProps) {
             </div>
           ) : null}
         </div>
-        <button type="submit" className="send-btn" disabled={(!messageInput.trim() && !pendingMedia) || mediaUploading}>
+        <button type="submit" className="send-btn" disabled={blocked || (!messageInput.trim() && !pendingMedia) || mediaUploading}>
           {mediaUploading ? 'Uploading' : 'Send'}
         </button>
       </div>

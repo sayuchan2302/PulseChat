@@ -29,4 +29,16 @@ public interface CallSessionRepository extends JpaRepository<CallSession, Long> 
 
     @EntityGraph(attributePaths = {"caller", "receiver"})
     List<CallSession> findByStatusAndCreatedAtBefore(CallStatus status, LocalDateTime createdAt);
+
+    @EntityGraph(attributePaths = {"caller", "receiver"})
+    @Query("""
+            select callSession from CallSession callSession
+            where callSession.status in :statuses
+              and ((callSession.caller.id = :firstUserId and callSession.receiver.id = :secondUserId)
+                or (callSession.caller.id = :secondUserId and callSession.receiver.id = :firstUserId))
+            """)
+    List<CallSession> findActiveCallsBetweenUsers(
+            @Param("firstUserId") Long firstUserId,
+            @Param("secondUserId") Long secondUserId,
+            @Param("statuses") Collection<CallStatus> statuses);
 }

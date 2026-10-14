@@ -52,6 +52,7 @@ type WebRtcSignalHandlersOptions = {
   setRemoteScreenSharing: Dispatch<SetStateAction<boolean>>;
   setScreenShareError: Dispatch<SetStateAction<string>>;
   notifyWithBrowserNotification: (notification: ChatBrowserNotification) => void;
+  mutedPrivateConversationUserIds: number[];
 };
 
 export function useWebRtcSignalHandlers({
@@ -82,6 +83,7 @@ export function useWebRtcSignalHandlers({
   setRemoteScreenSharing,
   setScreenShareError,
   notifyWithBrowserNotification,
+  mutedPrivateConversationUserIds,
 }: WebRtcSignalHandlersOptions) {
   const getCurrentCallRole = useCallback((event: CallSignalEvent) => {
     if (event.recipientRole === 'CALLER') return 'caller' as const;
@@ -464,13 +466,15 @@ export function useWebRtcSignalHandlers({
       setCallError('');
       setRemoteScreenSharing(false);
       setScreenShareError('');
-      notifyWithBrowserNotification({
-        title: event.callType === 'VIDEO' ? 'Incoming video call' : 'Incoming audio call',
-        body: `${getUserDisplayName(event.caller)} is calling you.`,
-        path: getUserChatRoute(event.caller.username),
-        user: event.caller,
-        browserTag: `call-${event.callId}`,
-      });
+      if (!mutedPrivateConversationUserIds.includes(event.caller.id)) {
+        notifyWithBrowserNotification({
+          title: event.callType === 'VIDEO' ? 'Incoming video call' : 'Incoming audio call',
+          body: `${getUserDisplayName(event.caller)} is calling you.`,
+          path: getUserChatRoute(event.caller.username),
+          user: event.caller,
+          browserTag: `call-${event.callId}`,
+        });
+      }
       return;
     }
 
@@ -510,7 +514,8 @@ export function useWebRtcSignalHandlers({
     activeCallRef, buildCallFromSignal, finishCall, getCurrentCallRole,
     isCallEventForActiveCall,
     handleIceCandidate, handleWebRtcAnswer, handleWebRtcOffer,
-    isCallSignalFromCurrentUser, notifyWithBrowserNotification, sendCallSignal,
+    isCallSignalFromCurrentUser, mutedPrivateConversationUserIds,
+    notifyWithBrowserNotification, sendCallSignal,
     setActiveCallState, setCallError, setPreCallSetup, setRemoteScreenSharing,
     setScreenShareError, startPeerConnection, stopPreCallPreview,
   ]);

@@ -3,6 +3,7 @@ package com.chatapp.repository;
 import com.chatapp.model.ChatRoom;
 import com.chatapp.model.Message;
 import com.chatapp.model.User;
+import com.chatapp.model.UserBlock;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -21,6 +22,7 @@ class LocalMediaAuthorizationTest {
     @Autowired TestEntityManager entityManager;
     @Autowired MessageRepository messages;
     @Autowired ChatRoomRepository rooms;
+    @Autowired UserBlockRepository userBlocks;
 
     @Test
     void onlyDmParticipantsCanAccessAnUnrecalledAttachment() {
@@ -95,6 +97,24 @@ class LocalMediaAuthorizationTest {
         assertEquals(0, messages.countUnreadRoomMessages(bob.getId(), List.of(room.getId())).size());
         assertEquals(0, messages.findLatestMessagesForRooms(List.of(room.getId()), bob.getId()).size());
         assertEquals(Optional.empty(), messages.findRoomMessageById(room.getId(), message.getId(), bob.getId()));
+    }
+
+    @Test
+    void userBlocksAreDirectionalButBlockChecksApplyToEitherDirection() {
+        User alice = user("alice");
+        User bob = user("bob");
+        User carol = user("carol");
+        UserBlock block = new UserBlock();
+        block.setBlocker(alice);
+        block.setBlockedUser(bob);
+        entityManager.persistAndFlush(block);
+
+        assertEquals(true, userBlocks.existsBetweenUsers(alice.getId(), bob.getId()));
+        assertEquals(true, userBlocks.existsBetweenUsers(bob.getId(), alice.getId()));
+        assertEquals(false, userBlocks.existsBetweenUsers(alice.getId(), carol.getId()));
+        assertEquals(List.of(block.getId()), userBlocks.findByBlockerIdOrderByCreatedAtDesc(alice.getId()).stream()
+                .map(UserBlock::getId).toList());
+        assertEquals(0, userBlocks.findByBlockerIdOrderByCreatedAtDesc(bob.getId()).size());
     }
 
     @Test

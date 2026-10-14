@@ -13,6 +13,8 @@ public enum ErrorCode {
         INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH_004", "Refresh token is invalid or expired"),
 
         USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_001", "User not found"),
+        USER_BLOCKED(HttpStatus.FORBIDDEN, "USER_004", "This user cannot be contacted"),
+        SELF_BLOCK_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "USER_005", "Cannot block yourself"),
         INVALID_AVATAR_FILE(
                         HttpStatus.BAD_REQUEST,
                         "USER_002",

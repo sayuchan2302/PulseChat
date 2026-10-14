@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,6 +43,9 @@ class CallSessionServiceTest {
 
     @Mock
     private MessageService messageService;
+
+    @Mock
+    private UserBlockService userBlockService;
 
     @InjectMocks
     private CallSessionService callSessionService;
@@ -111,6 +115,26 @@ class CallSessionServiceTest {
         );
 
         assertEquals(ErrorCode.FRIENDSHIP_REQUIRED, exception.getErrorCode());
+        verify(callSessionRepository, never()).saveAndFlush(any(CallSession.class));
+    }
+
+    @Test
+    void inviteRejectsBlockedPairBeforeCheckingFriendship() {
+        User caller = user(1L, "sayu");
+        User receiver = user(2L, "thinh");
+        when(userService.findByUsername("sayu")).thenReturn(caller);
+        when(userService.findById(receiver.getId())).thenReturn(receiver);
+        doThrow(new AppException(ErrorCode.USER_BLOCKED))
+                .when(userBlockService).ensureNotBlocked(caller, receiver);
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> callSessionService.handleSignal("sayu", new CallSignalRequest(
+                        CallSignalType.CALL_INVITE, null, receiver.getId(), CallType.AUDIO,
+                        null, null, null, null)));
+
+        assertEquals(ErrorCode.USER_BLOCKED, exception.getErrorCode());
+        verify(friendshipService, never()).areFriends(caller, receiver);
         verify(callSessionRepository, never()).saveAndFlush(any(CallSession.class));
     }
 

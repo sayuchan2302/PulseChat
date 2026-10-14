@@ -29,6 +29,7 @@ public class CallSessionService {
     private final UserService userService;
     private final FriendshipService friendshipService;
     private final MessageService messageService;
+    private final UserBlockService userBlockService;
 
     @Transactional
     public CallSignalResponse handleSignal(String currentUsername, CallSignalRequest request) {
@@ -53,6 +54,8 @@ public class CallSessionService {
         if (caller.getId().equals(receiver.getId())) {
             throw new AppException(ErrorCode.SELF_CALL_NOT_ALLOWED);
         }
+
+        userBlockService.ensureNotBlocked(caller, receiver);
 
         if (!friendshipService.areFriends(caller, receiver)) {
             throw new AppException(ErrorCode.FRIENDSHIP_REQUIRED);
@@ -99,6 +102,7 @@ public class CallSessionService {
     private CallSignalResponse accept(User receiver, CallSignalRequest request) {
         CallSession callSession = findCallSession(request);
         validateReceiver(callSession, receiver);
+        userBlockService.ensureNotBlocked(callSession.getCaller(), callSession.getReceiver());
         validateRinging(callSession);
 
         callSession.setStatus(CallStatus.ACCEPTED);
@@ -178,6 +182,7 @@ public class CallSessionService {
     private CallSignalResponse relayActiveCallSignal(User participant, CallSignalRequest request) {
         CallSession callSession = findCallSession(request);
         validateParticipant(callSession, participant);
+        userBlockService.ensureNotBlocked(callSession.getCaller(), callSession.getReceiver());
         validateAccepted(callSession);
         validateSignalPayload(request);
 

@@ -26,6 +26,7 @@ export interface AppHeaderProps {
   onOpenRequests: () => void;
   onToggleProfileMenu: () => void;
   onOpenProfileEditor: () => void;
+  onOpenBlockedUsers: () => void;
   onLogout: () => void;
 }
 
@@ -44,6 +45,7 @@ export function AppHeader({
   onOpenRequests,
   onToggleProfileMenu,
   onOpenProfileEditor,
+  onOpenBlockedUsers,
   onLogout,
 }: AppHeaderProps) {
   return (
@@ -135,6 +137,9 @@ export function AppHeader({
               </span>
               <button type="button" onClick={onOpenProfileEditor} className="profile-edit-btn" role="menuitem">
                 Edit profile
+              </button>
+              <button type="button" onClick={onOpenBlockedUsers} className="profile-edit-btn" role="menuitem">
+                Blocked users
               </button>
               <button type="button" onClick={onLogout} className="profile-logout-btn" role="menuitem">
                 Logout

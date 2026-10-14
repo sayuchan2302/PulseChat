@@ -26,6 +26,7 @@ export interface SidebarContentProps {
   selectedUserId: number | null;
   selectedRoomId: number | null;
   friendActionKeys: string[];
+  blockedUserIds: number[];
   openConversationMenuKey: string | null;
   pendingConversationKey: string | null;
   onLoadUsers: (options?: { search?: string; silent?: boolean }) => void;
@@ -53,17 +54,20 @@ function ConversationStatusIcons({ target }: { target: ConversationTarget }) {
 
 function FriendshipAction({
   user,
+  blocked,
   pendingKeys,
   onSend,
   onAccept,
   onCancel,
 }: {
   user: User;
+  blocked: boolean;
   pendingKeys: string[];
   onSend: (user: User) => void;
   onAccept: (requestId: number, actionKey: string) => void;
   onCancel: (user: User) => void;
 }) {
+  if (blocked) return <span className="friend-status-pill">Blocked</span>;
   if (user.friendshipStatus === 'pending_incoming') {
     return user.friendshipId ? <button type="button" className="friend-action-btn" disabled={pendingKeys.includes(`accept-user-${user.id}`)} onClick={(event) => { event.stopPropagation(); onAccept(user.friendshipId!, `accept-user-${user.id}`); }}>Accept</button> : null;
   }
@@ -114,7 +118,7 @@ export function SidebarContent(props: SidebarContentProps) {
   const {
     hasUserSearch, users, usersLoading, usersError, userSearchQuery, usersEmptyMessage, rooms, roomsError,
     sidebarBusy, conversationFilter, conversationItems, currentUser, selectedUserId, selectedRoomId,
-    friendActionKeys, openConversationMenuKey, pendingConversationKey, onLoadUsers, onLoadRooms,
+    friendActionKeys, blockedUserIds, openConversationMenuKey, pendingConversationKey, onLoadUsers, onLoadRooms,
     onSelectUser, onSelectRoom, onOpenProfile, onSendFriendRequest, onAcceptFriendRequest,
     onCancelFriendRequest, onToggleConversationMenu, onUpdateConversationSetting, onRequestDelete,
   } = props;
@@ -140,7 +144,7 @@ export function SidebarContent(props: SidebarContentProps) {
     const isFriend = user.friendshipStatus === 'accepted';
     return <div key={user.id} className="user-item relationship-item profile-result-item">
       <button type="button" className="profile-result-trigger" onClick={() => isFriend ? onSelectUser(user) : onOpenProfile(user)} aria-label={isFriend ? `Open chat with ${getUserDisplayName(user)}` : `View profile for ${getUserDisplayName(user)}`}>{renderUserIdentity(user)}</button>
-      {!isFriend ? <div className="friend-actions"><FriendshipAction user={user} pendingKeys={friendActionKeys} onSend={onSendFriendRequest} onAccept={onAcceptFriendRequest} onCancel={onCancelFriendRequest} /></div> : null}
+      {!isFriend ? <div className="friend-actions"><FriendshipAction user={user} blocked={blockedUserIds.includes(user.id)} pendingKeys={friendActionKeys} onSend={onSendFriendRequest} onAccept={onAcceptFriendRequest} onCancel={onCancelFriendRequest} /></div> : null}
     </div>;
   };
 

@@ -42,6 +42,7 @@ type UseCallFeatureOptions = {
   currentUserRef: MutableRef<User | null>;
   currentUserIdRef: MutableRef<number | null>;
   selectedUser: User | null;
+  mutedPrivateConversationUserIds: number[];
   notifyWithBrowserNotification: (notification: ChatBrowserNotification) => void;
   startIncomingCallRingtone: () => void;
   stopIncomingCallRingtone: () => void;
@@ -51,6 +52,7 @@ export function useCallFeature({
   currentUserRef,
   currentUserIdRef,
   selectedUser,
+  mutedPrivateConversationUserIds,
   notifyWithBrowserNotification,
   startIncomingCallRingtone,
   stopIncomingCallRingtone,
@@ -359,14 +361,16 @@ export function useCallFeature({
   }, [stopCallMedia]);
 
   useEffect(() => {
-    if (activeCall?.direction === 'incoming' && activeCall.status === 'ringing') {
+    const activeIncomingCallIsMuted = activeCall?.direction === 'incoming'
+      && mutedPrivateConversationUserIds.includes(activeCall.peer.id);
+    if (activeCall?.direction === 'incoming' && activeCall.status === 'ringing' && !activeIncomingCallIsMuted) {
       startIncomingCallRingtone();
       return stopIncomingCallRingtone;
     }
 
     stopIncomingCallRingtone();
     return undefined;
-  }, [activeCall, startIncomingCallRingtone, stopIncomingCallRingtone]);
+  }, [activeCall, mutedPrivateConversationUserIds, startIncomingCallRingtone, stopIncomingCallRingtone]);
 
   useEffect(() => {
     if (activeCall) {
@@ -468,6 +472,7 @@ export function useCallFeature({
     setRemoteScreenSharing,
     setScreenShareError,
     notifyWithBrowserNotification,
+    mutedPrivateConversationUserIds,
   });
 
   const sendActiveCallCloseSignal = useCallback(() => {

@@ -44,6 +44,7 @@ public class MessageService {
     private final LinkPreviewService linkPreviewService;
     private final ConversationSettingRepository conversationSettingRepository;
     private final MediaAccessService mediaAccessService;
+    private final UserBlockService userBlockService;
     private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
 
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
@@ -70,6 +71,7 @@ public class MessageService {
         if (sender.getId().equals(receiver.getId())) {
             throw new AppException(ErrorCode.SELF_MESSAGE_NOT_ALLOWED);
         }
+        userBlockService.ensureNotBlocked(sender, receiver);
 
         boolean areFriends = friendshipService.areFriends(sender, receiver);
         validateNonFriendMessage(areFriends, type, request.media() != null);
@@ -318,6 +320,7 @@ public class MessageService {
             if (sender.getId().equals(target.getId())) {
                 throw new AppException(ErrorCode.SELF_MESSAGE_NOT_ALLOWED);
             }
+            userBlockService.ensureNotBlocked(sender, target);
             validateNonFriendMessage(
                     friendshipService.areFriends(sender, target),
                     source.getType(),

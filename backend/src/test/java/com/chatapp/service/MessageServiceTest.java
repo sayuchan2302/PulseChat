@@ -74,6 +74,9 @@ class MessageServiceTest {
         @Mock
         private org.springframework.transaction.support.TransactionTemplate transactionTemplate;
 
+        @Mock
+        private UserBlockService userBlockService;
+
         @org.junit.jupiter.api.BeforeEach
         void executeTransactions() {
                 org.mockito.Mockito.lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation ->
@@ -501,6 +504,25 @@ class MessageServiceTest {
                                 new SendMessageRequest(receiver.getId(), "Hello", null, null, MessageType.TEXT, null));
 
                 verify(messageRepository).saveAndFlush(any(Message.class));
+        }
+
+        @Test
+        void sendMessageRejectsBlockedPairEvenWhenNonFriendTextWouldBeAllowed() {
+                User sender = user(1L, "sayu");
+                User receiver = user(2L, "thinh");
+                when(userService.findByUsername("sayu")).thenReturn(sender);
+                when(userService.findById(receiver.getId())).thenReturn(receiver);
+                org.mockito.Mockito.doThrow(new AppException(ErrorCode.USER_BLOCKED))
+                                .when(userBlockService).ensureNotBlocked(sender, receiver);
+
+                AppException exception = assertThrows(
+                                AppException.class,
+                                () -> messageService.sendMessage("sayu", new SendMessageRequest(
+                                                receiver.getId(), "Hello", null, null, MessageType.TEXT, null)));
+
+                assertEquals(ErrorCode.USER_BLOCKED, exception.getErrorCode());
+                verify(messageRepository, never()).saveAndFlush(any(Message.class));
+                verify(friendshipService, never()).areFriends(sender, receiver);
         }
 
         @Test
