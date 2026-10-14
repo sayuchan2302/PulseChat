@@ -170,7 +170,11 @@ export function SidebarContent(props: SidebarContentProps) {
   }
 
   const hasAnyConversation = conversationItems.length > 0;
-  const emptyMessage = conversationFilter === 'archived' ? 'No archived conversations.' : conversationFilter === 'unread' ? 'No unread conversations.' : 'No conversations yet. Search a username to start a chat.';
+  const emptyMessage = conversationFilter === 'archived'
+    ? 'No archived conversations.'
+    : conversationFilter === 'requests'
+      ? 'No message requests.'
+      : 'No conversations yet. Search a username to start a chat.';
   if (sidebarBusy && !hasAnyConversation) return <SidebarSkeletons />;
   if (!sidebarBusy && !usersError && !roomsError && !hasAnyConversation) return <div className="list-state empty-groups-state"><span>{emptyMessage}</span></div>;
   return <>

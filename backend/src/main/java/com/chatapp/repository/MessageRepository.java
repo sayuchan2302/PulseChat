@@ -236,6 +236,18 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     List<Long> findPrivateConversationPartnerIds(@Param("userId") Long userId);
 
     @Query("""
+            select distinct m.receiver.id
+            from Message m
+            where m.chatRoom is null
+              and m.sender.id = :senderId
+              and m.receiver.id in :receiverIds
+            """)
+    List<Long> findPrivateConversationRecipientIdsSentByUser(
+            @Param("senderId") Long senderId,
+            @Param("receiverIds") List<Long> receiverIds
+    );
+
+    @Query("""
             select m from Message m
             join fetch m.sender
             join fetch m.chatRoom

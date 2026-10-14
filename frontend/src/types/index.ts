@@ -61,6 +61,7 @@ export interface User {
   unreadCount?: number;
   friendshipStatus?: UserFriendshipStatus;
   friendshipId?: number;
+  messageRequest?: boolean;
   lastMessageContent?: string;
   lastMessageAt?: string;
   lastMessageSenderId?: number;

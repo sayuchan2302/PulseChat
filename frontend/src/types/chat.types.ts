@@ -113,7 +113,7 @@ export type MessageSearchLoadOptions = {
 // ─── UI State ─────────────────────────────────────────────────────────────────
 
 export type MainView = 'chat' | 'friends' | 'requests';
-export type ConversationFilter = 'all' | 'unread' | 'archived';
+export type ConversationFilter = 'all' | 'requests' | 'archived';
 export type SharedContentKind = 'media' | 'links';
 
 export type RoomSummaryResponse = {

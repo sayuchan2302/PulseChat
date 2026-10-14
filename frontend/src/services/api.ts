@@ -75,24 +75,38 @@ function shouldRefreshAccessToken(token: string) {
 export async function refreshAuthSession() {
   if (!refreshPromise) {
     const generation = sessionGeneration;
-    const pendingRefresh = axios
-      .post<AuthResponse>(`${API_BASE_URL}/auth/refresh`, undefined, { withCredentials: true, timeout: 15_000 })
-      .then((response) => {
+    const refresh = async () => {
+      if (generation !== sessionGeneration) return null;
+
+      try {
+        const response = await axios.post<AuthResponse>(
+          `${API_BASE_URL}/auth/refresh`,
+          undefined,
+          { withCredentials: true, timeout: 15_000 }
+        );
         if (generation !== sessionGeneration) return null;
         refreshRejected = false;
         accessToken = response.data.token;
         return response.data;
-      })
-      .catch((error) => {
+      } catch (error) {
         if (generation === sessionGeneration) {
-          refreshRejected = [401, 403].includes(error.response?.status);
+          refreshRejected = [401, 403].includes(axios.isAxiosError(error) ? error.response?.status ?? 0 : 0);
           if (refreshRejected) accessToken = null;
         }
         return null;
-      })
-      .finally(() => {
-        if (refreshPromise === pendingRefresh) refreshPromise = null;
-      });
+      }
+    };
+
+    // Refresh tokens rotate on every request. Serialize refreshes across tabs
+    // so two tabs cannot consume the same HttpOnly cookie at the same time.
+    const pendingRefresh = (async () => {
+      if (typeof navigator !== 'undefined' && navigator.locks) {
+        return navigator.locks.request('pulsechat-auth-refresh', refresh);
+      }
+      return refresh();
+    })().finally(() => {
+      if (refreshPromise === pendingRefresh) refreshPromise = null;
+    });
     refreshPromise = pendingRefresh;
   }
 

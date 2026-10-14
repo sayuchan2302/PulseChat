@@ -47,10 +47,10 @@ class AuthControllerTest {
                 "/api/auth",
                 true,
                 "Lax",
-                604_800_000L
+                1_209_600_000L
         );
         controller = new AuthController(authService, cookieService,
-                new MediaSessionCookieService("/api", true, "Lax", 604_800_000L));
+                new MediaSessionCookieService("/api", true, "Lax", 1_209_600_000L));
     }
 
     @Test
@@ -70,9 +70,12 @@ class AuthControllerTest {
         assertTrue(cookie.contains("HttpOnly"));
         assertTrue(cookie.contains("Secure"));
         assertTrue(cookie.contains("SameSite=Lax"));
+        assertTrue(cookie.contains("Max-Age=1209600"));
         assertTrue(servletResponse.getHeaders(HttpHeaders.SET_COOKIE).stream().anyMatch(value ->
                 value.contains("chat_media_session=" + REFRESH_TOKEN)
-                        && value.contains("Path=/api/uploads/media") && value.contains("HttpOnly")));
+                        && value.contains("Path=/api/uploads/media")
+                        && value.contains("HttpOnly")
+                        && value.contains("Max-Age=1209600")));
         assertFalse(Arrays.stream(AuthResponse.class.getRecordComponents())
                 .anyMatch(component -> component.getName().equals("refreshToken")));
     }
@@ -88,6 +91,7 @@ class AuthControllerTest {
 
         assertEquals("access-token", response.getBody().token());
         assertTrue(servletResponse.getHeader(HttpHeaders.SET_COOKIE).contains("HttpOnly"));
+        assertTrue(servletResponse.getHeader(HttpHeaders.SET_COOKIE).contains("Max-Age=1209600"));
         verify(authService).refresh(REFRESH_TOKEN);
     }
 

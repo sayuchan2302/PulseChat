@@ -83,15 +83,16 @@ export function compareSidebarConversationItems(a: SidebarConversationItem, b: S
 // ─── Filtering ────────────────────────────────────────────────────────────────
 
 export function shouldIncludeUserConversation(user: User, filter: ConversationFilter) {
+    if (filter === 'requests') return Boolean(user.messageRequest) && !isArchivedUserConversation(user);
     if (filter === 'archived') return isArchivedUserConversation(user);
-    if (isArchivedUserConversation(user)) return false;
-    return filter === 'unread' ? hasUnreadUserConversation(user) : true;
+    return !isArchivedUserConversation(user) && !user.messageRequest;
 }
 
 export function shouldIncludeRoomConversation(room: ChatRoom, filter: ConversationFilter) {
+    if (filter === 'requests') return false;
     if (filter === 'archived') return isArchivedRoomConversation(room);
     if (isArchivedRoomConversation(room)) return false;
-    return filter === 'unread' ? hasUnreadRoomConversation(room) : true;
+    return true;
 }
 
 export function buildSidebarConversationItems(users: User[], rooms: ChatRoom[], filter: ConversationFilter) {
@@ -160,7 +161,11 @@ export function applyRoomPreviewToRooms(
     return didUpdate ? sortRoomsByChatActivity(next) : rooms;
 }
 
-export function applyConversationPreviewToUser(user: User, message: Message, currentUserId: number | null) {
+export function applyConversationPreviewToUser(
+    user: User,
+    message: Message & { deliveryStatus?: 'sending' | 'sent' | 'failed' },
+    currentUserId: number | null
+) {
     const uid = getPrivateConversationUserId(message, currentUserId);
     const shouldUse = getTimestampValue(message.timestamp) >= getTimestampValue(user.lastMessageAt);
     if (uid !== user.id || !shouldUse) return user;
@@ -169,6 +174,9 @@ export function applyConversationPreviewToUser(user: User, message: Message, cur
         lastMessageContent: getMessagePreviewContent(message),
         lastMessageAt: message.timestamp,
         lastMessageSenderId: message.senderId,
+        messageRequest: message.senderId === currentUserId && message.deliveryStatus !== 'sending' && message.deliveryStatus !== 'failed'
+            ? false
+            : user.messageRequest,
     };
 }
 

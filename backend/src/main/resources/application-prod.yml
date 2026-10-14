@@ -9,6 +9,13 @@ spring:
       ddl-auto: validate
     show-sql: false
 
+auth:
+  refresh-cookie:
+    # Production frontends and APIs often live on different sites. Cross-site
+    # refresh requests require SameSite=None and Secure over HTTPS.
+    secure: ${REFRESH_COOKIE_SECURE:true}
+    same-site: ${REFRESH_COOKIE_SAME_SITE:None}
+
 app:
   schema:
     self-heal-message-type-check: false

@@ -242,6 +242,7 @@ export default function ChatPage() {
   const currentUserIdRef = useRef<number | null>(null);
   const selectedUserIdRef = useRef<number | null>(null);
   const selectedRoomIdRef = useRef<number | null>(null);
+  const selectedMessageRequestStateRef = useRef<{ userId: number; isRequest: boolean } | null>(null);
   const usersRef = useRef<User[]>([]);
   const friendsRef = useRef<User[]>([]);
   const roomsRef = useRef<ChatRoom[]>([]);
@@ -852,6 +853,21 @@ export default function ChatPage() {
   useEffect(() => {
     setOpenConversationMenuKey(null);
   }, [conversationFilter, selectedRoomId, selectedUserId, userSearchQuery]);
+
+  useEffect(() => {
+    const previousState = selectedMessageRequestStateRef.current;
+    if (
+      conversationFilter === 'requests' &&
+      selectedUser?.messageRequest === false &&
+      previousState?.userId === selectedUser.id &&
+      previousState.isRequest
+    ) {
+      setConversationFilter('all');
+    }
+    selectedMessageRequestStateRef.current = selectedUser
+      ? { userId: selectedUser.id, isRequest: Boolean(selectedUser.messageRequest) }
+      : null;
+  }, [conversationFilter, selectedUser?.id, selectedUser?.messageRequest]);
 
   useEffect(() => {
     if (!currentUser?.id) {
@@ -2175,6 +2191,7 @@ export default function ChatPage() {
           ) : (
             <ConversationPane
               open={selectedConversationOpen}
+              isMessageRequest={Boolean(selectedUser?.messageRequest)}
               header={{
                 selectedUser,
                 selectedRoom,

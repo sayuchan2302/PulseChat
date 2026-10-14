@@ -58,7 +58,7 @@ export const MESSAGE_SKELETON_KEYS = [
 // ─── UI Lists ─────────────────────────────────────────────────────────────────
 export const CONVERSATION_FILTERS: Array<{ value: ConversationFilter; label: string }> = [
     { value: 'all', label: 'All' },
-    { value: 'unread', label: 'Unread' },
+    { value: 'requests', label: 'Requests' },
     { value: 'archived', label: 'Archived' },
 ];
 

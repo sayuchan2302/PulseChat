@@ -35,8 +35,8 @@ server:
 
 jwt:
   secret: ${JWT_SECRET}
-  access-expiration: ${JWT_ACCESS_EXPIRATION:1800000}
-  refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
+  access-expiration: ${JWT_ACCESS_EXPIRATION:900000}
+  refresh-expiration: ${JWT_REFRESH_EXPIRATION:1209600000}
 
 auth:
   refresh-cookie:

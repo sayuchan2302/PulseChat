@@ -12,6 +12,7 @@ type MessageListProps = ComponentProps<typeof MessageList>;
 
 export interface ConversationPaneProps {
   open: boolean;
+  isMessageRequest: boolean;
   header: HeaderProps;
   pinnedMessage: Message | null;
   messages: ChatMessage[];
@@ -43,6 +44,7 @@ export interface ConversationPaneProps {
 
 export function ConversationPane({
   open,
+  isMessageRequest,
   header,
   pinnedMessage,
   messages,
@@ -78,6 +80,7 @@ export function ConversationPane({
   const showSummary = roomSummaryRoomId === selectedRoomId && (roomSummaryLoading || roomSummaryError || roomSummary);
   return <>
     <ConversationHeader {...header} />
+    {isMessageRequest ? <div className="message-request-notice" role="status"><strong>Message request</strong><span>Reply to move this conversation to All.</span></div> : null}
     {pinnedMessage ? <div className="pinned-message-banner">
       <button type="button" className="pinned-message-banner-body" onClick={onGoToPinnedMessage} aria-label="Go to pinned message">
         <span className="pinned-banner-icon">📌</span><span className="pinned-banner-content"><span className="pinned-banner-label">Pinned message</span><span className="pinned-banner-text">{pinnedMessage.recalled ? 'Message recalled' : pinnedMessage.content || '📎 Media'}</span></span>

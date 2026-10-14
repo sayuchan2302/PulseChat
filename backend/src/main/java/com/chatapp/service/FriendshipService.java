@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -84,6 +85,10 @@ public class FriendshipService {
                 .stream()
                 .filter(partnerId -> !partnerId.equals(currentUser.getId()))
                 .toList();
+        Set<Long> repliedToUserIds = conversationPartnerIds.isEmpty()
+                ? Set.of()
+                : Set.copyOf(messageRepository.findPrivateConversationRecipientIdsSentByUser(
+                        currentUser.getId(), conversationPartnerIds));
         userRepository.findAllById(conversationPartnerIds)
                 .forEach(partner -> contactsById.put(partner.getId(), partner));
 
@@ -95,13 +100,23 @@ public class FriendshipService {
                 .filter(contact -> isVisibleToCurrentUser(
                         latestMessagesByContactId.get(contact.getId()),
                         settingsByContactId.get(contact.getId())))
-                .map(contact -> toConversationResponse(
-                        currentUser,
-                        contact,
-                        friendshipsByUserId.get(contact.getId()),
-                        latestMessagesByContactId.get(contact.getId()),
-                        settingsByContactId.get(contact.getId())
-                ))
+                .map(contact -> {
+                    Friendship friendship = friendshipsByUserId.get(contact.getId());
+                    Message latestMessage = latestMessagesByContactId.get(contact.getId());
+                    boolean isMessageRequest =
+                            (friendship == null || friendship.getStatus() != FriendshipStatus.ACCEPTED)
+                                    && latestMessage != null
+                                    && !latestMessage.getSender().getId().equals(currentUser.getId())
+                                    && !repliedToUserIds.contains(contact.getId())
+                                    && !userBlockService.isBlocked(currentUser, contact);
+                    return toConversationResponse(
+                            currentUser,
+                            contact,
+                            friendship,
+                            latestMessage,
+                            settingsByContactId.get(contact.getId())
+                    ).withMessageRequest(isMessageRequest);
+                })
                 .sorted(FriendshipService::compareAcceptedFriendResponses)
                 .toList();
     }

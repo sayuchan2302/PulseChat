@@ -36,11 +36,13 @@ export function useIncomingMessageRecovery({
   const restoreMissingDirectSender = useCallback((message: Message, currentUserId: number | null) => {
     if (!message.senderUsername || userSearchQueryRef.current.trim() ||
       usersRef.current.some((user) => user.id === message.senderId)) return;
-    void apiClient.get<User>(`/users/${encodeURIComponent(message.senderUsername)}`).then((response) => {
+    void apiClient.get<User[]>('/conversations').then((response) => {
       if (!realtimeActiveRef.current) return;
-      setUsers((users) => users.some((user) => user.id === response.data.id) ? users : [
+      const conversationUser = response.data.find((user) => user.id === message.senderId);
+      if (!conversationUser) return;
+      setUsers((users) => users.some((user) => user.id === conversationUser.id) ? users : [
         ...users,
-        applyConversationPreviewToUser(response.data, message, currentUserId),
+        applyConversationPreviewToUser(conversationUser, message, currentUserId),
       ].sort(compareUsersByChatActivity));
     }).catch((error) => console.error('Failed to load direct message sender:', error));
   }, [realtimeActiveRef, setUsers, userSearchQueryRef, usersRef]);

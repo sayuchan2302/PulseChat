@@ -23,7 +23,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(controllers = LocalMediaController.class, properties = {
-        "jwt.refresh-expiration=604800000", "cors.allowed-origins=http://localhost:5173"})
+        "jwt.refresh-expiration=1209600000", "cors.allowed-origins=http://localhost:5173"})
 @Import({SecurityConfig.class, JwtAuthenticationFilter.class, MediaSessionCookieService.class,
         RestAuthenticationEntryPoint.class, RestAccessDeniedHandler.class, UploadSecurityHeadersFilter.class})
 class LocalMediaHttpSecurityTest {

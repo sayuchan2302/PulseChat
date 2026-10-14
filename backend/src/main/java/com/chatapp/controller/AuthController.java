@@ -50,9 +50,11 @@ public class AuthController {
                     .map(authService::refresh)
                     .orElseThrow(() -> new AppException(ErrorCode.INVALID_REFRESH_TOKEN));
             return withRefreshCookie(result, response, HttpStatus.OK);
-        } catch (RuntimeException exception) {
-            refreshTokenCookieService.clearRefreshToken(response);
-            mediaSessionCookieService.clearSession(response);
+        } catch (AppException exception) {
+            if (exception.getErrorCode() == ErrorCode.INVALID_REFRESH_TOKEN) {
+                refreshTokenCookieService.clearRefreshToken(response);
+                mediaSessionCookieService.clearSession(response);
+            }
             throw exception;
         }
     }
