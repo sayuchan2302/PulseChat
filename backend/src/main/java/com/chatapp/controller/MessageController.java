@@ -4,6 +4,7 @@ import com.chatapp.dto.request.ForwardMessageRequest;
 import com.chatapp.dto.request.EditMessageRequest;
 import com.chatapp.dto.request.MessageReactionRequest;
 import com.chatapp.dto.request.SendMessageRequest;
+import com.chatapp.dto.response.GlobalMessageSearchPageResponse;
 import com.chatapp.dto.response.MessagePageResponse;
 import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.dto.response.MessageHiddenResponse;
@@ -43,6 +44,15 @@ public class MessageController {
     @GetMapping("/unread-counts")
     public List<UnreadCountResponse> getUnreadCounts(Authentication authentication) {
         return messageQueryService.getUnreadCounts(authentication.getName());
+    }
+
+    @GetMapping("/search")
+    public GlobalMessageSearchPageResponse searchAllConversations(
+            Authentication authentication,
+            @RequestParam String query,
+            @RequestParam(required = false) Long before,
+            @RequestParam(required = false) Integer size) {
+        return messageQueryService.searchAllConversations(authentication.getName(), query, before, size);
     }
 
     @GetMapping("/{userId}")

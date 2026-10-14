@@ -135,7 +135,7 @@ export function useConversationNavigation({
     stopTyping,
   ]);
 
-  const activateUserConversation = useCallback((user: User) => {
+  const activateUserConversation = useCallback(async (user: User) => {
     if (!canOpenDirectConversation(user)) {
       return;
     }
@@ -166,7 +166,7 @@ export function useConversationNavigation({
       preparePendingReadConversation('user', user.id, unreadCount);
     }
     if (conversationChanged) {
-      void loadMessages(user.id);
+      await loadMessages(user.id);
     }
   }, [
     canOpenDirectConversation,
@@ -185,7 +185,7 @@ export function useConversationNavigation({
     stopTyping,
   ]);
 
-  const activateRoomConversation = useCallback((room: ChatRoom) => {
+  const activateRoomConversation = useCallback(async (room: ChatRoom) => {
     const previousSelectedUserId = selectedUserIdRef.current;
     const previousSelectedRoomId = selectedRoomIdRef.current;
     const conversationChanged = previousSelectedRoomId !== room.id || previousSelectedUserId !== null;
@@ -212,7 +212,7 @@ export function useConversationNavigation({
       preparePendingReadConversation('room', room.id, unreadCount);
     }
     if (conversationChanged) {
-      void loadRoomMessages(room.id);
+      await loadRoomMessages(room.id);
     }
   }, [
     clearViewedProfile,

@@ -13,6 +13,7 @@ import type {
   ConversationSetting,
   Friendship,
   FriendshipSummary,
+  GlobalMessageSearchItem,
   GroupInviteResponse,
   GroupMemberRole,
   Message,
@@ -121,6 +122,7 @@ import CallModalLayer from '../components/chat/CallModalLayer';
 import ChatDialogLayer from '../components/chat/ChatDialogLayer';
 import MessageContent from '../components/chat/MessageContent';
 import SearchSidebar from '../components/chat/SearchSidebar';
+import GlobalMessageSearchModal from '../components/chat/GlobalMessageSearchModal';
 import MessageReactions from '../components/chat/MessageReactions';
 import CallMessageBody from '../components/chat/CallMessageBody';
 import MessageActions from '../components/chat/MessageActions';
@@ -181,6 +183,7 @@ export default function ChatPage() {
   const [conversationDeleteTarget, setConversationDeleteTarget] = useState<ConversationTarget | null>(null);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [incomingFriendRequests, setIncomingFriendRequests] = useState<Friendship[]>([]);
   const [friendSummary, setFriendSummary] = useState<FriendshipSummary>({
@@ -1256,18 +1259,18 @@ export default function ChatPage() {
     ]);
   };
 
-  const handleUserSelect = (user: User) => {
+  const handleUserSelect = async (user: User) => {
     if (!canOpenDirectConversation(user)) {
       return;
     }
 
     navigateIfNeeded(getUserChatRoute(user.username));
-    activateUserConversation(user);
+    await activateUserConversation(user);
   };
 
-  const handleRoomSelect = (room: ChatRoom) => {
+  const handleRoomSelect = async (room: ChatRoom) => {
     navigateIfNeeded(getRoomChatRoute(room.id));
-    activateRoomConversation(room);
+    await activateRoomConversation(room);
   };
 
   const handleOpenActiveCallConversation = () => {
@@ -1669,6 +1672,38 @@ export default function ChatPage() {
     setMessageSearchError, setActiveMessageSearchId,
   });
 
+  const handleOpenGlobalSearchResult = async (item: GlobalMessageSearchItem) => {
+    if (item.roomId !== null && item.roomId !== undefined) {
+      const knownRoom = rooms.find((candidate) => candidate.id === item.roomId);
+      let room = knownRoom;
+      if (!room) {
+        const roomResponse = await apiClient.get<ChatRoom[]>('/rooms');
+        setRooms(roomResponse.data);
+        room = roomResponse.data.find((candidate) => candidate.id === item.roomId);
+      }
+      if (!room) throw new Error('The group conversation is no longer available.');
+      await handleRoomSelect(room);
+    } else if (item.otherUserId !== null && item.otherUserId !== undefined && item.otherUsername) {
+      const knownUser = findKnownUserById(item.otherUserId);
+      const user = knownUser ?? (await apiClient.get<User>(
+        `/users/${encodeURIComponent(item.otherUsername)}`
+      )).data;
+      if (!knownUser) {
+        setUsers((currentUsers) => currentUsers.some((currentUser) => currentUser.id === user.id)
+          ? currentUsers
+          : [...currentUsers, user]);
+      }
+      await handleUserSelect(user);
+    } else {
+      throw new Error('The conversation could not be resolved.');
+    }
+
+    if (!await handleJumpToMessage(item.message.id)) {
+      throw new Error('The message is no longer available.');
+    }
+    setGlobalSearchOpen(false);
+  };
+
   const applyUpdatedCurrentUserProfile = (updatedUser: User) => {
     const nextCurrentUser = currentUser
       ? { ...applyProfileToUser(currentUser, updatedUser), online: currentUser.online }
@@ -2046,7 +2081,7 @@ export default function ChatPage() {
       sharedLinksHasMore={sharedLinksHasMore}
       loadSharedContent={loadSharedContent}
       onOpenMedia={setMediaViewerMessage}
-      onJumpToMessage={handleJumpToMessage}
+      onJumpToMessage={(messageId) => handleJumpToMessage(messageId).then(() => undefined)}
     />
   );
 
@@ -2097,6 +2132,7 @@ export default function ChatPage() {
         currentUserOnline={currentUserOnline}
         onToggleTheme={toggleTheme}
         onOpenFriends={handleOpenFriendsPanel}
+        onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
         onToggleSound={() => soundService.toggleMuted()}
         onOpenRequests={handleOpenRequestsPanel}
         onToggleProfileMenu={handleToggleProfileMenu}
@@ -2104,6 +2140,13 @@ export default function ChatPage() {
         onOpenBlockedUsers={handleOpenBlockedUsers}
         onLogout={() => void handleLogout()}
       />
+
+      {globalSearchOpen ? (
+        <GlobalMessageSearchModal
+          onClose={() => setGlobalSearchOpen(false)}
+          onOpenResult={handleOpenGlobalSearchResult}
+        />
+      ) : null}
 
       <div className={`chat-container ${mainView === 'chat' && selectedConversationOpen ? 'conversation-open' : ''} ${mainView === 'chat' && selectedConversationOpen && detailsOpen ? 'details-open' : ''}`}>
         <ConversationSidebar

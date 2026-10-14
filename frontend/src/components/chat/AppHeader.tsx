@@ -6,6 +6,7 @@ import {
   MoonIcon,
   MuteIcon,
   ProfileIcon,
+  SearchIcon,
   SoundIcon,
   SunIcon,
 } from '../../icons/ChatIcons';
@@ -22,6 +23,7 @@ export interface AppHeaderProps {
   currentUserOnline: boolean;
   onToggleTheme: () => void;
   onOpenFriends: () => void;
+  onOpenGlobalSearch: () => void;
   onToggleSound: () => void;
   onOpenRequests: () => void;
   onToggleProfileMenu: () => void;
@@ -41,6 +43,7 @@ export function AppHeader({
   currentUserOnline,
   onToggleTheme,
   onOpenFriends,
+  onOpenGlobalSearch,
   onToggleSound,
   onOpenRequests,
   onToggleProfileMenu,
@@ -62,6 +65,16 @@ export function AppHeader({
           title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
         >
           {isDark ? <SunIcon className="header-icon" /> : <MoonIcon className="header-icon" />}
+        </button>
+
+        <button
+          type="button"
+          className="header-icon-btn"
+          onClick={onOpenGlobalSearch}
+          aria-label="Search all conversations"
+          title="Search all conversations"
+        >
+          <SearchIcon className="header-icon" />
         </button>
 
         <button

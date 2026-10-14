@@ -1,5 +1,7 @@
 package com.chatapp.service;
 
+import com.chatapp.dto.response.GlobalMessageSearchItemResponse;
+import com.chatapp.dto.response.GlobalMessageSearchPageResponse;
 import com.chatapp.dto.response.MessagePageResponse;
 import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.dto.response.MessageSeenByResponse;
@@ -165,6 +167,44 @@ public class MessageQueryService {
 
         return MessagePageAssembler.galleryFromNewestFirst(
                 filterClearedMessages(messages, roomClearedAt(username, roomId)), pageSize, currentUserId);
+    }
+
+    @Transactional(readOnly = true)
+    public GlobalMessageSearchPageResponse searchAllConversations(
+            String username, String query, Long before, Integer size) {
+        User currentUser = userService.findByUsername(username);
+        String queryPattern = normalizeSearchPattern(query);
+        if (queryPattern == null) {
+            return new GlobalMessageSearchPageResponse(List.of(), false, null);
+        }
+
+        int pageSize = normalizePageSize(size);
+        List<Message> messages = messageRepository.findGlobalSearchPage(
+                currentUser.getId(), queryPattern, before, PageRequest.of(0, pageSize + 1));
+        boolean hasMore = messages.size() > pageSize;
+        List<Message> page = hasMore ? messages.subList(0, pageSize) : messages;
+        List<GlobalMessageSearchItemResponse> items = page.stream()
+                .map(message -> toGlobalSearchItem(message, currentUser.getId()))
+                .toList();
+        Long nextBefore = hasMore && !page.isEmpty() ? page.get(page.size() - 1).getId() : null;
+        return new GlobalMessageSearchPageResponse(items, hasMore, nextBefore);
+    }
+
+    private GlobalMessageSearchItemResponse toGlobalSearchItem(Message message, Long currentUserId) {
+        if (message.getChatRoom() != null) {
+            ChatRoom room = message.getChatRoom();
+            return new GlobalMessageSearchItemResponse(
+                    MessageResponse.from(message, currentUserId), room.getName(), null, null, room.getId());
+        }
+
+        User otherUser = message.getSender().getId().equals(currentUserId)
+                ? message.getReceiver()
+                : message.getSender();
+        String fullName = otherUser.getFullName();
+        String conversationName = fullName == null || fullName.isBlank() ? otherUser.getUsername() : fullName;
+        return new GlobalMessageSearchItemResponse(
+                MessageResponse.from(message, currentUserId), conversationName,
+                otherUser.getId(), otherUser.getUsername(), null);
     }
 
     @Transactional(readOnly = true)

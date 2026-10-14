@@ -1,6 +1,7 @@
 package com.chatapp.repository;
 
 import com.chatapp.model.ChatRoom;
+import com.chatapp.model.ConversationSetting;
 import com.chatapp.model.Message;
 import com.chatapp.model.User;
 import com.chatapp.model.UserBlock;
@@ -10,6 +11,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.data.domain.PageRequest;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -97,6 +99,58 @@ class LocalMediaAuthorizationTest {
         assertEquals(0, messages.countUnreadRoomMessages(bob.getId(), List.of(room.getId())).size());
         assertEquals(0, messages.findLatestMessagesForRooms(List.of(room.getId()), bob.getId()).size());
         assertEquals(Optional.empty(), messages.findRoomMessageById(room.getId(), message.getId(), bob.getId()));
+    }
+
+    @Test
+    void globalSearchOnlyReturnsVisibleMessagesFromCurrentConversations() {
+        User alice = user("alice");
+        User bob = user("bob");
+        User mallory = user("mallory");
+
+        Message visiblePrivate = message(alice);
+        visiblePrivate.setReceiver(bob);
+        visiblePrivate.setContent("global phrase private");
+        entityManager.persistAndFlush(visiblePrivate);
+
+        Message hiddenPrivate = message(bob);
+        hiddenPrivate.setReceiver(alice);
+        hiddenPrivate.setContent("global phrase hidden");
+        entityManager.persistAndFlush(hiddenPrivate);
+        hiddenPrivate.getHiddenByUsers().add(alice);
+
+        Message recalledPrivate = message(alice);
+        recalledPrivate.setReceiver(bob);
+        recalledPrivate.setContent("global phrase recalled");
+        recalledPrivate.setRecalled(true);
+        entityManager.persistAndFlush(recalledPrivate);
+
+        ChatRoom room = new ChatRoom();
+        room.setName("Accessible group");
+        room.setType(ChatRoom.RoomType.GROUP);
+        room.setOwner(alice);
+        entityManager.persistAndFlush(room);
+        room.addMember(alice);
+        room.addMember(bob);
+        Message groupMessage = message(bob);
+        groupMessage.setChatRoom(room);
+        groupMessage.setContent("global phrase group");
+        entityManager.persistAndFlush(groupMessage);
+
+        assertEquals(List.of(groupMessage.getId(), visiblePrivate.getId()),
+                messages.findGlobalSearchPage(alice.getId(), "%global phrase%", null, PageRequest.of(0, 10))
+                        .stream().map(Message::getId).toList());
+        assertEquals(0, messages.findGlobalSearchPage(mallory.getId(), "%global phrase%", null,
+                PageRequest.of(0, 10)).size());
+
+        ConversationSetting setting = new ConversationSetting();
+        setting.setUser(alice);
+        setting.setTargetUser(bob);
+        setting.setClearedAt(LocalDateTime.now().plusDays(1));
+        entityManager.persistAndFlush(setting);
+
+        assertEquals(List.of(groupMessage.getId()),
+                messages.findGlobalSearchPage(alice.getId(), "%global phrase%", null, PageRequest.of(0, 10))
+                        .stream().map(Message::getId).toList());
     }
 
     @Test

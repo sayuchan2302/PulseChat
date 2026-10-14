@@ -120,6 +120,20 @@ export interface MessagePage {
   nextBefore?: number | null;
 }
 
+export interface GlobalMessageSearchItem {
+  message: Message;
+  conversationName: string;
+  otherUserId?: number | null;
+  otherUsername?: string | null;
+  roomId?: number | null;
+}
+
+export interface GlobalMessageSearchPage {
+  items: GlobalMessageSearchItem[];
+  hasMore: boolean;
+  nextBefore?: number | null;
+}
+
 export interface CloudinaryUploadSignature {
   cloudName: string;
   apiKey: string;

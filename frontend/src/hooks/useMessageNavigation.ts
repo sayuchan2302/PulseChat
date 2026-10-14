@@ -36,7 +36,7 @@ export function useMessageNavigation(options: Options) {
   const handleJumpToMessage = useCallback(async (messageId: number) => {
     const selectedUserId = selectedUserIdRef.current;
     const selectedRoomId = selectedRoomIdRef.current;
-    if (messageId <= 0 || (selectedUserId === null && selectedRoomId === null)) return;
+    if (messageId <= 0 || (selectedUserId === null && selectedRoomId === null)) return false;
     setMessageSearchError('');
     setMessagesError('');
     try {
@@ -46,7 +46,7 @@ export function useMessageNavigation(options: Options) {
       const response = await apiClient.get<MessagePage>(endpoint, {
         params: { size: MESSAGE_AROUND_PAGE_SIZE },
       });
-      if (selectedUserIdRef.current !== selectedUserId || selectedRoomIdRef.current !== selectedRoomId) return;
+      if (selectedUserIdRef.current !== selectedUserId || selectedRoomIdRef.current !== selectedRoomId) return false;
       skipNextAutoScrollRef.current = true;
       pendingInitialMessageScrollRef.current = false;
       blockOlderMessagesAutoLoadRef.current = true;
@@ -54,9 +54,11 @@ export function useMessageNavigation(options: Options) {
       applyMessagePagination(response.data);
       highlightMessageById(messageId);
       releaseInitialScrollBlock();
+      return true;
     } catch (error) {
       console.error('Failed to jump to message:', error);
       setMessageSearchError('Unable to open message.');
+      return false;
     }
   }, [
     applyMessagePagination, blockOlderMessagesAutoLoadRef, highlightMessageById,

@@ -142,6 +142,50 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             select m from Message m
             join fetch m.sender
             left join fetch m.receiver
+            left join fetch m.chatRoom
+            where (
+                (m.chatRoom is null and (m.sender.id = :currentUserId or m.receiver.id = :currentUserId))
+                or (m.chatRoom is not null and exists (
+                    select member from ChatRoomMember member
+                    where member.chatRoom = m.chatRoom and member.user.id = :currentUserId
+                ))
+            )
+              and m.recalled = false
+              and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                              where hiddenMessage = m and hidden.id = :currentUserId)
+              and not exists (
+                  select setting from ConversationSetting setting
+                  where setting.user.id = :currentUserId
+                    and setting.clearedAt is not null
+                    and (
+                        (m.chatRoom is null and (
+                            (m.sender.id = :currentUserId and setting.targetUser.id = m.receiver.id)
+                            or (m.receiver.id = :currentUserId and setting.targetUser.id = m.sender.id)
+                        ) and (m.timestamp is null or m.timestamp <= setting.clearedAt))
+                        or (m.chatRoom is not null and setting.chatRoom.id = m.chatRoom.id
+                            and (m.timestamp is null or m.timestamp <= setting.clearedAt))
+                    )
+              )
+              and (
+                  lower(m.content) like :queryPattern
+                  or lower(coalesce(m.linkPreviewTitle, '')) like :queryPattern
+                  or lower(coalesce(m.linkPreviewDescription, '')) like :queryPattern
+                  or lower(coalesce(m.linkPreviewDomain, '')) like :queryPattern
+              )
+              and (:before is null or m.id < :before)
+            order by m.id desc
+            """)
+    List<Message> findGlobalSearchPage(
+            @Param("currentUserId") Long currentUserId,
+            @Param("queryPattern") String queryPattern,
+            @Param("before") Long before,
+            Pageable pageable
+    );
+
+    @Query("""
+            select m from Message m
+            join fetch m.sender
+            left join fetch m.receiver
             where m.chatRoom is null
               and m.id = :messageId
               and (
