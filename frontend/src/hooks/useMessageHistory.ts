@@ -45,7 +45,10 @@ export function useMessageHistory(options: Options) {
       const response = await apiClient.get<MessageSeenByResponse>(
         `/rooms/${roomId}/messages/${messageId}/seen-by`
       );
-      if (selectedRoomIdRef.current !== roomId) return;
+      if (selectedRoomIdRef.current !== roomId) {
+        roomSeenByLoadedMessageIdsRef.current.delete(messageId);
+        return;
+      }
 
       const currentUserId = currentUserIdRef.current;
       const seenBy = response.data.seenBy.filter((reader) => reader.id !== currentUserId);

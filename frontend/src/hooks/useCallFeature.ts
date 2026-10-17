@@ -104,6 +104,7 @@ export function useCallFeature({
   const screenShareStoppingRef = useRef(false);
   const selectedAudioInputIdRef = useRef('');
   const selectedVideoInputIdRef = useRef('');
+  const finishCallTimeoutRef = useRef<number | null>(null);
 
   useCallSession({
     activeCall,
@@ -345,6 +346,11 @@ export function useCallFeature({
   }, [stopIncomingCallRingtone, stopPreCallPreview, stopScreenShareResources]);
 
   const finishCall = useCallback((message = '') => {
+    if (finishCallTimeoutRef.current !== null) {
+      window.clearTimeout(finishCallTimeoutRef.current);
+      finishCallTimeoutRef.current = null;
+    }
+
     setCallMinimized(false);
     stopCallMedia();
     setActiveCallState((currentCall) =>
@@ -354,11 +360,21 @@ export function useCallFeature({
       setCallError(message);
     }
 
-    window.setTimeout(() => {
-      setActiveCallState(null);
-      setCallError('');
+    finishCallTimeoutRef.current = window.setTimeout(() => {
+      finishCallTimeoutRef.current = null;
+      setActiveCallState((currentCall) =>
+        currentCall && currentCall.status === 'ending' ? null : currentCall
+      );
+      setCallError((currentError) => (currentError === message ? '' : currentError));
     }, 1500);
   }, [stopCallMedia]);
+
+  useEffect(() => () => {
+    if (finishCallTimeoutRef.current !== null) {
+      window.clearTimeout(finishCallTimeoutRef.current);
+      finishCallTimeoutRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     const activeIncomingCallIsMuted = activeCall?.direction === 'incoming'
