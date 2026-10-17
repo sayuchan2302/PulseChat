@@ -29,6 +29,7 @@ export interface AppHeaderProps {
   onToggleProfileMenu: () => void;
   onOpenProfileEditor: () => void;
   onOpenBlockedUsers: () => void;
+  onOpenAdmin: () => void;
   onLogout: () => void;
 }
 
@@ -49,6 +50,7 @@ export function AppHeader({
   onToggleProfileMenu,
   onOpenProfileEditor,
   onOpenBlockedUsers,
+  onOpenAdmin,
   onLogout,
 }: AppHeaderProps) {
   return (
@@ -154,6 +156,11 @@ export function AppHeader({
               <button type="button" onClick={onOpenBlockedUsers} className="profile-edit-btn" role="menuitem">
                 Blocked users
               </button>
+              {currentUser?.accountRole === 'ADMIN' ? (
+                <button type="button" onClick={onOpenAdmin} className="profile-edit-btn" role="menuitem">
+                  Admin panel
+                </button>
+              ) : null}
               <button type="button" onClick={onLogout} className="profile-logout-btn" role="menuitem">
                 Logout
               </button>

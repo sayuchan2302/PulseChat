@@ -13,6 +13,8 @@ public enum ErrorCode {
         INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH_004", "Refresh token is invalid or expired"),
 
         USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_001", "User not found"),
+        ACCOUNT_LAST_ADMIN_REQUIRED(HttpStatus.CONFLICT, "ACCOUNT_001", "At least one enabled admin account is required"),
+        ACCOUNT_SELF_CHANGE_NOT_ALLOWED(HttpStatus.CONFLICT, "ACCOUNT_002", "You cannot change your own account role or disable your own account"),
         USER_BLOCKED(HttpStatus.FORBIDDEN, "USER_004", "This user cannot be contacted"),
         SELF_BLOCK_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "USER_005", "Cannot block yourself"),
         INVALID_AVATAR_FILE(

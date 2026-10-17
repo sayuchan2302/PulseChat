@@ -53,5 +53,6 @@ export const ROUTES = {
   LOGIN: '/',
   REGISTER: '/',
   CHAT: '/chat',
+  ADMIN: '/admin',
   PROFILE: '/profile',
 } as const;

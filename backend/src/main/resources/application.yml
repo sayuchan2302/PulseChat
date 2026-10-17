@@ -52,6 +52,8 @@ cors:
   allow-credentials: ${CORS_ALLOW_CREDENTIALS:true}
 
 app:
+  admin:
+    bootstrap-username: ${ADMIN_BOOTSTRAP_USERNAME:}
   uploads:
     avatar-dir: ${AVATAR_UPLOAD_DIR:uploads/avatars}
     media-dir: ${MEDIA_UPLOAD_DIR:uploads/media}

@@ -46,6 +46,7 @@ export interface MessageReaction {
 }
 
 export type GroupMemberRole = 'OWNER' | 'MODERATOR' | 'MEMBER';
+export type AccountRole = 'USER' | 'ADMIN';
 
 export interface User {
   id: number;
@@ -53,6 +54,7 @@ export interface User {
   fullName?: string;
   nickname?: string;
   role?: GroupMemberRole | null;
+  accountRole?: AccountRole;
   email: string;
   avatar?: string;
   bio?: string;
@@ -314,4 +316,23 @@ export interface ConversationSetting {
 export interface AuthResponse {
   token: string;
   user: User;
+}
+
+export interface AdminAccount {
+  id: number;
+  username: string;
+  fullName?: string | null;
+  email: string;
+  accountRole: AccountRole;
+  enabled: boolean;
+  online: boolean;
+  createdAt: string;
+}
+
+export interface AdminAccountPage {
+  items: AdminAccount[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
 }

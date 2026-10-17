@@ -51,6 +51,11 @@ public class RefreshTokenService {
             throw new AppException(ErrorCode.INVALID_REFRESH_TOKEN);
         }
 
+        if (!Boolean.TRUE.equals(refreshToken.getUser().getEnabled())) {
+            revoke(refreshToken);
+            throw new AppException(ErrorCode.INVALID_REFRESH_TOKEN);
+        }
+
         revoke(refreshToken);
         return refreshToken;
     }
@@ -58,7 +63,9 @@ public class RefreshTokenService {
     @Transactional(readOnly = true)
     public String getActiveUsername(String rawToken) {
         RefreshToken token = findToken(rawToken);
-        if (!token.isActive()) throw new AppException(ErrorCode.INVALID_REFRESH_TOKEN);
+        if (!token.isActive() || !Boolean.TRUE.equals(token.getUser().getEnabled())) {
+            throw new AppException(ErrorCode.INVALID_REFRESH_TOKEN);
+        }
         return token.getUser().getUsername();
     }
 

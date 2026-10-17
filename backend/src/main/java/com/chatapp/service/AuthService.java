@@ -81,7 +81,8 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public UserResponse getCurrentUser(String username) {
-        return UserResponse.from(findUserByUsername(username));
+        User user = findUserByUsername(username);
+        return UserResponse.from(user).withAccountRole(user.getAccountRole().name());
     }
 
     private User findUserByUsername(String username) {
@@ -92,7 +93,10 @@ public class AuthService {
     private AuthResult createAuthResponse(User user) {
         String accessToken = jwtService.generateAccessToken(user.getUsername());
         String refreshToken = refreshTokenService.createToken(user);
-        return new AuthResult(new AuthResponse(accessToken, UserResponse.from(user)), refreshToken);
+        return new AuthResult(
+                new AuthResponse(accessToken, UserResponse.from(user).withAccountRole(user.getAccountRole().name())),
+                refreshToken
+        );
     }
 
     public record AuthResult(AuthResponse response, String refreshToken) {

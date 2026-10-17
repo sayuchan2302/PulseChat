@@ -3,6 +3,7 @@ import { Fragment, type ReactNode } from 'react';
 import AuthPage from './pages/AuthPage';
 import ChatPage from './pages/ChatPage';
 import InviteJoinPage from './pages/InviteJoinPage';
+import AdminPage from './pages/AdminPage';
 import { ROUTES } from './config/constants';
 import { useAuth } from './context/useAuth';
 import './App.css';
@@ -23,12 +24,20 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   return isAuthenticated ? <Fragment key={user?.id}>{children}</Fragment> : <Navigate to={ROUTES.HOME} replace />;
 }
 
+function AdminRoute() {
+  const { isAuthenticated, isLoading, user } = useAuth();
+  if (isLoading) return <AuthLoading />;
+  if (!isAuthenticated) return <Navigate to={ROUTES.HOME} replace />;
+  return user?.accountRole === 'ADMIN' ? <AdminPage /> : <Navigate to={ROUTES.CHAT} replace />;
+}
+
 function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path={ROUTES.HOME} element={<GuestRoute />} />
         <Route path="/invite/:inviteCode" element={<InviteJoinPage />} />
+        <Route path={`${ROUTES.ADMIN}/*`} element={<AdminRoute />} />
         <Route
           path={`${ROUTES.CHAT}/*`}
           element={

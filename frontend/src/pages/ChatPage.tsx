@@ -2138,6 +2138,10 @@ export default function ChatPage() {
         onToggleProfileMenu={handleToggleProfileMenu}
         onOpenProfileEditor={handleOpenProfileEditor}
         onOpenBlockedUsers={handleOpenBlockedUsers}
+        onOpenAdmin={() => {
+          setProfileMenuOpen(false);
+          navigate(ROUTES.ADMIN);
+        }}
         onLogout={() => void handleLogout()}
       />
 

@@ -30,7 +30,8 @@ public record UserResponse(
         Boolean archived,
         Long pinnedMessageId,
         MessageResponse pinnedMessage,
-        Boolean messageRequest) {
+        Boolean messageRequest,
+        String accountRole) {
     public static UserResponse from(User user) {
         return from(user, null, null, null, null, null, null, null, null);
     }
@@ -103,6 +104,7 @@ public record UserResponse(
                 isEnabled(setting == null ? null : setting.getArchived()),
                 setting == null ? null : setting.getPinnedMessageId(),
                 null,
+                null,
                 null);
     }
 
@@ -110,7 +112,14 @@ public record UserResponse(
         return new UserResponse(
                 id, username, fullName, nickname, role, email, avatar, bio, online, lastSeenAt, createdAt,
                 friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId,
-                pinned, muted, archived, pinnedMessageId, pinnedMessage, value);
+                pinned, muted, archived, pinnedMessageId, pinnedMessage, value, accountRole);
+    }
+
+    public UserResponse withAccountRole(String value) {
+        return new UserResponse(
+                id, username, fullName, nickname, role, email, avatar, bio, online, lastSeenAt, createdAt,
+                friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId,
+                pinned, muted, archived, pinnedMessageId, pinnedMessage, messageRequest, value);
     }
 
     private static String normalizeNickname(String nickname) {

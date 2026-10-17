@@ -80,15 +80,16 @@ public class UserService {
     @Transactional
     public PresenceResponse updateOnlineStatus(String username, boolean online) {
         User user = findByUsername(username);
-        user.setOnline(online);
-        if (!online) {
+        boolean currentOnline = online && Boolean.TRUE.equals(user.getEnabled());
+        user.setOnline(currentOnline);
+        if (!currentOnline) {
             user.setLastSeenAt(LocalDateTime.now());
         }
 
         return new PresenceResponse(
                 user.getId(),
                 user.getUsername(),
-                user.getOnline(),
+                currentOnline,
                 user.getLastSeenAt()
         );
     }

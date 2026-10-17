@@ -1,6 +1,7 @@
 package com.chatapp.config;
 
 import com.chatapp.security.WebSocketAuthChannelInterceptor;
+import com.chatapp.security.WebSocketAccountStatusInterceptor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
@@ -17,6 +18,7 @@ import java.util.Arrays;
 @RequiredArgsConstructor
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final WebSocketAuthChannelInterceptor authChannelInterceptor;
+    private final WebSocketAccountStatusInterceptor accountStatusInterceptor;
 
     @Value("${cors.allowed-origins}")
     private String allowedOrigins;
@@ -31,6 +33,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
         registration.interceptors(authChannelInterceptor);
+    }
+
+    @Override
+    public void configureClientOutboundChannel(ChannelRegistration registration) {
+        registration.interceptors(accountStatusInterceptor);
     }
 
     @Override

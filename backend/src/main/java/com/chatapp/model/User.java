@@ -41,6 +41,13 @@ public class User {
     @Column(nullable = false)
     private Boolean online = false;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "account_role", nullable = false, length = 20)
+    private AccountRole accountRole = AccountRole.USER;
+
+    @Column(nullable = false)
+    private Boolean enabled = true;
+
     private LocalDateTime lastSeenAt;
 
     @CreationTimestamp

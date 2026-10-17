@@ -75,6 +75,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private void authenticateUsername(HttpServletRequest request, String username) {
         if (SecurityContextHolder.getContext().getAuthentication() != null) return;
         UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+        if (!userDetails.isEnabled()) return;
         setAuthentication(request, userDetails);
     }
 

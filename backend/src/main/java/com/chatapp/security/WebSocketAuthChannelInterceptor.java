@@ -45,6 +45,15 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
                         || !authentication.isAuthenticated()) {
                     throw new AuthenticationCredentialsNotFoundException("WebSocket authentication is required");
                 }
+                UserDetails currentUser = userDetailsService.loadUserByUsername(authentication.getName());
+                if (!currentUser.isEnabled()) {
+                    throw new BadCredentialsException("This account is disabled");
+                }
+                accessor.setUser(new UsernamePasswordAuthenticationToken(
+                        currentUser,
+                        null,
+                        currentUser.getAuthorities()
+                ));
                 String destination = accessor.getDestination();
                 boolean allowed = switch (command) {
                     case SEND -> destination != null && (SEND_DESTINATIONS.contains(destination)
