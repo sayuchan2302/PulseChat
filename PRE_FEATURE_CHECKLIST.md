@@ -25,7 +25,9 @@
 - [x] **2.1b Rotation nguyên tử + replay detection** — commit `951a040`: `consumeToken` dùng `findByTokenHashForUpdate` (`PESSIMISTIC_WRITE` row lock) → 2 request đồng thời cùng refresh token chỉ 1 thắng; token đã revoke bị dùng lại → **revoke toàn bộ session active của user** + log warn, chạy `REQUIRES_NEW` để sống sót rollback của request lỗi; phân biệt rõ token expired vs revoked vs user bị disable; `revokeAllActiveByUserId` thêm `flushAutomatically + clearAutomatically` (đã rà `AdminAccountService` gọi trước `save(user)` → an toàn).
 - [x] **2.1c Media cookie không còn là refresh token** — commit `951a040`: cookie `chat_media_session` giờ mang JWT riêng (`token_use=media`, TTL 24h qua `JWT_MEDIA_EXPIRATION`) thay vì raw refresh token; `JwtService` tách `extractUsername` (chỉ access) / `extractMediaUsername` (chỉ media) nên 2 loại token **không thể dùng thay thế nhau**; filter media bỏ truy vấn DB mỗi request (nhanh hơn), vẫn chặn user disable/delete qua `loadUserByUsername`.
 - [x] **2.3a Filter 401 thay vì 500 cho user bị xoá** — commit `951a040`: `JwtAuthenticationFilter` bắt `AuthenticationException` ở cả 2 nhánh (bearer + media cookie); thêm regression test (`deletedAccountWithBearerTokenIsRejectedWithUnauthorizedInsteadOfServerError`).
-- [x] **Verify batch** — backend **181/181, BUILD SUCCESS** (+10 test: `JwtServiceTest` 1→4, `RefreshTokenServiceTest` 1→6, `LocalMediaHttpSecurityTest` 6→8).
+- [x] **Verify batch 1** — backend **181/181, BUILD SUCCESS** (+10 test: `JwtServiceTest` 1→4, `RefreshTokenServiceTest` 1→6, `LocalMediaHttpSecurityTest` 6→8).
+- [x] **2.1d Rate limiting auth** — commit `72fbc3d`: `RateLimitService` in-memory fixed-window (`app.rate-limit.*`, mặc định window 15 phút / login 10 / register 10 / refresh 60); login giới hạn **per-IP + per-account** (beta thành công xoá bucket account), register/refresh per-IP; vi phạm → `ErrorCode.TOO_MANY_REQUESTS` (AUTH_005, HTTP 429) nhất quán qua `ApiExceptionHandler`; refresh bị 429 **không** xoá cookie session. Đơn giản, ghi chú rõ giới hạn single-instance trong javadoc. 9 test mới (`RateLimitServiceTest` 5 + `AuthControllerTest` +3, gồm case 429 không clear cookie).
+- [x] **Verify batch 2** — backend **189/189, BUILD SUCCESS** (+8 test: `RateLimitServiceTest` 5 + `AuthControllerTest` 4→7).
 
 ---
 
@@ -71,7 +73,7 @@
 - [x] `backend/src/main/java/com/chatapp/dto/response/UserResponse.java:17,91` — **bỏ `email`** khỏi DTO dùng chung (đang lộ email mọi user cho mọi user) — commit `560f36c`.
   - ✅ DTO admin riêng đã có sẵn: `AdminAccountResponse` (giữ email) — `AdminPage.tsx` dùng DTO này nên không ảnh hưởng.
   - ✅ Rà FE xong: gỡ `email` khỏi type `User` (`types/index.ts`), `messageUtils.ts`, `ChatPage.tsx`, `BlockedUsersModal.test.tsx`.
-- [ ] Rate limiting / lockout cho `/auth/login`, `/auth/register`, `/auth/refresh` (Bucket4j hoặc filter tự viết; per-IP + per-account).
+- [x] Rate limiting / lockout cho `/auth/login`, `/auth/register`, `/auth/refresh` (in-memory filter tự viết; per-IP + per-account) — commit `72fbc3d`.
 - [x] `RefreshTokenService.java:47-61` — rotation nguyên tử: dùng `findByTokenHashForUpdate` (`PESSIMISTIC_WRITE` row lock) — request thứ hai với cùng token sẽ thấy `revokedAt` ≠ null và bị coi là replay — commit `951a040`.
 - [x] Phát hiện **replay** refresh token: token đã revoke bị dùng lại → revoke toàn bộ token active của user + log cảnh báo; wrap trong transaction `REQUIRES_NEW` để không bị rollback cùng exception — commit `951a040`.
 - [x] `RefreshTokenRepository` — thêm `flushAutomatically = true, clearAutomatically = true` cho `@Modifying` revoke (tránh entity stale) — commit `951a040`.
@@ -95,7 +97,7 @@
 ### Gate Definition of Done (Phase 2)
 - [ ] CI xanh trên repo. (⏳ chờ push lần đầu)
 - [x] Không còn `email` trong response cho user thường (`UserResponse` không còn field; verify qua test + grep toàn bộ `backend/src`).
-- [ ] Rate limiting hoạt động (test thử 20 lần login sai liên tiếp). (⏳ chưa làm)
+- [x] Rate limiting hoạt động (test thử 20 lần login sai liên tiếp). (`RateLimitServiceTest` + `AuthControllerTest`: lần thứ 4 với limit 3 bị chặn → 429; có test cross-IP.)
 - [x] Rotation/replay refresh token đã có test (6 case `RefreshTokenServiceTest`: lock lookup, replay family-revoke, expired, disabled, unknown).
 - [ ] Prod checklist: `SPRING_PROFILES_ACTIVE=prod` fail-fast nếu thiếu; cookie/CSRF/CORS đúng. (⏳ chưa làm)
 

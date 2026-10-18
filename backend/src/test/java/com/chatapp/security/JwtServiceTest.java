@@ -9,8 +9,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JwtServiceTest {
     private static final String JWT_SECRET = "test-secret-for-jwt-signing-key-with-256-bits-minimum!";
@@ -74,5 +76,30 @@ class JwtServiceTest {
         String accessToken = jwtService.generateAccessToken("sayu");
 
         assertThrows(IllegalArgumentException.class, () -> jwtService.extractMediaUsername(accessToken));
+    }
+
+    @Test
+    void validSecretPassesStartupValidation() {
+        JwtService jwtService = jwtService();
+
+        assertDoesNotThrow(jwtService::validateConfiguration);
+    }
+
+    @Test
+    void placeholderSecretIsRejectedAtStartup() {
+        JwtService jwtService = jwtService();
+        ReflectionTestUtils.setField(jwtService, "jwtSecret", "change-this-to-a-secure-random-string-minimum-256-bits-required");
+
+        assertThrows(IllegalStateException.class, jwtService::validateConfiguration);
+    }
+
+    @Test
+    void shortSecretIsRejectedAtStartup() {
+        JwtService jwtService = jwtService();
+        ReflectionTestUtils.setField(jwtService, "jwtSecret", "short-secret");
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, jwtService::validateConfiguration);
+
+        assertTrue(exception.getMessage().contains("32 bytes"));
     }
 }

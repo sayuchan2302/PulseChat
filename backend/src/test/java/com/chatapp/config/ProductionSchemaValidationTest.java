@@ -24,7 +24,8 @@ import java.nio.charset.StandardCharsets;
         "spring.datasource.username=sa",
         "spring.datasource.password=",
         "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
-        "jwt.secret=01234567890123456789012345678901"
+        "jwt.secret=01234567890123456789012345678901",
+        "cors.allowed-origins=https://pulsechat.example.com"
 })
 @ActiveProfiles("prod")
 class ProductionSchemaValidationTest {
