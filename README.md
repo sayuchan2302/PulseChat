@@ -131,9 +131,16 @@ npm run build
 
 ### Production database schema
 
-Set `SPRING_PROFILES_ACTIVE=prod` to enable Flyway migrations and Hibernate schema validation. A new production database is created from `backend/src/main/resources/db/migration/V1__initial_schema.sql`; future schema changes should be added as new numbered Flyway migrations.
+Set `SPRING_PROFILES_ACTIVE=prod` to enable Flyway migrations and Hibernate schema validation. A new (empty) production database is created from `backend/src/main/resources/db/migration/V1__initial_schema.sql`; future schema changes are added as new numbered Flyway migrations.
 
-For an existing database created by this application, Flyway baselines the current schema at version 1 and leaves its data in place. Back up the database and confirm it matches the current entities before the first production startup. `ddl-auto=validate` then fails startup if the application schema does not match the entities.
+**First rollout onto an existing database** (one created before Flyway, by `ddl-auto=update`):
+
+1. Back up the database (`pg_dump`) — baselining never rewrites data, but the backup is the rollback path.
+2. Confirm the live schema matches the current entities at version 1: `spring.flyway.baseline-on-migrate=true` marks a non-empty schema without migration history as version 1 and applies only migrations above it; `ddl-auto=validate` then fails startup on any mismatch.
+3. Start the application with the `prod` profile. Flyway baselines the schema at version 1 and applies `V2__…` onward; the log lists the migrations that ran.
+4. Verify with `select installed_rank, version, description, success from flyway_schema_history order by installed_rank;` — the baseline row and every migration up to the latest version must have `success = true`.
+
+Migrations are deliberately not written idempotently (no `IF NOT EXISTS`): Flyway records each version in `flyway_schema_history` and runs it exactly once, so such clauses would only hide genuine drift. A failed migration aborts startup and stays unsuccessful in the history; recover with the backup and fix forward with a new migration version instead of editing an applied one.
 
 ## 📄 License
 

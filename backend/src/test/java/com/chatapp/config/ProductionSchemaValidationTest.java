@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.env.Environment;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -43,9 +44,32 @@ class ProductionSchemaValidationTest {
     @Autowired
     private AuthService authService;
 
+    @Autowired
+    private Environment environment;
+
     @Test
     void flywaySchemaValidatesAgainstHibernateMappings() {
         // Starting the production profile runs Flyway before Hibernate's validate phase.
+    }
+
+    @Test
+    void productionProfileBaselinesExistingDatabasesAtVersionOne() {
+        Assertions.assertEquals(
+                Boolean.TRUE,
+                environment.getProperty("spring.flyway.baseline-on-migrate", Boolean.class)
+        );
+        Assertions.assertEquals(
+                1,
+                environment.getProperty("spring.flyway.baseline-version", Integer.class)
+        );
+        Assertions.assertEquals(
+                Boolean.TRUE,
+                environment.getProperty("spring.flyway.validate-on-migrate", Boolean.class)
+        );
+        Assertions.assertEquals(
+                "validate",
+                environment.getProperty("spring.jpa.hibernate.ddl-auto")
+        );
     }
 
     @Test
