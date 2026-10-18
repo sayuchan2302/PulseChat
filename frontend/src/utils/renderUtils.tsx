@@ -6,6 +6,19 @@ import { TEXT_URL_REGEX } from '../constants/chatConstants';
 
 const MENTION_TOKEN_REGEX = /@([a-zA-Z0-9_.-]+)/g;
 
+function isSafeHttpUrl(url?: string | null): url is string {
+    if (!url) {
+        return false;
+    }
+
+    try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
 export function renderHighlightedSearchText(text: string, query: string): React.ReactNode {
     const normalizedQuery = query.trim();
     if (!text || !normalizedQuery) {
@@ -124,12 +137,15 @@ export function renderLinkedText(text: string): React.ReactNode {
 }
 
 export function renderLinkPreviewCard(preview?: LinkPreview | null, onImageLoad?: () => void): React.ReactNode {
-    const url = preview?.url;
-    if (!url) {
+    const url = preview?.url?.trim();
+    if (!isSafeHttpUrl(url)) {
         return null;
     }
 
-    const imageUrl = preview?.imageUrl?.trim();
+    const rawImageUrl = preview?.imageUrl?.trim();
+    const imageUrl = rawImageUrl && (rawImageUrl.startsWith('/') || isSafeHttpUrl(rawImageUrl))
+        ? rawImageUrl
+        : undefined;
     const title = preview?.title?.trim() || url;
     const description = preview?.description?.trim();
     const domain = preview?.domain?.trim() || url;

@@ -126,3 +126,50 @@ select {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--gray-400);
 }
+
+.app-auth-loading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-auth-spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid var(--purple-200);
+  border-top-color: var(--purple-600);
+  animation: app-auth-spin 0.8s linear infinite;
+}
+
+@keyframes app-auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.app-error-boundary {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  color: var(--gray-800);
+}
+
+.app-error-boundary p {
+  color: var(--text-muted);
+  max-width: 420px;
+}
+
+.app-error-boundary button {
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: var(--purple-600);
+  color: #fff;
+  font-weight: 600;
+}

@@ -36,7 +36,9 @@ export default function AuthPage() {
 
       if (response.data.token) {
         completeLogin(response.data);
-        navigate(ROUTES.CHAT, { replace: true });
+        const redirect = sessionStorage.getItem('redirect_after_login');
+        sessionStorage.removeItem('redirect_after_login');
+        navigate(redirect?.startsWith('/') ? redirect : ROUTES.CHAT, { replace: true });
       }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Authentication failed. Please check your details.');

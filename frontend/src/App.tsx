@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Fragment, type ReactNode } from 'react';
+import { Component, Fragment, type ReactNode } from 'react';
 import AuthPage from './pages/AuthPage';
 import ChatPage from './pages/ChatPage';
 import InviteJoinPage from './pages/InviteJoinPage';
@@ -9,7 +9,39 @@ import { useAuth } from './context/useAuth';
 import './App.css';
 
 function AuthLoading() {
-  return null;
+  return (
+    <div className="app-auth-loading" role="status" aria-live="polite" aria-label="Loading">
+      <span className="app-auth-spinner" />
+    </div>
+  );
+}
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error('Unhandled UI error:', error);
+  }
+
+  render() {
+    if (!this.state.hasError) {
+      return this.props.children;
+    }
+
+    return (
+      <div className="app-error-boundary">
+        <h1>Something went wrong</h1>
+        <p>PulseChat hit an unexpected error. Reloading the app usually fixes it.</p>
+        <button type="button" onClick={() => window.location.reload()}>
+          Reload PulseChat
+        </button>
+      </div>
+    );
+  }
 }
 
 function GuestRoute() {
@@ -33,22 +65,24 @@ function AdminRoute() {
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path={ROUTES.HOME} element={<GuestRoute />} />
-        <Route path="/invite/:inviteCode" element={<InviteJoinPage />} />
-        <Route path={`${ROUTES.ADMIN}/*`} element={<AdminRoute />} />
-        <Route
-          path={`${ROUTES.CHAT}/*`}
-          element={
-            <ProtectedRoute>
-              <ChatPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="*" element={<Navigate to={ROUTES.HOME} replace />} />
-      </Routes>
-    </BrowserRouter>
+    <AppErrorBoundary>
+      <BrowserRouter>
+        <Routes>
+          <Route path={ROUTES.HOME} element={<GuestRoute />} />
+          <Route path="/invite/:inviteCode" element={<InviteJoinPage />} />
+          <Route path={`${ROUTES.ADMIN}/*`} element={<AdminRoute />} />
+          <Route
+            path={`${ROUTES.CHAT}/*`}
+            element={
+              <ProtectedRoute>
+                <ChatPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="*" element={<Navigate to={ROUTES.HOME} replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AppErrorBoundary>
   );
 }
 

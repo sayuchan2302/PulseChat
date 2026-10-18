@@ -23,15 +23,20 @@ export function useGroupAvatar({ selectedRoom, groupSettingsPendingAction, accep
     if (!acceptedTypes.includes(file.type)) { setError('Choose a JPG, PNG, GIF, or WebP image.'); event.currentTarget.value = ''; return; }
     if (file.size > maxBytes) { setError(`Avatar must be ${maxSizeMb}MB or smaller.`); event.currentTarget.value = ''; return; }
     setUploading(true); setError('');
+    const previewUrl = URL.createObjectURL(file);
     try {
-      const media = await uploadPendingMedia({ file, previewUrl: URL.createObjectURL(file), type: 'IMAGE', resourceType: 'image' });
+      const media = await uploadPendingMedia({ file, previewUrl, type: 'IMAGE', resourceType: 'image' });
       if (!media.url) throw new Error('Upload failed');
       const response = await apiClient.patch<ChatRoom>(`/rooms/${selectedRoom.id}`, { avatar: media.url });
       applyRoomMembershipUpdate(response.data);
     } catch (error: unknown) {
       console.error('Failed to upload group avatar:', error);
       setError((error as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Unable to upload group avatar.');
-    } finally { setUploading(false); event.target.value = ''; }
+    } finally {
+      URL.revokeObjectURL(previewUrl);
+      setUploading(false);
+      event.target.value = '';
+    }
   }, [acceptedTypes, applyRoomMembershipUpdate, groupSettingsPendingAction, maxBytes, maxSizeMb, selectedRoom, setError, setUploading, uploadPendingMedia]);
 }
 

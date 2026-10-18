@@ -33,6 +33,9 @@ export class WebSocketService {
   private connectingPromise: Promise<void> | null = null;
   private manuallyDisconnecting = false;
   private connectionAttemptId = 0;
+  private reconnectAttempts = 0;
+  private static readonly BASE_RECONNECT_DELAY_MS = 1000;
+  private static readonly MAX_RECONNECT_DELAY_MS = 30000;
   private status: ConnectionStatus = 'offline';
   private onMessageReceived: MessageHandler | null = null;
   private onMessageUpdateReceived: MessageUpdateHandler | null = null;
@@ -127,7 +130,7 @@ export class WebSocketService {
           debug: (str) => {
             if (import.meta.env.DEV) console.log('STOMP: ' + str);
           },
-          reconnectDelay: 5000,
+          reconnectDelay: this.nextReconnectDelay(),
           heartbeatIncoming: 4000,
           heartbeatOutgoing: 4000,
         });
@@ -140,9 +143,10 @@ export class WebSocketService {
             return;
           }
 
-          console.log('Connected to WebSocket');
+          if (import.meta.env.DEV) console.log('Connected to WebSocket');
           this.connected = true;
           this.connectingPromise = null;
+          this.reconnectAttempts = 0;
 
           client.subscribe('/user/queue/messages', (message) => {
             this.handleIncomingMessage(message.body);
@@ -221,10 +225,19 @@ export class WebSocketService {
 
           this.connected = false;
           this.connectingPromise = null;
+          const browserOffline = this.isBrowserOffline();
+          if (browserOffline) {
+            // Pause retries while the browser has no network; the next successful
+            // connect resets the schedule.
+            client.reconnectDelay = WebSocketService.MAX_RECONNECT_DELAY_MS;
+          } else {
+            this.reconnectAttempts += 1;
+            client.reconnectDelay = this.nextReconnectDelay();
+          }
           this.updateStatus(
             this.manuallyDisconnecting || !client.active
               ? 'offline'
-              : this.isBrowserOffline()
+              : browserOffline
                 ? 'offline'
                 : 'reconnecting'
           );
@@ -312,6 +325,15 @@ export class WebSocketService {
 
   private isBrowserOffline() {
     return typeof navigator !== 'undefined' && !navigator.onLine;
+  }
+
+  private nextReconnectDelay() {
+    const exponential = Math.min(
+      WebSocketService.BASE_RECONNECT_DELAY_MS * 2 ** Math.min(this.reconnectAttempts, 5),
+      WebSocketService.MAX_RECONNECT_DELAY_MS,
+    );
+    // Jitter keeps reconnecting clients from stampeding the broker together.
+    return Math.round(exponential * (0.5 + Math.random() * 0.5));
   }
 
   private handleIncomingMessage(body: string) {

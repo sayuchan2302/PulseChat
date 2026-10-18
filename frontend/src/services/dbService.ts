@@ -32,11 +32,16 @@ export class DBService {
         if (this.dbPromise) return this.dbPromise;
         this.dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
             const request = indexedDB.open(DB_NAME, DB_VERSION);
-            request.onupgradeneeded = () => {
+            request.onupgradeneeded = (event) => {
                 const db = request.result;
-                // Version 1 records have no owner. Never attribute them to the next login.
+                // Version 1 records have no owner. Never attribute them to the next login,
+                // so wipe them once when upgrading v1 -> v2. Later upgrades keep their data.
+                const migratedFromLegacy = event.oldVersion < 2;
                 for (const name of STORES) {
-                    if (db.objectStoreNames.contains(name)) db.deleteObjectStore(name);
+                    if (db.objectStoreNames.contains(name)) {
+                        if (!migratedFromLegacy) continue;
+                        db.deleteObjectStore(name);
+                    }
                     const store = db.createObjectStore(name, {
                         keyPath: ['userId', name === 'conversations' ? 'key' : 'id'],
                     });
@@ -50,6 +55,10 @@ export class DBService {
                     this.dbPromise = null;
                 };
                 resolve(request.result);
+            };
+            request.onblocked = () => {
+                this.dbPromise = null;
+                reject(new Error('IndexedDB upgrade is blocked by another open tab'));
             };
             request.onerror = () => { this.dbPromise = null; reject(request.error); };
         });
@@ -71,7 +80,8 @@ export class DBService {
                 tx.onabort = () => resolve(fallback);
                 tx.onerror = () => resolve(fallback);
             });
-        } catch {
+        } catch (error) {
+            console.warn(`IndexedDB ${storeName} ${mode} failed; falling back to in-memory state.`, error);
             return fallback;
         }
     }

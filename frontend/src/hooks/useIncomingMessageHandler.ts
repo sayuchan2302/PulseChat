@@ -101,9 +101,14 @@ export function useIncomingMessageHandler({
       setSelectedRoom((room) => {
         if (!room || room.id !== incomingMessage.chatRoomId) return room;
         const withPreview = applyRoomPreviewToRoom(room, incomingMessage);
+        const clearsUnreadCount = !isIncomingFromOther || canMarkActiveIncomingAsRead;
         return {
           ...withPreview,
-          unreadCount: isIncomingFromOther && !isActiveRoomMessage ? (withPreview.unreadCount ?? 0) + 1 : 0,
+          unreadCount: isIncomingFromOther && !isActiveRoomMessage
+            ? (withPreview.unreadCount ?? 0) + 1
+            : clearsUnreadCount
+              ? 0
+              : withPreview.unreadCount ?? 0,
         };
       });
       if (isIncomingFromOther && isActiveRoomMessage) {
@@ -121,10 +126,7 @@ export function useIncomingMessageHandler({
     setSelectedUser((user) => user ? applyConversationPreviewToUser(user, incomingMessage, currentUserId) : null);
     if (isIncomingFromOther && incomingMessage.senderId === selectedUserId) {
       if (canMarkActiveIncomingAsRead) void markConversationAsRead(incomingMessage.senderId);
-      else {
-        addPendingUnreadMessage('user', incomingMessage.senderId, incomingMessage);
-        setSelectedUser((user) => user?.id === incomingMessage.senderId ? { ...user, unreadCount: 0 } : user);
-      }
+      else addPendingUnreadMessage('user', incomingMessage.senderId, incomingMessage);
       return;
     }
     if (isIncomingFromOther) {

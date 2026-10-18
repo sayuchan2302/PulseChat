@@ -118,21 +118,21 @@
 - [ ] (Tùy chọn) pg_trgm index cho `LIKE '%…%'` trong `MessageRepository`/`UserRepository`.
 
 ### 3.2 Frontend hiệu năng & ổn định
-- [ ] `MessageItem.tsx:34` — bọc `React.memo`; ổn định props/handler (`ChatPage.tsx:2267` đang tạo object inline mỗi render; `getNextOptimisticMessageId` đưa vào `useCallback`).
-- [ ] `App.tsx:11-29` — thêm **ErrorBoundary** cấp cao (reload + fallback UI); `AuthLoading` hiển thị spinner thay vì `null`.
-- [ ] `ChatPage.tsx:552-568` — debounce ghi IndexedDB (300–500ms) + ghi tăng dần thay vì serialize cả mảng mỗi state change.
-- [ ] `dbService.ts:35-45` — `onupgradeneeded` chỉ xoá store khi `oldVersion` cũ (v1→v2); các version sau **không xoá**, đặc biệt `pendingQueue`.
-- [ ] `dbService.ts:59-77` — báo lỗi DB lên UI/log trung tâm thay vì nuốt vào fallback.
-- [ ] `websocket.ts:130` — reconnect exponential backoff + jitter, tạm dừng khi `!navigator.onLine`.
-- [ ] `renderUtils.tsx:126-163` — validate scheme `http(s)` cho `preview.url` + `preview.imageUrl` trước khi render.
-- [ ] `useIncomingMessageHandler.ts:101-127` — không reset `unreadCount` khi message vào pending-unread queue.
-- [ ] `InviteJoinPage.tsx:64` — đọc `redirect_after_login` sau login (hoặc dùng `?next=`) để deep-link invite hoạt động.
+- [ ] `MessageItem.tsx:34` — bọc `React.memo`; ổn định props/handler (`ChatPage.tsx:2267` đang tạo object inline mỗi render; `getNextOptimisticMessageId` đưa vào `useCallback`). *(để lại buổi sau — cần sửa `ChatPage` ~2500 dòng)*
+- [x] `App.tsx:11-29` — thêm **ErrorBoundary** cấp cao (`AppErrorBoundary`: fallback + reload) bọc toàn bộ `BrowserRouter`; `AuthLoading` hiển thị spinner (CSS `.app-auth-*`, `.app-error-boundary` trong `App.css`).
+- [ ] `ChatPage.tsx:552-568` — debounce ghi IndexedDB (300–500ms) + ghi tăng dần thay vì serialize cả mảng mỗi state change. *(để lại buổi sau)*
+- [x] `dbService.ts:35-45` — `onupgradeneeded` chỉ xoá store khi `oldVersion < 2` (v1→v2); các version sau **không xoá**; thêm `request.onblocked` reject để không treo promise khi tab khác đang giữ DB.
+- [x] `dbService.ts:59-77` — `run()` log `console.warn` (tên store + mode) khi IndexedDB thất bại thay vì nuốt im lặng; fallback giữ nguyên.
+- [x] `websocket.ts:130` — reconnect exponential backoff (1s→30s, reset khi connect thành công) + jitter 50–100%; khi `!navigator.onLine` giãn delay tối đa để tạm dừng dò mạng.
+- [x] `renderUtils.tsx:126-163` — thêm `isSafeHttpUrl`; `preview.url` chỉ render khi scheme `http(s)`; `imageUrl` cho phép `http(s)` hoặc path nội bộ bắt đầu bằng `/`.
+- [x] `useIncomingMessageHandler.ts:101-127` — chỉ reset `unreadCount` khi mark-read thật (`canMarkActiveIncomingAsRead`/tin của chính mình); message vào pending-unread queue giữ nguyên count.
+- [x] `InviteJoinPage.tsx:64` — `AuthPage` đọc `redirect_after_login` sau login (chỉ nhận path bắt đầu `/`, xoá key sau khi dùng) → deep-link invite hoạt động.
 
 ### 3.3 Frontend hygiene
-- [ ] Xoá/gỡ dead code: `VirtualizedMessageList.tsx` (không ai import) hoặc sửa đo lường + đưa vào dùng thật.
-- [ ] `useGroupAvatar.ts:27` — `URL.revokeObjectURL` cho previewUrl.
-- [ ] `websocket.ts:143` — bỏ/gate console log production.
-- [ ] `ChatDialogLayer.tsx:121-150` — focus trap + restore cho các modal.
+- [x] Xoá dead code: `VirtualizedMessageList.tsx` (không ai import — đã `git rm`).
+- [x] `useGroupAvatar.ts:27` — capture `previewUrl` và `URL.revokeObjectURL` trong `finally`.
+- [x] `websocket.ts:143` — console log `Connected to WebSocket` chỉ còn ở DEV (`import.meta.env.DEV`).
+- [ ] `ChatDialogLayer.tsx:121-150` — focus trap + restore cho các modal. *(để lại buổi sau)*
 
 ---
 
