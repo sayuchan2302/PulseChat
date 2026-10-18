@@ -26,6 +26,7 @@ public class AdminAccountService {
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PresenceService presenceService;
+    private final AfterCommitExecutor afterCommitExecutor;
 
     @Transactional(readOnly = true)
     public AdminAccountPageResponse search(String query, int page, int size) {
@@ -81,7 +82,8 @@ public class AdminAccountService {
             refreshTokenRepository.revokeAllActiveByUserId(user.getId());
 
             if (wasOnline) {
-                presenceService.broadcast(new PresenceResponse(user.getId(), user.getUsername(), false, now));
+                PresenceResponse presence = new PresenceResponse(user.getId(), user.getUsername(), false, now);
+                afterCommitExecutor.execute(() -> presenceService.broadcast(presence));
             }
         }
 

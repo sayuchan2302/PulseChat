@@ -21,6 +21,7 @@ public class CallSessionMaintenanceService {
     private final CallSessionRepository callSessionRepository;
     private final MessageService messageService;
     private final CallRealtimeNotifier callRealtimeNotifier;
+    private final AfterCommitExecutor afterCommitExecutor;
 
     @Value("${chat.calls.ringing-timeout-seconds:45}")
     private long ringingTimeoutSeconds;
@@ -56,6 +57,6 @@ public class CallSessionMaintenanceService {
                 null,
                 historyMessage
         );
-        callRealtimeNotifier.notifyParticipants(response);
+        afterCommitExecutor.execute(() -> callRealtimeNotifier.notifyParticipants(response));
     }
 }

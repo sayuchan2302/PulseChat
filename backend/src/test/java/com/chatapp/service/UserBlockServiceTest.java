@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -43,6 +44,8 @@ class UserBlockServiceTest {
     private UserService userService;
     @Mock
     private CallRealtimeNotifier callRealtimeNotifier;
+    @Mock
+    private AfterCommitExecutor afterCommitExecutor;
 
     @InjectMocks
     private UserBlockService userBlockService;
@@ -69,6 +72,10 @@ class UserBlockServiceTest {
                 .thenReturn(List.of(call));
         when(callSessionRepository.saveAndFlush(any(CallSession.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        doAnswer(invocation -> {
+            invocation.getArgument(0, Runnable.class).run();
+            return null;
+        }).when(afterCommitExecutor).execute(any(Runnable.class));
 
         userBlockService.blockUser("alice", 2L);
 

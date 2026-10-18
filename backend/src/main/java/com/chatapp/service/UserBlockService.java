@@ -30,6 +30,7 @@ public class UserBlockService {
     private final CallSessionRepository callSessionRepository;
     private final UserService userService;
     private final CallRealtimeNotifier callRealtimeNotifier;
+    private final AfterCommitExecutor afterCommitExecutor;
 
     @Transactional(readOnly = true)
     public List<UserResponse> listBlockedUsers(String currentUsername) {
@@ -93,14 +94,15 @@ public class UserBlockService {
             }
             callSession.setEndedAt(LocalDateTime.now());
             CallSession savedCall = callSessionRepository.saveAndFlush(callSession);
-            callRealtimeNotifier.notifyParticipants(CallSignalResponse.from(
+            CallSignalResponse signal = CallSignalResponse.from(
                     savedCall,
                     wasRinging ? CallSignalType.CALL_CANCEL : CallSignalType.CALL_END,
                     UserResponse.from(blocker),
                     null,
                     null,
                     null,
-                    null));
+                    null);
+            afterCommitExecutor.execute(() -> callRealtimeNotifier.notifyParticipants(signal));
         }
     }
 }
