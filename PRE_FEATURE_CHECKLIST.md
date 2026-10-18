@@ -3,7 +3,7 @@
 > Nguồn: đợt full code review (backend logic, backend security, frontend, tests/config) ngày 2026-10-16/17.
 > Quy tắc: **hoàn tất Phase 1 + Phase 2 (Gate) trước khi bắt đầu feature mới.** Nếu feature gấp không thể chờ, tối thiểu phải xong Phase 1.
 > Phạm vi: toàn bộ fix + hardening từ đợt review — **không bao gồm roadmap feature mới** (chọn sau khi qua Gate).
-> Trạng thái: **Phase 1 hoàn tất (2026-10-18); Phase 2 đang thực hiện** — CI ✅, bỏ email ✅, rotation/replay + media token ✅, filter 401 ✅; backend 181/181 xanh. Còn lại: rate limiting, prod hardening, WS error handler, bump dependencies — xem "Tiến độ thực thi".
+> Trạng thái: **Phase 1 hoàn tất (2026-10-18); Phase 2 gần xong** — CI ✅, bỏ email ✅, rotation/replay + media token ✅, filter 401 ✅, rate limiting ✅, prod hardening ✅, WS error handler ✅ (+fix whitelist message-hides); backend 209/209 xanh. Còn lại: bump dependencies (Spring Boot 3.5.x + jjwt 0.12.7) — xem "Tiến độ thực thi".
 
 ---
 
@@ -28,6 +28,8 @@
 - [x] **Verify batch 1** — backend **181/181, BUILD SUCCESS** (+10 test: `JwtServiceTest` 1→4, `RefreshTokenServiceTest` 1→6, `LocalMediaHttpSecurityTest` 6→8).
 - [x] **2.1d Rate limiting auth** — commit `72fbc3d`: `RateLimitService` in-memory fixed-window (`app.rate-limit.*`, mặc định window 15 phút / login 10 / register 10 / refresh 60); login giới hạn **per-IP + per-account** (beta thành công xoá bucket account), register/refresh per-IP; vi phạm → `ErrorCode.TOO_MANY_REQUESTS` (AUTH_005, HTTP 429) nhất quán qua `ApiExceptionHandler`; refresh bị 429 **không** xoá cookie session. Đơn giản, ghi chú rõ giới hạn single-instance trong javadoc. 9 test mới (`RateLimitServiceTest` 5 + `AuthControllerTest` +3, gồm case 429 không clear cookie).
 - [x] **Verify batch 2** — backend **189/189, BUILD SUCCESS** (+8 test: `RateLimitServiceTest` 5 + `AuthControllerTest` 4→7).
+- [x] **2.2 Prod hardening** — commit `84a435d`: `ProdProfileGuard` (BeanFactoryPostProcessor chặn khởi động khi DB không phải local mà thiếu profile `prod` — chạy trước cả Hibernate/Flyway); `CorsConfig` validate lúc startup (không cho `*` khi credentials bật; prod không nhận origin localhost — `ProductionSchemaValidationTest` đổi sang origin prod); `JwtService` validate secret (`@PostConstruct`: chặn placeholder + yêu cầu ≥32 byte) + `.env.example` ghi rõ hướng dẫn; `AuthOriginCheckFilter` kiểm tra Origin/Referer cho `/auth/refresh` + `/auth/logout` (an toàn CSRF dù prod dùng SameSite=None; client không trình duyệt không gửi header thì đi qua). `application-prod.yml` giữ nguyên vì đã đúng. Verify: backend **204/204** BUILD SUCCESS (+15 test).
+- [x] **2.3b WS error handler + fix whitelist** — commit `468681c`: `@MessageExceptionHandler` cho `AppException` + `MethodArgumentNotValidException` → gửi `RealtimeErrorResponse` tới `/user/queue/errors` (FE đã subscribe + log); **fix bug thật**: `/user/queue/message-hides` thiếu trong whitelist SUBSCRIBE → subscribe của FE bị AccessDenied (ERROR frame); đã thêm kèm test. Verify: backend **209/209** (+5 test: controller 2→5, interceptor +2 case), FE 15/15 ✅, lint ✅, build ✅.
 
 ---
 
@@ -87,7 +89,7 @@
 
 ### 2.3 Dependencies & WS
 - [ ] `pom.xml:11` — bump Spring Boot 3.2.0 → bản mới nhất 3.2.x/3.3.x; jjwt ≥ 0.12.5 (đã fix DoS khi parse token). Chạy lại full test sau khi bump.
-- [ ] `ChatWebSocketController.java:172-191` — thêm `@MessageExceptionHandler` map `AppException`/validation → ERROR frame cho client; log các `AppException` bị nuốt ở call signaling.
+- [x] `ChatWebSocketController.java:172-191` — thêm `@MessageExceptionHandler` map `AppException`/validation → ERROR frame cho client; log các `AppException` bị nuốt ở call signaling — commit `468681c`. Ghi chú: call signaling đã có log sẵn; phần bổ sung là error frames chung (`/user/queue/errors`) + fix whitelist `/user/queue/message-hides`.
 - [x] `JwtAuthenticationFilter.java:52-67` — bắt `AuthenticationException` → 401 (user bị xoá không còn gây 500); thêm regression test — commit `951a040`.
 
 ### 2.4 CI (chặn regression vĩnh viễn)
