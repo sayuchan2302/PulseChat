@@ -12,6 +12,7 @@ import org.springframework.security.authentication.AuthenticationCredentialsNotF
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.List;
 
@@ -88,10 +89,27 @@ class WebSocketAuthChannelInterceptorTest {
         assertDoesNotThrow(() -> interceptor.preSend(frame(StompCommand.DISCONNECT, null, false), null));
     }
 
+    @Test
+    void rejectsFramesWhenAccountIsDisabled() {
+        var disabledUser = User.withUsername("alice").password("unused").authorities("USER").disabled(true).build();
+        var message = frame(StompCommand.SEND, "/app/chat.send", true);
+        when(users.loadUserByUsername("alice")).thenReturn(disabledUser);
+
+        assertThrows(BadCredentialsException.class, () -> interceptor.preSend(message, null));
+    }
+
     private Message<byte[]> frame(StompCommand command, String destination, boolean authenticated) {
         var accessor = StompHeaderAccessor.create(command);
         if (destination != null) accessor.setDestination(destination);
-        if (authenticated) accessor.setUser(new UsernamePasswordAuthenticationToken("alice", null, List.of()));
+        if (authenticated) {
+            when(users.loadUserByUsername("alice")).thenReturn(enabledUser("alice"));
+            accessor.setUser(new UsernamePasswordAuthenticationToken("alice", null, List.of()));
+        }
+        accessor.setLeaveMutable(true);
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+    }
+
+    private static UserDetails enabledUser(String username) {
+        return User.withUsername(username).password("unused").authorities("USER").build();
     }
 }
