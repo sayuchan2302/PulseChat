@@ -40,7 +40,7 @@
 - [x] ~~`ProductionSchemaMigrationTest` đỏ~~ → đã fix `283d29e` (đếm migration động từ classpath + V5 tách câu lệnh chạy được trên H2). Phát hiện thêm: `V5` gốc không chạy được trên H2.
 - [x] ~~Chưa có CI (`.github/` không tồn tại)~~ → đã thêm `.github/workflows/ci.yml` (commit `80d3194`); sẽ chạy lần đầu khi push lên GitHub.
 - [x] Spring Boot 3.2.0 trong `pom.xml:11` (thiếu nhiều bản vá CVE) → đã bump **3.5.16** (3.x mới nhất) + jjwt 0.12.7 — commit `1f8548e`.
-- [ ] README trỏ tới `PHASE1_SECURITY.md` và `scripts/run-phase1-smoke.ps1` **không tồn tại** → thuộc Phase 4.
+- [x] ~~README trỏ tới `PHASE1_SECURITY.md` và `scripts/run-phase1-smoke.ps1` **không tồn tại**~~ → đã sửa trong Phase 4 (item 158).
 
 ---
 
@@ -154,8 +154,8 @@
 - [ ] `MessageService.java:56-60` — chỉ replay khi đúng vi phạm unique `uk_messages_sender_client`; `MessageService.java:55,106` — link preview sau bước authorization.
 - [x] Presence: bỏ broadcast `/topic/presence`; giờ fan-out qua `/user/queue/presence` chỉ tới bản thân + bạn bè (`ACCEPTED`, 2 query theo 2 chiều) + co-participants phòng — `PresenceService` mới (dùng bởi `WebSocketPresenceEventListener` + `AdminAccountService`), whitelist interceptor + subscription FE đổi theo. Test: `PresenceServiceTest` (dedupe, chặn username rỗng) + `PresenceRecipientQueryTest` (chạy thật 2 query mới trên H2).
 - [x] `ApiExceptionHandler` không echo nguyên văn reason: `ResponseStatusException` giờ log reason phía server (warn) và trả message generic theo status (`Resource not found`/`Request failed`…); `ErrorResponseFactory.requestId` chỉ nhận `X-Request-ID` khi khớp `[A-Za-z0-9._-]{8,64}` (chặn header injection/log injection), còn lại tự sinh UUID. Test: `ApiExceptionHandlerTest` (2), `ErrorResponseFactoryTest` (3).
-- [ ] Xoá dead code: `ErrorCode.GROUP_REQUIRES_PARTICIPANTS`, `JwtService.generateToken`, `ChatRoom.getParticipants()`, `RoomType.PRIVATE`.
-- [ ] Sửa README: xoá/khôi phục tham chiếu `PHASE1_SECURITY.md` + `scripts/run-phase1-smoke.ps1`.
+- [x] Xoá dead code: `ErrorCode.GROUP_REQUIRES_PARTICIPANTS`, `ChatRoom.getParticipants()` (+ import thừa `Set`/`LinkedHashSet`/`Collectors`), `RoomType.PRIVATE` (constraint `CHECK` trong V1 giữ nguyên — không sửa migration đã áp dụng), component FE `PinnedMessageBar.tsx` (kiểm tra lại: cũng không ai import). `JwtService.generateToken` **không xoá** — kiểm tra lại thì không chết (private helper đang dùng bởi `generateAccessToken`/`generateMediaToken`).
+- [x] Sửa README: bỏ 2 tham chiếu chết (`PHASE1_SECURITY.md`, `scripts/run-phase1-smoke.ps1`), thay bằng mô tả đúng về media storage (local storage có kiểm tra quyền từng file, Cloudinary public mặc định tắt).
 - [ ] `PostgresSchemaMaintenance` — chỉ chạy non-prod (đang tự self-heal schema ngoài Flyway ở default profile).
 - [ ] Cloudinary: khi bật public uploads → pin `public_id`/format/size, quota per-user, chặn HTML/SVG (`CloudinarySignatureService.java:38-56`, mặc định đang tắt).
 - [ ] Thêm user vào nhóm không cần consent: `ChatRoomService.java:64-66,168-170` — quyết định product (invite/accept) hoặc tối thiểu check friendship/block + rate limit.

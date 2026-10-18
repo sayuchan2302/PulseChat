@@ -69,10 +69,6 @@ public enum ErrorCode {
 
         ROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "ROOM_001", "Chat room not found"),
         ROOM_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ROOM_002", "You are not a member of this chat room"),
-        GROUP_REQUIRES_PARTICIPANTS(
-                        HttpStatus.BAD_REQUEST,
-                        "ROOM_003",
-                        "A group chat requires at least one other participant"),
         GROUP_REQUIRES_MINIMUM_MEMBERS(
                         HttpStatus.BAD_REQUEST,
                         "ROOM_004",

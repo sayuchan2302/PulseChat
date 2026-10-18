@@ -11,11 +11,8 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 @Entity
 @Table(name = "chat_rooms", indexes = {
@@ -67,12 +64,6 @@ public class ChatRoom {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
-    public Set<User> getParticipants() {
-        return members.stream()
-                .map(ChatRoomMember::getUser)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-    }
-
     public void addMember(User user) {
         addMember(user, ChatRoomMember.Role.MEMBER);
     }
@@ -106,6 +97,6 @@ public class ChatRoom {
     }
 
     public enum RoomType {
-        PRIVATE, GROUP
+        GROUP
     }
 }
