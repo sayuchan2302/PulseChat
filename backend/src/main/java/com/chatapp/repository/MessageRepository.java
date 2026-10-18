@@ -413,6 +413,11 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and m.type = :messageType
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.username = :username)
+              and not exists (select setting from ConversationSetting setting
+                              where setting.user.username = :username
+                                and setting.chatRoom.id = :roomId
+                                and setting.clearedAt is not null
+                                and (m.timestamp is null or m.timestamp <= setting.clearedAt))
             order by m.id desc
             """)
     List<Message> findRecentSummarizableRoomMessages(

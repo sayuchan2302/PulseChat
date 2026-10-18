@@ -37,7 +37,7 @@ public class GeminiGroupSummaryService {
     private static final int MAX_MESSAGE_CHARACTERS = 1_200;
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final String GEMINI_API_URL =
-            "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s";
+            "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent";
 
     private final MessageRepository messageRepository;
     private final ChatRoomService chatRoomService;
@@ -90,9 +90,10 @@ public class GeminiGroupSummaryService {
 
         try {
             String body = objectMapper.writeValueAsString(requestBody);
-            HttpRequest request = HttpRequest.newBuilder(URI.create(GEMINI_API_URL.formatted(model, apiKey)))
+            HttpRequest request = HttpRequest.newBuilder(URI.create(GEMINI_API_URL.formatted(model)))
                     .timeout(REQUEST_TIMEOUT)
                     .header("Content-Type", "application/json")
+                    .header("x-goog-api-key", apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());

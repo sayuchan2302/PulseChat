@@ -5,11 +5,13 @@ import com.chatapp.model.User;
 import com.chatapp.repository.MessageRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -55,6 +57,11 @@ class GeminiGroupSummaryServiceTest {
         });
         var summary = service.summarizeLatestMessages("alice", 5L);
         assertEquals(1, summary.messageCount());
+        var requestCaptor = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(client).send(requestCaptor.capture(), any(HttpResponse.BodyHandler.class));
+        assertEquals("test-key", requestCaptor.getValue().headers().firstValue("x-goog-api-key").orElse(null));
+        assertFalse(requestCaptor.getValue().uri().toString().contains("test-key"),
+                "The API key must travel in the header, never in the URL");
         verify(rooms, times(2)).findGroupRoomForMember("alice", 5L);
     }
 }

@@ -2,6 +2,7 @@ package com.chatapp.service;
 
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
+import org.apache.tika.Tika;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -15,6 +16,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -28,6 +30,10 @@ public class LocalAvatarStorageService {
             "image/webp", ".webp",
             "image/gif", ".gif"
     );
+    private static final Map<String, Set<String>> DETECTED_TYPE_ALIASES = Map.of(
+            "image/jpg", Set.of("image/jpeg")
+    );
+    private static final Tika CONTENT_DETECTOR = new Tika();
 
     @Value("${app.uploads.avatar-dir:uploads/avatars}")
     private String avatarDirectory;
@@ -41,7 +47,9 @@ public class LocalAvatarStorageService {
         }
 
         validateFileSize(avatarFile);
-        String extension = extensionFor(avatarFile);
+        String contentType = avatarFile.getContentType();
+        String extension = extensionFor(contentType);
+        validateFileContent(avatarFile, contentType);
         String filename = UUID.randomUUID() + extension;
         Path storageDirectory = Paths.get(avatarDirectory).toAbsolutePath().normalize();
         Path targetPath = storageDirectory.resolve(filename).normalize();
@@ -64,8 +72,7 @@ public class LocalAvatarStorageService {
         }
     }
 
-    private String extensionFor(MultipartFile avatarFile) {
-        String contentType = avatarFile.getContentType();
+    private String extensionFor(String contentType) {
         if (!StringUtils.hasText(contentType)) {
             throw new AppException(ErrorCode.INVALID_AVATAR_FILE);
         }
@@ -76,6 +83,31 @@ public class LocalAvatarStorageService {
         }
 
         return extension;
+    }
+
+    /**
+     * Trust the bytes, not the declared content type: avatars are served from the same origin
+     * as the app, so a mislabeled HTML/SVG payload must never be stored.
+     */
+    private void validateFileContent(MultipartFile file, String declaredContentType) {
+        final String detectedContentType;
+        try (InputStream inputStream = file.getInputStream()) {
+            detectedContentType = CONTENT_DETECTOR.detect(inputStream).toLowerCase(Locale.ROOT);
+        } catch (IOException exception) {
+            throw new AppException(ErrorCode.INVALID_AVATAR_FILE);
+        }
+
+        String declared = declaredContentType.toLowerCase(Locale.ROOT).split(";", 2)[0].trim();
+        if (declared.equals(detectedContentType)) {
+            return;
+        }
+
+        boolean compatible = DETECTED_TYPE_ALIASES
+                .getOrDefault(declared, Set.of())
+                .contains(detectedContentType);
+        if (!compatible) {
+            throw new AppException(ErrorCode.INVALID_AVATAR_FILE);
+        }
     }
 
     private String normalizedContextPath() {

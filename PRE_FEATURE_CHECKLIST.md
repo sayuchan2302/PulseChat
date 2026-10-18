@@ -145,8 +145,8 @@
 - [ ] Migration idempotent (`IF NOT EXISTS`) hoặc quy trình baseline rõ ràng cho DB cũ trước prod.
 - [ ] Admin **audit log** (ai đổi role/status của ai, khi nào).
 - [ ] Quota upload theo user + dọn file mồ côi (`MediaController.java:28-31`).
-- [ ] `LocalAvatarStorageService.java:38-58` — magic-byte (Tika) validation như media; giữ `nosniff` chặt.
-- [ ] `GeminiGroupSummaryService.java:93` — API key qua header; `MessageRepository.java:372-387` — lọc `clearedAt` trong query summary.
+- [x] `LocalAvatarStorageService` giờ validate **magic-byte bằng Tika** giống media: bytes phải khớp content-type khai báo (alias `image/jpg`→`image/jpeg`) — HTML/GIF đội lốt PNG/JPEG bị chặn trước khi ghi file; `UploadSecurityHeadersFilter` vẫn gắn `X-Content-Type-Options: nosniff` cho `/uploads/**`. Test mới: `LocalAvatarStorageServiceTest` (4 — chặn mismatch, chặn HTML, nhận PNG thật, nhận alias jpg).
+- [x] Gemini: API key chuyển từ query param (`?key=`) sang **header `x-goog-api-key`** (test capture `HttpRequest` xác nhận key không còn trong URL). Query summary `findRecentSummarizableRoomMessages` lọc `clearedAt` **ngay trong JPQL** (subquery `ConversationSetting` theo username+room, cùng pattern query global search) — tin nhắn đã clear không còn lọt vào tóm tắt AI. Test H2 thật `RoomSummaryQueryTest` (2) chứng minh trên cả nhánh có/không clear marker.
 - [ ] STOMP notifications ra khỏi transaction (`UserBlockService.java:96`, `AdminAccountService.java:85-89`, `CallSessionMaintenanceService.java:49-59`) → after-commit event.
 - [ ] Race call: partial unique index cho active call (`CallSessionService.java:64-79`).
 - [x] `ChatRoomService.java` — `leaveGroup` dùng chung guard `MIN_GROUP_MEMBERS=3` với `removeMember`: nhóm < 4 thành viên không thể rời (nhất quán bất biến "nhóm ≥ 3 người"; nhóm nhỏ chỉ có thể xoá bởi owner). Test `leaveGroupBlockedWhenGroupWouldDropBelowMinimumMembers` + cập nhật test cũ sang nhóm 4 người.
