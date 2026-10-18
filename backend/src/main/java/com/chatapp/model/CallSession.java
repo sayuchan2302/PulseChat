@@ -11,6 +11,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -28,7 +30,9 @@ import java.time.LocalDateTime;
         indexes = {
                 @Index(name = "idx_call_sessions_caller", columnList = "caller_id, created_at"),
                 @Index(name = "idx_call_sessions_receiver", columnList = "receiver_id, created_at"),
-                @Index(name = "idx_call_sessions_status", columnList = "status")
+                @Index(name = "idx_call_sessions_status", columnList = "status"),
+                @Index(name = "uk_call_sessions_active_caller", columnList = "active_caller_key", unique = true),
+                @Index(name = "uk_call_sessions_active_receiver", columnList = "active_receiver_key", unique = true)
         }
 )
 @BatchSize(size = 50)
@@ -57,6 +61,18 @@ public class CallSession {
     @Column(nullable = false, length = 20)
     private CallStatus status = CallStatus.RINGING;
 
+    /**
+     * Mirrors {@code caller} while the call is active and is cleared for every terminal status,
+     * so {@code uk_call_sessions_active_caller} can enforce at the database level what the
+     * service pre-check cannot guarantee under concurrent invites: at most one active call per
+     * user. Maintained by {@link #syncActiveCallKeys()} on every insert/update.
+     */
+    @Column(name = "active_caller_key")
+    private Long activeCallerKey;
+
+    @Column(name = "active_receiver_key")
+    private Long activeReceiverKey;
+
     private LocalDateTime startedAt;
 
     private LocalDateTime endedAt;
@@ -67,6 +83,14 @@ public class CallSession {
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
+
+    @PrePersist
+    @PreUpdate
+    private void syncActiveCallKeys() {
+        boolean active = status == CallStatus.RINGING || status == CallStatus.ACCEPTED;
+        activeCallerKey = active && caller != null ? caller.getId() : null;
+        activeReceiverKey = active && receiver != null ? receiver.getId() : null;
+    }
 
     public enum CallType {
         AUDIO, VIDEO

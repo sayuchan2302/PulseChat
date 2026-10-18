@@ -13,17 +13,23 @@ import com.chatapp.model.CallSession.CallType;
 import com.chatapp.model.User;
 import com.chatapp.repository.CallSessionRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
 public class CallSessionService {
     private static final List<CallStatus> ACTIVE_CALL_STATUSES = List.of(CallStatus.RINGING, CallStatus.ACCEPTED);
+    private static final String UNIQUE_VIOLATION_SQL_STATE = "23505";
+    private static final String ACTIVE_CALL_CALLER_UNIQUE_INDEX = "uk_call_sessions_active_caller";
+    private static final String ACTIVE_CALL_RECEIVER_UNIQUE_INDEX = "uk_call_sessions_active_receiver";
 
     private final CallSessionRepository callSessionRepository;
     private final UserService userService;
@@ -97,6 +103,40 @@ public class CallSessionService {
                 null,
                 historyMessage
         );
+    }
+
+    /**
+     * Called by the realtime boundary when the database rejects a concurrent invite on one of
+     * the active-call partial unique indexes: that transaction is already marked for rollback,
+     * so the busy record is written in a fresh transaction.
+     */
+    @Transactional
+    public CallSignalResponse recordBusyCall(String callerUsername, CallSignalRequest request) {
+        User caller = userService.findByUsername(callerUsername);
+        User receiver = userService.findById(requireReceiverId(request));
+        return busy(caller, receiver, requireCallType(request));
+    }
+
+    /**
+     * Only lost races on the active-call unique indexes (V6__active_call_keys.sql) are
+     * recoverable as CALL_BUSY; every other integrity failure (foreign key, check, not-null, ...)
+     * must surface to the caller unchanged.
+     */
+    public boolean isActiveCallRaceConflict(DataIntegrityViolationException conflict) {
+        Throwable cause = conflict.getMostSpecificCause();
+        if (!(cause instanceof SQLException sqlException)
+                || !UNIQUE_VIOLATION_SQL_STATE.equals(sqlException.getSQLState())) {
+            return false;
+        }
+
+        String message = sqlException.getMessage();
+        if (message == null) {
+            return false;
+        }
+
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return normalized.contains(ACTIVE_CALL_CALLER_UNIQUE_INDEX)
+                || normalized.contains(ACTIVE_CALL_RECEIVER_UNIQUE_INDEX);
     }
 
     private CallSignalResponse accept(User receiver, CallSignalRequest request) {

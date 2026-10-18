@@ -17,13 +17,17 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doThrow;
@@ -320,6 +324,63 @@ class CallSessionServiceTest {
 
         assertEquals(CallStatus.REJECTED, response.status());
         verify(messageService).saveCallHistoryMessage(callSession, receiver);
+    }
+
+    @Test
+    void recordBusyCallPersistsBusySessionAfterALostInviteRace() {
+        User caller = user(1L, "sayu");
+        User receiver = user(2L, "thinh");
+        when(userService.findByUsername("sayu")).thenReturn(caller);
+        when(userService.findById(receiver.getId())).thenReturn(receiver);
+        when(callSessionRepository.saveAndFlush(any(CallSession.class))).thenAnswer(invocation -> {
+            CallSession callSession = invocation.getArgument(0);
+            callSession.setId(102L);
+            return callSession;
+        });
+
+        CallSignalResponse response = callSessionService.recordBusyCall(
+                "sayu",
+                new CallSignalRequest(
+                        CallSignalType.CALL_INVITE,
+                        null,
+                        receiver.getId(),
+                        CallType.AUDIO,
+                        null,
+                        null,
+                        null,
+                        null
+                )
+        );
+
+        assertEquals(CallSignalType.CALL_BUSY, response.eventType());
+        assertEquals(CallStatus.BUSY, response.status());
+
+        ArgumentCaptor<CallSession> captor = ArgumentCaptor.forClass(CallSession.class);
+        verify(callSessionRepository).saveAndFlush(captor.capture());
+        assertEquals(CallStatus.BUSY, captor.getValue().getStatus());
+        assertEquals(caller, captor.getValue().getCaller());
+        verify(messageService).saveCallHistoryMessage(captor.getValue(), caller);
+    }
+
+    @Test
+    void onlyActiveCallUniqueIndexViolationsAreTreatedAsARace() {
+        DataIntegrityViolationException callerRace = conflict(
+                "duplicate key value violates unique constraint \"uk_call_sessions_active_caller\"", "23505");
+        DataIntegrityViolationException receiverRace = conflict(
+                "duplicate key value violates unique constraint \"uk_call_sessions_active_receiver\"", "23505");
+        DataIntegrityViolationException otherUnique = conflict(
+                "duplicate key value violates unique constraint \"uk_messages_sender_client\"", "23505");
+        DataIntegrityViolationException foreignKey = conflict(
+                "insert or update on table \"call_sessions\" violates foreign key constraint", "23503");
+
+        assertTrue(callSessionService.isActiveCallRaceConflict(callerRace));
+        assertTrue(callSessionService.isActiveCallRaceConflict(receiverRace));
+        assertFalse(callSessionService.isActiveCallRaceConflict(otherUnique));
+        assertFalse(callSessionService.isActiveCallRaceConflict(foreignKey));
+    }
+
+    private static DataIntegrityViolationException conflict(String message, String sqlState) {
+        return new DataIntegrityViolationException("insert failed", new SQLException(message, sqlState));
     }
 
     private static User user(Long id, String username) {

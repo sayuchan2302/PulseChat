@@ -3,9 +3,14 @@ package com.chatapp.controller;
 import com.chatapp.dto.request.CallSignalRequest;
 import com.chatapp.dto.request.CallSignalRequest.CallSignalType;
 import com.chatapp.dto.request.TypingRequest;
+import com.chatapp.dto.response.CallSignalResponse;
 import com.chatapp.dto.response.RealtimeErrorResponse;
+import com.chatapp.dto.response.UserResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
+import com.chatapp.model.CallSession;
+import com.chatapp.model.CallSession.CallStatus;
+import com.chatapp.model.CallSession.CallType;
 import com.chatapp.service.CallRealtimeNotifier;
 import com.chatapp.service.CallSessionService;
 import com.chatapp.service.ChatRoomService;
@@ -19,10 +24,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.messaging.handler.annotation.support.MethodArgumentNotValidException;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.security.Principal;
+import java.sql.SQLException;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -139,6 +146,48 @@ class ChatWebSocketControllerTest {
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any()
         );
+    }
+
+    @Test
+    void inviteLosingTheActiveCallRaceFallsBackToCallBusy() {
+        Principal principal = () -> "sayu";
+        CallSignalRequest request = new CallSignalRequest(
+                CallSignalType.CALL_INVITE,
+                null,
+                2L,
+                CallType.AUDIO,
+                null,
+                null,
+                null,
+                null
+        );
+        DataIntegrityViolationException conflict = new DataIntegrityViolationException("insert failed",
+                new SQLException(
+                        "duplicate key value violates unique constraint \"uk_call_sessions_active_caller\"",
+                        "23505"));
+        CallSession callSession = new CallSession();
+        callSession.setId(55L);
+        callSession.setCaller(user(1L, "sayu"));
+        callSession.setReceiver(user(2L, "thinh"));
+        callSession.setType(CallType.AUDIO);
+        callSession.setStatus(CallStatus.BUSY);
+        CallSignalResponse busyResponse = CallSignalResponse.from(
+                callSession,
+                CallSignalType.CALL_BUSY,
+                UserResponse.from(callSession.getCaller()),
+                null,
+                null,
+                null,
+                null
+        );
+        when(callSessionService.handleSignal("sayu", request)).thenThrow(conflict);
+        when(callSessionService.isActiveCallRaceConflict(conflict)).thenReturn(true);
+        when(callSessionService.recordBusyCall("sayu", request)).thenReturn(busyResponse);
+
+        controller.signalCall(request, principal);
+
+        verify(callRealtimeNotifier).notifyCallerOnly(busyResponse);
+        verify(callRealtimeNotifier, never()).notifyParticipants(org.mockito.ArgumentMatchers.any());
     }
 
     private static User user(Long id, String username) {

@@ -23,6 +23,7 @@ import com.chatapp.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -173,6 +174,8 @@ public class ChatWebSocketController {
                     authenticatedPrincipal.getName(),
                     request
             );
+        } catch (DataIntegrityViolationException conflict) {
+            response = busyFallbackAfterInviteRace(authenticatedPrincipal.getName(), request, conflict);
         } catch (AppException exception) {
             if (isStaleTransientCallSignal(request, exception)) {
                 log.debug(
@@ -200,6 +203,27 @@ public class ChatWebSocketController {
         }
 
         callRealtimeNotifier.notifyParticipants(response);
+    }
+
+    /**
+     * A concurrent invite can slip past the service pre-check between the check and the insert;
+     * the active-call partial unique indexes then reject the losing insert. That transaction is
+     * already doomed, so the CALL_BUSY record is written in a fresh transaction and only the
+     * caller is notified, exactly like a regular busy call. Any other integrity failure is
+     * rethrown untouched.
+     */
+    private CallSignalResponse busyFallbackAfterInviteRace(
+            String currentUsername,
+            CallSignalRequest request,
+            DataIntegrityViolationException conflict
+    ) {
+        if (request.eventType() != CallSignalRequest.CallSignalType.CALL_INVITE
+                || !callSessionService.isActiveCallRaceConflict(conflict)) {
+            throw conflict;
+        }
+
+        log.info("Invite from {} lost the active-call race; recording CALL_BUSY", currentUsername);
+        return callSessionService.recordBusyCall(currentUsername, request);
     }
 
     private boolean isStaleTransientCallSignal(CallSignalRequest request, AppException exception) {
