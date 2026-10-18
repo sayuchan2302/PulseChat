@@ -149,8 +149,8 @@
 - [ ] `GeminiGroupSummaryService.java:93` — API key qua header; `MessageRepository.java:372-387` — lọc `clearedAt` trong query summary.
 - [ ] STOMP notifications ra khỏi transaction (`UserBlockService.java:96`, `AdminAccountService.java:85-89`, `CallSessionMaintenanceService.java:49-59`) → after-commit event.
 - [ ] Race call: partial unique index cho active call (`CallSessionService.java:64-79`).
-- [ ] `ChatRoomService.java:287-289` — `leaveGroup` dùng chung guard `MIN_GROUP_MEMBERS=3` với `removeMember`.
-- [ ] Quyền quản lý phòng: `getInviteLink` (311-326) + `pinRoomMessage` cần check admin/owner; `updateMemberNickname` không cho sửa người rank cao hơn.
+- [x] `ChatRoomService.java` — `leaveGroup` dùng chung guard `MIN_GROUP_MEMBERS=3` với `removeMember`: nhóm < 4 thành viên không thể rời (nhất quán bất biến "nhóm ≥ 3 người"; nhóm nhỏ chỉ có thể xoá bởi owner). Test `leaveGroupBlockedWhenGroupWouldDropBelowMinimumMembers` + cập nhật test cũ sang nhóm 4 người.
+- [x] Quyền quản lý phòng: `getInviteLink` + `pinRoomMessage`/`unpinRoomMessage` giờ yêu cầu admin/owner (`validateGroupAdmin`); `updateMemberNickname` chặn sửa người rank cao hơn (moderator không sửa được owner/moderator khác — `CANNOT_EDIT_ADMIN` ROOM_013, moderator vẫn sửa được member). Phát hiện thêm lỗ rò: `ChatRoomResponse` trả `inviteCode` cho **mọi thành viên** (cả qua REST list lẫn WS fan-out) → giờ chỉ lộ cho owner/moderator (`ChatRoomResponse.isGroupAdmin`), che luôn ở payload WS. FE: ẩn nút Pin/Unpin với member thường trong nhóm (`canManagePinnedMessages` + `canPin` prop; `onUnpinMessage` optional).
 - [ ] `MessageService.java:56-60` — chỉ replay khi đúng vi phạm unique `uk_messages_sender_client`; `MessageService.java:55,106` — link preview sau bước authorization.
 - [ ] Presence: `/topic/presence` chỉ cho friends/co-participants (`WebSocketAuthChannelInterceptor.java:29`).
 - [ ] `ApiExceptionHandler.java:41-60` — không echo nguyên văn reason/request-id.

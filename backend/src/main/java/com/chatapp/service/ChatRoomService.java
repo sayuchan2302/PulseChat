@@ -247,14 +247,24 @@ public class ChatRoomService {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
 
+        ChatRoomMember member = room.findMemberByUserId(memberId)
+                .orElseThrow(() -> new AppException(ErrorCode.ROOM_MEMBER_NOT_FOUND));
+
         // Allow user to change their own nickname or Admin/Owner to change others'
         // nicknames
         if (!currentUser.getId().equals(memberId)) {
             validateGroupAdmin(room, currentUser);
+
+            User effectiveOwner = findEffectiveOwner(room);
+            boolean isOwner = effectiveOwner != null && effectiveOwner.getId().equals(currentUser.getId());
+            boolean targetIsAdmin = (effectiveOwner != null && effectiveOwner.getId().equals(memberId))
+                    || member.getRole() == ChatRoomMember.Role.OWNER
+                    || member.getRole() == ChatRoomMember.Role.MODERATOR;
+            if (!isOwner && targetIsAdmin) {
+                throw new AppException(ErrorCode.CANNOT_EDIT_ADMIN);
+            }
         }
 
-        ChatRoomMember member = room.findMemberByUserId(memberId)
-                .orElseThrow(() -> new AppException(ErrorCode.ROOM_MEMBER_NOT_FOUND));
         member.setNickname(normalizeNickname(request.nickname()));
 
         return toGroupResponseForUser(currentUser, chatRoomRepository.saveAndFlush(room));
@@ -288,8 +298,8 @@ public class ChatRoomService {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
 
-        if (room.getMembers().size() <= 1) {
-            throw new AppException(ErrorCode.ROOM_LAST_MEMBER_CANNOT_LEAVE);
+        if (room.getMembers().size() <= MIN_GROUP_MEMBERS) {
+            throw new AppException(ErrorCode.GROUP_REQUIRES_MINIMUM_MEMBERS);
         }
 
         User currentOwner = findEffectiveOwner(room);
@@ -315,6 +325,7 @@ public class ChatRoomService {
     public com.chatapp.dto.response.GroupInviteResponse getInviteLink(String currentUsername, Long roomId) {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
+        validateGroupAdmin(room, currentUser);
 
         if (room.getInviteCode() == null || room.getInviteCode().isBlank()) {
             room.setInviteCode(generateUniqueInviteCode());
@@ -396,6 +407,7 @@ public class ChatRoomService {
     public ChatRoomResponse pinRoomMessage(String currentUsername, Long roomId, Long messageId) {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
+        validateGroupAdmin(room, currentUser);
 
         Message message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new AppException(ErrorCode.MESSAGE_NOT_FOUND));
@@ -415,6 +427,7 @@ public class ChatRoomService {
     public ChatRoomResponse unpinRoomMessage(String currentUsername, Long roomId) {
         User currentUser = userService.findByUsername(currentUsername);
         ChatRoom room = findGroupRoomForMember(currentUser, roomId);
+        validateGroupAdmin(room, currentUser);
         room.setPinnedMessage(null);
         return toGroupResponseForUser(currentUser, chatRoomRepository.saveAndFlush(room));
     }

@@ -8,6 +8,7 @@ import com.chatapp.dto.response.ChatRoomResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.ChatRoom;
+import com.chatapp.model.ChatRoomMember;
 import com.chatapp.model.ChatRoomReadState;
 import com.chatapp.model.Message;
 import com.chatapp.model.User;
@@ -29,7 +30,9 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -258,7 +261,8 @@ class ChatRoomServiceTest {
         User sayu = user(1L, "sayu");
         User alice = user(2L, "alice");
         User bob = user(3L, "bob");
-        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        User charlie = user(4L, "charlie");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob, charlie);
         room.setOwner(sayu);
 
         when(userService.findByUsername("sayu")).thenReturn(sayu);
@@ -269,13 +273,32 @@ class ChatRoomServiceTest {
         ChatRoomResponse response = chatRoomService.leaveGroup("sayu", 10L);
 
         assertEquals(2L, response.ownerId());
-        assertEquals(2, response.participants().size());
+        assertEquals(3, response.participants().size());
         assertEquals(
                 0,
                 response.participants()
                         .stream()
                         .filter(participant -> participant.id().equals(1L))
                         .count());
+    }
+
+    @Test
+    void leaveGroupBlockedWhenGroupWouldDropBelowMinimumMembers() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(sayu);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> chatRoomService.leaveGroup("sayu", 10L));
+
+        assertEquals(ErrorCode.GROUP_REQUIRES_MINIMUM_MEMBERS, exception.getErrorCode());
+        verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
     }
 
     @Test
@@ -394,6 +417,172 @@ class ChatRoomServiceTest {
                 response.participants()
                         .stream()
                         .filter(participant -> participant.id().equals(3L))
+                        .findFirst()
+                        .orElseThrow()
+                        .nickname());
+    }
+
+    @Test
+    void getInviteLinkRequiresAdmin() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(alice);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> chatRoomService.getInviteLink("sayu", 10L));
+
+        assertEquals(ErrorCode.ROOM_ADMIN_REQUIRED, exception.getErrorCode());
+        verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
+    }
+
+    @Test
+    void getInviteLinkGeneratesCodeForModerator() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(alice);
+        room.findMemberByUserId(1L).orElseThrow().setRole(ChatRoomMember.Role.MODERATOR);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        com.chatapp.dto.response.GroupInviteResponse response = chatRoomService.getInviteLink("sayu", 10L);
+
+        assertNotNull(response.inviteCode());
+        assertTrue(response.enabled());
+    }
+
+    @Test
+    void pinRoomMessageRequiresAdmin() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(alice);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> chatRoomService.pinRoomMessage("sayu", 10L, 100L));
+
+        assertEquals(ErrorCode.ROOM_ADMIN_REQUIRED, exception.getErrorCode());
+        verify(messageRepository, never()).findById(any());
+        verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
+    }
+
+    @Test
+    void pinRoomMessageAllowsModerator() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(alice);
+        room.findMemberByUserId(1L).orElseThrow().setRole(ChatRoomMember.Role.MODERATOR);
+        Message message = message(100L, room, alice, "Latest", LocalDateTime.of(2026, 8, 1, 10, 0));
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+        when(messageRepository.findById(100L)).thenReturn(Optional.of(message));
+        when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L), 1L)).thenReturn(List.of());
+        when(messageRepository.countUnreadRoomMessages(1L, List.of(10L))).thenReturn(List.of());
+
+        ChatRoomResponse response = chatRoomService.pinRoomMessage("sayu", 10L, 100L);
+
+        assertEquals(100L, response.pinnedMessageId());
+    }
+
+    @Test
+    void unpinRoomMessageRequiresAdmin() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(alice);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> chatRoomService.unpinRoomMessage("sayu", 10L));
+
+        assertEquals(ErrorCode.ROOM_ADMIN_REQUIRED, exception.getErrorCode());
+        verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
+    }
+
+    @Test
+    void updateMemberNicknameModeratorCannotEditHigherRankedMembers() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        User charlie = user(4L, "charlie");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob, charlie);
+        room.setOwner(alice);
+        room.findMemberByUserId(1L).orElseThrow().setRole(ChatRoomMember.Role.MODERATOR);
+        room.findMemberByUserId(3L).orElseThrow().setRole(ChatRoomMember.Role.MODERATOR);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+
+        AppException toOwner = assertThrows(
+                AppException.class,
+                () -> chatRoomService.updateMemberNickname(
+                        "sayu",
+                        10L,
+                        2L,
+                        new UpdateRoomMemberNicknameRequest("Al")));
+
+        AppException toModerator = assertThrows(
+                AppException.class,
+                () -> chatRoomService.updateMemberNickname(
+                        "sayu",
+                        10L,
+                        3L,
+                        new UpdateRoomMemberNicknameRequest("Bobby")));
+
+        assertEquals(ErrorCode.CANNOT_EDIT_ADMIN, toOwner.getErrorCode());
+        assertEquals(ErrorCode.CANNOT_EDIT_ADMIN, toModerator.getErrorCode());
+        verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
+    }
+
+    @Test
+    void updateMemberNicknameModeratorCanEditRegularMember() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        User charlie = user(4L, "charlie");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob, charlie);
+        room.setOwner(alice);
+        room.findMemberByUserId(1L).orElseThrow().setRole(ChatRoomMember.Role.MODERATOR);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(messageRepository.findLatestMessagesForRooms(List.of(10L), 1L)).thenReturn(List.of());
+        when(messageRepository.countUnreadRoomMessages(1L, List.of(10L))).thenReturn(List.of());
+
+        ChatRoomResponse response = chatRoomService.updateMemberNickname(
+                "sayu",
+                10L,
+                4L,
+                new UpdateRoomMemberNicknameRequest("Chuck"));
+
+        assertEquals(
+                "Chuck",
+                response.participants()
+                        .stream()
+                        .filter(participant -> participant.id().equals(4L))
                         .findFirst()
                         .orElseThrow()
                         .nickname());

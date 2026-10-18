@@ -1835,6 +1835,7 @@ export default function ChatPage() {
   const isCurrentUserOwner = currentUserMemberRole === 'OWNER';
   const isCurrentUserModerator = currentUserMemberRole === 'MODERATOR';
   const currentUserCanManageSelectedRoom = isCurrentUserOwner || isCurrentUserModerator;
+  const canManagePinnedMessages = !selectedRoom || currentUserCanManageSelectedRoom;
   const groupSettingsSaving = groupSettingsPendingAction !== null;
   const selectedRoomParticipantIds = new Set(
     selectedRoom?.participants.map((participant) => participant.id) ?? []
@@ -1941,6 +1942,7 @@ export default function ChatPage() {
     <MessageActions
       message={message} isSentByCurrentUser={isSentByCurrentUser}
       currentUserId={currentUser?.id ?? null} pinnedMessage={pinnedMessage}
+      canPin={canManagePinnedMessages}
       onReact={(target, emoji) => void handleReactToMessage(target, emoji)}
       onReply={handleReplyToMessage} onCopy={(target) => void handleCopyMessage(target)}
       onEdit={handleEditMessage}
@@ -1948,7 +1950,7 @@ export default function ChatPage() {
       onRecall={(target) => void handleRecallMessage(target)} onPin={(target) => void handlePinMessage(target)}
       onForward={handleForwardMessage}
     />
-  ), [currentUser?.id, handleCopyMessage, handleEditMessage, handleForwardMessage, handlePinMessage, handleReactToMessage, handleRecallMessage, handleReplyToMessage, handleRequestDeleteMessageForMe, pinnedMessage]);
+  ), [canManagePinnedMessages, currentUser?.id, handleCopyMessage, handleEditMessage, handleForwardMessage, handlePinMessage, handleReactToMessage, handleRecallMessage, handleReplyToMessage, handleRequestDeleteMessageForMe, pinnedMessage]);
 
   const renderCallMessageBody = useCallback((message: ChatMessage) => {
     const peer = getCallMessagePeer(message);
@@ -2386,7 +2388,7 @@ export default function ChatPage() {
                 const message = messages.find((item) => item.id === pinnedMessage?.id);
                 if (message) scrollToMessageById(message.id);
               }}
-              onUnpinMessage={() => void handleUnpinMessage()}
+              onUnpinMessage={canManagePinnedMessages ? () => void handleUnpinMessage() : undefined}
               typingIndicatorLabel={typingIndicatorLabel}
               roomSummaryRoomId={roomSummaryRoomId}
               selectedRoomId={selectedRoom?.id ?? null}

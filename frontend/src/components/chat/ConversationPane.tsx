@@ -32,7 +32,7 @@ export interface ConversationPaneProps {
   onRetryMessages: () => void;
   onLoadOlderMessages: () => void;
   onGoToPinnedMessage: () => void;
-  onUnpinMessage: () => void;
+  onUnpinMessage?: () => void;
   typingIndicatorLabel: string;
   roomSummaryRoomId: number | null;
   selectedRoomId: number | null;
@@ -85,7 +85,7 @@ export function ConversationPane({
       <button type="button" className="pinned-message-banner-body" onClick={onGoToPinnedMessage} aria-label="Go to pinned message">
         <span className="pinned-banner-icon">📌</span><span className="pinned-banner-content"><span className="pinned-banner-label">Pinned message</span><span className="pinned-banner-text">{pinnedMessage.recalled ? 'Message recalled' : pinnedMessage.content || '📎 Media'}</span></span>
       </button>
-      <button type="button" className="pinned-banner-close" onClick={onUnpinMessage} aria-label="Unpin message" title="Unpin">×</button>
+      {onUnpinMessage ? <button type="button" className="pinned-banner-close" onClick={onUnpinMessage} aria-label="Unpin message" title="Unpin">×</button> : null}
     </div> : null}
     <div
       ref={messagesContainerRef}
