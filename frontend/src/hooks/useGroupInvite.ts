@@ -1,25 +1,19 @@
-import { useCallback } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
+import { useCallback, useState } from 'react';
 import { apiClient } from '../services/api';
 import type { ChatRoom, GroupInviteResponse } from '../types';
 
 interface Options {
   selectedRoom: ChatRoom | null;
-  groupInviteData: GroupInviteResponse | null;
-  inviteRevoking: boolean;
-  setInviteModalOpen: Dispatch<SetStateAction<boolean>>;
-  setInviteLoading: Dispatch<SetStateAction<boolean>>;
-  setInviteRevoking: Dispatch<SetStateAction<boolean>>;
-  setInviteError: Dispatch<SetStateAction<string>>;
-  setInviteCopied: Dispatch<SetStateAction<boolean>>;
-  setGroupInviteData: Dispatch<SetStateAction<GroupInviteResponse | null>>;
 }
 
-export function useGroupInvite(options: Options) {
-  const {
-    selectedRoom, groupInviteData, inviteRevoking, setInviteModalOpen, setInviteLoading,
-    setInviteRevoking, setInviteError, setInviteCopied, setGroupInviteData,
-  } = options;
+/** Owns the invite-link modal state and the copy/revoke actions for the selected room. */
+export function useGroupInvite({ selectedRoom }: Options) {
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [groupInviteData, setGroupInviteData] = useState<GroupInviteResponse | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteRevoking, setInviteRevoking] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [inviteError, setInviteError] = useState('');
 
   const handleOpenInviteModal = useCallback(async () => {
     if (!selectedRoom) return;
@@ -37,7 +31,7 @@ export function useGroupInvite(options: Options) {
     } finally {
       setInviteLoading(false);
     }
-  }, [selectedRoom, setGroupInviteData, setInviteCopied, setInviteError, setInviteLoading, setInviteModalOpen]);
+  }, [selectedRoom]);
 
   const handleRevokeInviteLink = useCallback(async () => {
     if (!selectedRoom || inviteRevoking) return;
@@ -54,7 +48,7 @@ export function useGroupInvite(options: Options) {
     } finally {
       setInviteRevoking(false);
     }
-  }, [inviteRevoking, selectedRoom, setGroupInviteData, setInviteCopied, setInviteError, setInviteRevoking]);
+  }, [inviteRevoking, selectedRoom]);
 
   const getGroupInviteUrl = useCallback(() => {
     const code = groupInviteData?.inviteCode || selectedRoom?.inviteCode;
@@ -75,7 +69,19 @@ export function useGroupInvite(options: Options) {
     } catch {
       setInviteError('Failed to copy to clipboard.');
     }
-  }, [getGroupInviteUrl, setInviteCopied, setInviteError]);
+  }, [getGroupInviteUrl]);
 
-  return { handleOpenInviteModal, handleRevokeInviteLink, getGroupInviteUrl, handleCopyInviteLink };
+  return {
+    inviteModalOpen,
+    setInviteModalOpen,
+    groupInviteData,
+    inviteLoading,
+    inviteRevoking,
+    inviteCopied,
+    inviteError,
+    handleOpenInviteModal,
+    handleRevokeInviteLink,
+    getGroupInviteUrl,
+    handleCopyInviteLink,
+  };
 }

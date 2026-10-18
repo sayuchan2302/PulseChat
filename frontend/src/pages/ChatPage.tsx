@@ -14,7 +14,6 @@ import type {
   Friendship,
   FriendshipSummary,
   GlobalMessageSearchItem,
-  GroupInviteResponse,
   GroupMemberRole,
   Message,
   User,
@@ -131,14 +130,10 @@ import SharedContentSections from '../components/chat/SharedContentSections';
 import type { LightboxMediaItem } from '../components/chat/MediaLightbox';
 import type { ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
 import { buildLatestRoomSeenByMessageId, buildMessageListItems } from '../utils/messageListUtils';
+import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import { useEmojiPicker } from '../hooks/useEmojiPicker';
+import { useOfflineCache } from '../hooks/useOfflineCache';
 import './ChatPage.css';
-
-/** Debounce IndexedDB cache writes so bursts of message/typing updates collapse into one write. */
-const CACHE_WRITE_DEBOUNCE_MS = 400;
-
-/** Wait time until the next cache write: full debounce window, but never more than 400ms after the previous write. */
-const cacheWriteDelay = (lastWrittenAt: number) =>
-  Math.max(0, CACHE_WRITE_DEBOUNCE_MS - (Date.now() - lastWrittenAt));
 
 export default function ChatPage() {
   const { isDark, toggleTheme } = useTheme();
@@ -150,7 +145,6 @@ export default function ChatPage() {
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageInput, setMessageInput] = useState('');
-  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [replyingToMessage, setReplyingToMessage] = useState<ChatMessage | null>(null);
   const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<ChatMessage | null>(null);
@@ -197,11 +191,6 @@ export default function ChatPage() {
     incomingCount: 0,
     outgoingCount: 0,
   });
-  const [blockedUsers, setBlockedUsers] = useState<User[]>([]);
-  const [blockedUsersOpen, setBlockedUsersOpen] = useState(false);
-  const [blockedUsersLoading, setBlockedUsersLoading] = useState(false);
-  const [blockedUsersError, setBlockedUsersError] = useState('');
-  const [blockActionPendingUserId, setBlockActionPendingUserId] = useState<number | null>(null);
   const [friendActionKeys, setFriendActionKeys] = useState<string[]>([]);
   const [groupName, setGroupName] = useState('');
   const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<number[]>([]);
@@ -219,12 +208,6 @@ export default function ChatPage() {
   const [groupSettingsPendingAction, setGroupSettingsPendingAction] = useState<string | null>(null);
   const [groupSettingsError, setGroupSettingsError] = useState('');
   const [groupAvatarUploading, setGroupAvatarUploading] = useState(false);
-  const [inviteModalOpen, setInviteModalOpen] = useState(false);
-  const [groupInviteData, setGroupInviteData] = useState<GroupInviteResponse | null>(null);
-  const [inviteLoading, setInviteLoading] = useState(false);
-  const [inviteRevoking, setInviteRevoking] = useState(false);
-  const [inviteCopied, setInviteCopied] = useState(false);
-  const [inviteError, setInviteError] = useState('');
   const [groupMembersExpanded, setGroupMembersExpanded] = useState(false);
   const [rightSidebarTab, setRightSidebarTab] = useState<'details' | 'search'>('details');
   const {
@@ -241,12 +224,6 @@ export default function ChatPage() {
   const [roomSeenByByMessageId, setRoomSeenByByMessageId] = useState<Record<number, User[]>>({});
   const [seenByLoadingMessageIds, setSeenByLoadingMessageIds] = useState<number[]>([]);
   const [seenByPopupMessageId, setSeenByPopupMessageId] = useState<number | null>(null);
-  const [profileFullName, setProfileFullName] = useState('');
-  const [profileBio, setProfileBio] = useState('');
-  const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null);
-  const [profileAvatarPreview, setProfileAvatarPreview] = useState('');
-  const [profileSaving, setProfileSaving] = useState(false);
-  const [profileError, setProfileError] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(shouldOpenConversationDetailsByDefault);
   const currentUserRef = useRef<User | null>(null);
   const currentUserIdRef = useRef<number | null>(null);
@@ -265,8 +242,6 @@ export default function ChatPage() {
   const messageSearchQueryRef = useRef('');
   const messageSearchRequestedQueryRef = useRef('');
   const optimisticMessageIdRef = useRef(-Date.now() * 1000);
-  const conversationsCacheWrittenAtRef = useRef(0);
-  const messagesCacheWrittenAtRef = useRef(0);
   const hasConnectedRef = useRef(false);
   const realtimeActiveRef = useRef(false);
   const hasLoadedInitialUsersRef = useRef(false);
@@ -327,8 +302,9 @@ export default function ChatPage() {
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
   const docFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
-  const emojiPickerRef = useRef<HTMLDivElement | null>(null);
-  const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
+  const { emojiPickerOpen, setEmojiPickerOpen, emojiPickerRef, emojiButtonRef } = useEmojiPicker({
+    messageInputRef,
+  });
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -546,43 +522,16 @@ export default function ChatPage() {
     setGroupSettingsError('');
   }, [selectedRoom?.id, selectedRoom?.name, selectedRoom?.participants]);
 
-  useEffect(() => {
-    if (!currentUser?.id) return;
-    let active = true;
-    dbService.getConversationsCache(currentUser.id, 'conversations_cache').then((cached) => {
-      if (active && cached && cached.rooms && cached.users) {
-        setRooms((prev) => (prev.length === 0 ? cached.rooms : prev));
-        setUsers((prev) => (prev.length === 0 ? cached.users : prev));
-      }
-    }).catch(() => { });
-    return () => { active = false; };
-  }, [currentUser?.id]);
-
-  useEffect(() => {
-    if (!currentUser?.id || (rooms.length === 0 && users.length === 0)) return;
-    const userId = currentUser.id;
-    const timeoutId = window.setTimeout(() => {
-      conversationsCacheWrittenAtRef.current = Date.now();
-      void dbService.saveConversationsCache(userId, 'conversations_cache', { rooms, users });
-    }, cacheWriteDelay(conversationsCacheWrittenAtRef.current));
-    return () => window.clearTimeout(timeoutId);
-  }, [currentUser?.id, rooms, users]);
-
-  useEffect(() => {
-    if (!currentUser?.id || messages.length === 0) return;
-    const key = selectedUser ? `user_${selectedUser.id}` : selectedRoom ? `room_${selectedRoom.id}` : null;
-    if (!key) return;
-    const userId = currentUser.id;
-    const cachedMessages = messages.filter((message) =>
-      selectedRoom ? message.chatRoomId === selectedRoom.id : !message.chatRoomId &&
-        ((message.senderId === userId && message.receiverId === selectedUser?.id) ||
-         (message.receiverId === userId && message.senderId === selectedUser?.id)));
-    const timeoutId = window.setTimeout(() => {
-      messagesCacheWrittenAtRef.current = Date.now();
-      void dbService.saveMessagesCache(userId, key, cachedMessages);
-    }, cacheWriteDelay(messagesCacheWrittenAtRef.current));
-    return () => window.clearTimeout(timeoutId);
-  }, [currentUser?.id, messages, selectedUser, selectedRoom]);
+  useOfflineCache({
+    currentUserId: currentUser?.id ?? null,
+    rooms,
+    users,
+    messages,
+    selectedUser,
+    selectedRoom,
+    setRooms,
+    setUsers,
+  });
 
   const resetMessageSearchState = useCallback(() => {
     messageSearchQueryRef.current = '';
@@ -648,20 +597,6 @@ export default function ChatPage() {
     setRoomsError,
     setFriendRequestsError,
   });
-
-  const loadBlockedUsers = useCallback(async () => {
-    setBlockedUsersLoading(true);
-    setBlockedUsersError('');
-    try {
-      const response = await apiClient.get<User[]>('/blocks');
-      setBlockedUsers(response.data);
-    } catch (error) {
-      console.error('Failed to load blocked users:', error);
-      setBlockedUsersError('Unable to load blocked users.');
-    } finally {
-      setBlockedUsersLoading(false);
-    }
-  }, []);
 
   const { loadMessages, loadRoomMessages } = useMessageLoaders({
     currentUserIdRef, messagesRef,
@@ -791,12 +726,6 @@ export default function ChatPage() {
   }, [authenticatedUser]);
 
   useEffect(() => () => {
-    if (profileAvatarPreview.startsWith('blob:')) {
-      URL.revokeObjectURL(profileAvatarPreview);
-    }
-  }, [profileAvatarPreview]);
-
-  useEffect(() => () => {
     if (pendingMedia?.previewUrl) {
       URL.revokeObjectURL(pendingMedia.previewUrl);
     }
@@ -808,46 +737,7 @@ export default function ChatPage() {
     clearPendingMedia();
     setMediaUploading(false);
     setMediaViewerMessage(null);
-  }, [selectedRoomId, selectedUserId]);
-
-  useEffect(() => {
-    if (!emojiPickerOpen) {
-      return;
-    }
-
-    const handleOutsidePointerDown = (event: MouseEvent | TouchEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) {
-        return;
-      }
-
-      if (
-        emojiPickerRef.current?.contains(target) ||
-        emojiButtonRef.current?.contains(target)
-      ) {
-        return;
-      }
-
-      setEmojiPickerOpen(false);
-    };
-
-    const handleEscapeKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setEmojiPickerOpen(false);
-        messageInputRef.current?.focus();
-      }
-    };
-
-    document.addEventListener('mousedown', handleOutsidePointerDown);
-    document.addEventListener('touchstart', handleOutsidePointerDown);
-    document.addEventListener('keydown', handleEscapeKey);
-
-    return () => {
-      document.removeEventListener('mousedown', handleOutsidePointerDown);
-      document.removeEventListener('touchstart', handleOutsidePointerDown);
-      document.removeEventListener('keydown', handleEscapeKey);
-    };
-  }, [emojiPickerOpen]);
+  }, [selectedRoomId, selectedUserId, setEmojiPickerOpen]);
 
   useEffect(() => {
     if (!openConversationMenuKey) {
@@ -922,11 +812,6 @@ export default function ChatPage() {
     void loadIncomingFriendRequests();
     void loadFriendSummary();
   }, [currentUser?.id, loadFriendSummary, loadIncomingFriendRequests]);
-
-  useEffect(() => {
-    if (!currentUser?.id) return;
-    void loadBlockedUsers();
-  }, [currentUser?.id, loadBlockedUsers]);
 
   const {
     clearTypingTimeout,
@@ -1373,50 +1258,43 @@ export default function ChatPage() {
     setProfileMenuOpen((currentOpen) => !currentOpen);
   };
 
+  const handleUserBlocked = useCallback(async (blockedUser: User) => {
+    setFriends((current) => current.filter((friend) => friend.id !== blockedUser.id));
+    setUsers((current) => current.map((listedUser) => listedUser.id === blockedUser.id
+      ? { ...listedUser, friendshipStatus: 'none', friendshipId: undefined }
+      : listedUser));
+    setSelectedUser((current) => current?.id === blockedUser.id
+      ? { ...current, friendshipStatus: 'none', friendshipId: undefined }
+      : current);
+    setViewedProfileUser((current) => current?.id === blockedUser.id
+      ? { ...current, friendshipStatus: 'none', friendshipId: undefined }
+      : current);
+    await Promise.all([
+      loadUsers({ search: '', silent: true }),
+      loadIncomingFriendRequests({ silent: true }),
+      loadFriendSummary({ silent: true }),
+    ]);
+  }, [loadFriendSummary, loadIncomingFriendRequests, loadUsers, setViewedProfileUser]);
+
+  const {
+    blockedUsers,
+    blockedUserIds,
+    blockedUsersOpen,
+    openBlockedUsers,
+    closeBlockedUsers,
+    blockedUsersLoading,
+    blockedUsersError,
+    blockActionPendingUserId,
+    toggleUserBlock,
+  } = useBlockedUsers({
+    currentUserId: currentUser?.id ?? null,
+    onUserBlocked: handleUserBlocked,
+    onActionError: setProfileActionError,
+  });
+
   const handleOpenBlockedUsers = () => {
     setProfileMenuOpen(false);
-    setBlockedUsersOpen(true);
-    void loadBlockedUsers();
-  };
-
-  const handleToggleUserBlock = async (user: User) => {
-    const isBlocked = blockedUsers.some((blockedUser) => blockedUser.id === user.id);
-    setBlockActionPendingUserId(user.id);
-    setProfileActionError('');
-    setBlockedUsersError('');
-    try {
-      if (isBlocked) {
-        await apiClient.delete(`/blocks/${user.id}`);
-        setBlockedUsers((current) => current.filter((blockedUser) => blockedUser.id !== user.id));
-      } else {
-        const response = await apiClient.put<User>(`/blocks/${user.id}`);
-        setBlockedUsers((current) => current.some((blockedUser) => blockedUser.id === user.id)
-          ? current
-          : [response.data, ...current]);
-        setFriends((current) => current.filter((friend) => friend.id !== user.id));
-        setUsers((current) => current.map((listedUser) => listedUser.id === user.id
-          ? { ...listedUser, friendshipStatus: 'none', friendshipId: undefined }
-          : listedUser));
-        setSelectedUser((current) => current?.id === user.id
-          ? { ...current, friendshipStatus: 'none', friendshipId: undefined }
-          : current);
-        setViewedProfileUser((current) => current?.id === user.id
-          ? { ...current, friendshipStatus: 'none', friendshipId: undefined }
-          : current);
-        await Promise.all([
-          loadUsers({ search: '', silent: true }),
-          loadIncomingFriendRequests({ silent: true }),
-          loadFriendSummary({ silent: true }),
-        ]);
-      }
-    } catch (error) {
-      console.error(isBlocked ? 'Failed to unblock user:' : 'Failed to block user:', error);
-      const message = isBlocked ? 'Unable to unblock user.' : 'Unable to block user.';
-      setProfileActionError(message);
-      setBlockedUsersError(message);
-    } finally {
-      setBlockActionPendingUserId(null);
-    }
+    openBlockedUsers();
   };
 
   const handleToggleConversationDetails = () => {
@@ -1450,6 +1328,19 @@ export default function ChatPage() {
     setDetailsOpen(false);
     navigateIfNeeded(getChatRoute());
   };
+
+  const {
+    inviteModalOpen,
+    setInviteModalOpen,
+    inviteLoading,
+    inviteRevoking,
+    inviteCopied,
+    inviteError,
+    handleOpenInviteModal,
+    handleRevokeInviteLink,
+    getGroupInviteUrl,
+    handleCopyInviteLink,
+  } = useGroupInvite({ selectedRoom });
 
   useEffect(() => {
     const handleEscapeKey = (event: KeyboardEvent) => {
@@ -1494,6 +1385,7 @@ export default function ChatPage() {
     mediaViewerMessage,
     profileMenuOpen,
     reactionModalGroups,
+    setInviteModalOpen,
   ]);
 
   const handleOpenCreateGroup = () => {
@@ -1604,16 +1496,6 @@ export default function ChatPage() {
       setConversationSettingPendingKey(null);
     }
   };
-
-  const {
-    handleOpenInviteModal,
-    handleRevokeInviteLink,
-    getGroupInviteUrl,
-    handleCopyInviteLink,
-  } = useGroupInvite({
-    selectedRoom, groupInviteData, inviteRevoking, setInviteModalOpen, setInviteLoading,
-    setInviteRevoking, setInviteError, setInviteCopied, setGroupInviteData,
-  });
 
   const {
     handleReplyToMessage, handleCancelReply, handleCopyMessage,
@@ -1749,14 +1631,23 @@ export default function ChatPage() {
   };
 
   const {
+    profileFullName,
+    setProfileFullName,
+    profileBio,
+    setProfileBio,
+    profileAvatarPreview,
+    profileSaving,
+    profileError,
+    setProfileError,
     handleOpenProfileEditor,
     handleCloseProfileEditor,
     handleProfileAvatarChange,
     handleUpdateProfile,
   } = useProfileEditor({
-    currentUser, profileFullName, profileBio, profileAvatarFile, profileSaving, getAvatarUrl,
-    applyUpdatedCurrentUserProfile, setProfileFullName, setProfileBio, setProfileAvatarFile,
-    setProfileAvatarPreview, setProfileSaving, setProfileError, setProfileMenuOpen,
+    currentUser,
+    getAvatarUrl,
+    applyUpdatedCurrentUserProfile,
+    setProfileMenuOpen,
     setProfileEditorOpen,
   });
 
@@ -2252,7 +2143,7 @@ export default function ChatPage() {
             selectedUserId={selectedUserId}
             selectedRoomId={selectedRoomId}
             friendActionKeys={friendActionKeys}
-            blockedUserIds={blockedUsers.map((user) => user.id)}
+            blockedUserIds={blockedUserIds}
             openConversationMenuKey={openConversationMenuKey}
             pendingConversationKey={conversationSettingPendingKey}
             onLoadUsers={(options) => void loadUsers(options)}
@@ -2507,7 +2398,7 @@ export default function ChatPage() {
         onAcceptFriendRequest={(requestId, actionKey) => void handleAcceptFriendRequest(requestId, actionKey)}
         onDeclineFriendRequest={(requestId, actionKey) => void handleDeclineFriendRequest(requestId, actionKey)}
         onCancelFriendRequest={(user) => void handleCancelFriendRequest(user)}
-        onToggleBlock={(user) => void handleToggleUserBlock(user)}
+        onToggleBlock={(user) => void toggleUserBlock(user)}
       />
 
       <BlockedUsersModal
@@ -2516,8 +2407,8 @@ export default function ChatPage() {
         loading={blockedUsersLoading}
         error={blockedUsersError}
         pendingUserId={blockActionPendingUserId}
-        onClose={() => setBlockedUsersOpen(false)}
-        onUnblock={(user) => void handleToggleUserBlock(user)}
+        onClose={closeBlockedUsers}
+        onUnblock={(user) => void toggleUserBlock(user)}
       />
 
       <ProfileEditorModal

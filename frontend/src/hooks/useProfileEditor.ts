@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ChangeEvent, Dispatch, FormEvent, SetStateAction } from 'react';
 import { apiClient } from '../services/api';
 import {
@@ -11,29 +11,31 @@ import type { User } from '../types';
 
 interface Options {
   currentUser: User | null;
-  profileFullName: string;
-  profileBio: string;
-  profileAvatarFile: File | null;
-  profileSaving: boolean;
   getAvatarUrl: (avatar?: string | null) => string;
   applyUpdatedCurrentUserProfile: (user: User) => void;
-  setProfileFullName: Dispatch<SetStateAction<string>>;
-  setProfileBio: Dispatch<SetStateAction<string>>;
-  setProfileAvatarFile: Dispatch<SetStateAction<File | null>>;
-  setProfileAvatarPreview: Dispatch<SetStateAction<string>>;
-  setProfileSaving: Dispatch<SetStateAction<boolean>>;
-  setProfileError: Dispatch<SetStateAction<string>>;
   setProfileMenuOpen: Dispatch<SetStateAction<boolean>>;
   setProfileEditorOpen: Dispatch<SetStateAction<boolean>>;
 }
 
+/** Owns the edit-profile form state (fields, avatar preview, save status) and the revoke of blob previews. */
 export function useProfileEditor(options: Options) {
   const {
-    currentUser, profileFullName, profileBio, profileAvatarFile, profileSaving, getAvatarUrl,
-    applyUpdatedCurrentUserProfile, setProfileFullName, setProfileBio, setProfileAvatarFile,
-    setProfileAvatarPreview, setProfileSaving, setProfileError, setProfileMenuOpen,
+    currentUser, getAvatarUrl, applyUpdatedCurrentUserProfile, setProfileMenuOpen,
     setProfileEditorOpen,
   } = options;
+
+  const [profileFullName, setProfileFullName] = useState('');
+  const [profileBio, setProfileBio] = useState('');
+  const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null);
+  const [profileAvatarPreview, setProfileAvatarPreview] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState('');
+
+  useEffect(() => () => {
+    if (profileAvatarPreview.startsWith('blob:')) {
+      URL.revokeObjectURL(profileAvatarPreview);
+    }
+  }, [profileAvatarPreview]);
 
   const handleOpenProfileEditor = useCallback(() => {
     setProfileFullName(currentUser?.fullName ?? '');
@@ -43,10 +45,7 @@ export function useProfileEditor(options: Options) {
     setProfileError('');
     setProfileMenuOpen(false);
     setProfileEditorOpen(true);
-  }, [
-    currentUser, getAvatarUrl, setProfileAvatarFile, setProfileAvatarPreview, setProfileBio,
-    setProfileEditorOpen, setProfileError, setProfileFullName, setProfileMenuOpen,
-  ]);
+  }, [currentUser, getAvatarUrl, setProfileEditorOpen, setProfileMenuOpen]);
 
   const handleCloseProfileEditor = useCallback(() => {
     if (profileSaving) return;
@@ -55,10 +54,7 @@ export function useProfileEditor(options: Options) {
     setProfileAvatarPreview('');
     setProfileBio('');
     setProfileError('');
-  }, [
-    profileSaving, setProfileAvatarFile, setProfileAvatarPreview, setProfileBio,
-    setProfileEditorOpen, setProfileError,
-  ]);
+  }, [profileSaving, setProfileEditorOpen]);
 
   const handleProfileAvatarChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -78,7 +74,7 @@ export function useProfileEditor(options: Options) {
     setProfileAvatarFile(file);
     setProfileAvatarPreview(URL.createObjectURL(file));
     setProfileError('');
-  }, [setProfileAvatarFile, setProfileAvatarPreview, setProfileError]);
+  }, []);
 
   const handleUpdateProfile = useCallback(async (event: FormEvent) => {
     event.preventDefault();
@@ -111,13 +107,17 @@ export function useProfileEditor(options: Options) {
     } finally {
       setProfileSaving(false);
     }
-  }, [
-    applyUpdatedCurrentUserProfile, profileAvatarFile, profileBio, profileFullName,
-    setProfileAvatarFile, setProfileAvatarPreview, setProfileBio, setProfileEditorOpen,
-    setProfileError, setProfileSaving,
-  ]);
+  }, [applyUpdatedCurrentUserProfile, profileAvatarFile, profileBio, profileFullName, setProfileEditorOpen]);
 
   return {
+    profileFullName,
+    setProfileFullName,
+    profileBio,
+    setProfileBio,
+    profileAvatarPreview,
+    profileSaving,
+    profileError,
+    setProfileError,
     handleOpenProfileEditor,
     handleCloseProfileEditor,
     handleProfileAvatarChange,
