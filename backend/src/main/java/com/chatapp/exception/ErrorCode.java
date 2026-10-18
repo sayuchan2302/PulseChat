@@ -65,6 +65,7 @@ public enum ErrorCode {
                         HttpStatus.INTERNAL_SERVER_ERROR,
                         "MEDIA_003",
                         "Unable to upload media file"),
+        MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "MEDIA_005", "Media not found"),
 
         ROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "ROOM_001", "Chat room not found"),
         ROOM_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ROOM_002", "You are not a member of this chat room"),

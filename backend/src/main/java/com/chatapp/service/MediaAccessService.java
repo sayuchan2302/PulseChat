@@ -27,7 +27,9 @@ public class MediaAccessService {
         String publicId = filename.substring(0, filename.lastIndexOf('.'));
         if (messageRepository.countAccessibleLocalMedia(username, publicId, filename) == 0
                 && chatRoomRepository.countAccessibleLocalAvatars(username, filename) == 0) {
-            throw new AppException(ErrorCode.FORBIDDEN);
+            // 404 instead of 403: denied media (including recalled messages) should not leak
+            // existence, and a forbidden status confuses users who previously had access.
+            throw new AppException(ErrorCode.MEDIA_NOT_FOUND);
         }
     }
 

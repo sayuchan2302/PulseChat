@@ -44,8 +44,8 @@ class LocalMediaHttpSecurityTest {
 
     @Test
     void authenticatedNonParticipantCannotDownload() throws Exception {
-        doThrow(new AppException(ErrorCode.FORBIDDEN)).when(access).requireAccess("mallory", FILE);
-        mvc.perform(get(PATH).with(user("mallory"))).andExpect(status().isForbidden());
+        doThrow(new AppException(ErrorCode.MEDIA_NOT_FOUND)).when(access).requireAccess("mallory", FILE);
+        mvc.perform(get(PATH).with(user("mallory"))).andExpect(status().isNotFound());
         verifyNoInteractions(storage);
     }
 

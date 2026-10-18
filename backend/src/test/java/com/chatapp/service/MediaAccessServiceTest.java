@@ -2,6 +2,7 @@ package com.chatapp.service;
 
 import com.chatapp.dto.request.MediaAttachmentRequest;
 import com.chatapp.exception.AppException;
+import com.chatapp.exception.ErrorCode;
 import com.chatapp.repository.MessageRepository;
 import com.chatapp.repository.ChatRoomRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,7 +45,8 @@ class MediaAccessServiceTest {
 
     @Test
     void nonParticipantCannotReadOrAttachSomeoneElsesUpload() {
-        assertThrows(AppException.class, () -> access.requireAccess("bob", filename));
+        AppException denial = assertThrows(AppException.class, () -> access.requireAccess("bob", filename));
+        assertEquals(ErrorCode.MEDIA_NOT_FOUND, denial.getErrorCode());
         assertThrows(AppException.class, () -> access.validateAttachment("bob", attachment(publicId)));
         assertThrows(AppException.class, () -> access.validateAvatar("bob", attachment(publicId).url()));
     }

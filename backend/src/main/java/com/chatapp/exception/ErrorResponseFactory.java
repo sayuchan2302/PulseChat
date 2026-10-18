@@ -7,9 +7,11 @@ import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 public final class ErrorResponseFactory {
     private static final String REQUEST_ID_HEADER = "X-Request-ID";
+    private static final Pattern SAFE_REQUEST_ID = Pattern.compile("[A-Za-z0-9._-]{8,64}");
 
     private ErrorResponseFactory() {
     }
@@ -53,7 +55,7 @@ public final class ErrorResponseFactory {
 
     public static String requestId(HttpServletRequest request) {
         String requestId = request.getHeader(REQUEST_ID_HEADER);
-        if (StringUtils.hasText(requestId)) {
+        if (StringUtils.hasText(requestId) && SAFE_REQUEST_ID.matcher(requestId).matches()) {
             return requestId;
         }
 

@@ -43,13 +43,24 @@ public class ApiExceptionHandler {
             ResponseStatusException exception,
             HttpServletRequest request
     ) {
-        String message = exception.getReason() == null ? "Request failed" : exception.getReason();
+        log.warn("ResponseStatusException with status {} (reason: {})",
+                exception.getStatusCode(), exception.getReason());
         return buildResponse(
                 exception.getStatusCode(),
                 "HTTP_" + exception.getStatusCode().value(),
-                message,
+                responseStatusMessage(exception.getStatusCode()),
                 request
         );
+    }
+
+    private static String responseStatusMessage(HttpStatusCode statusCode) {
+        return switch (statusCode.value()) {
+            case 400 -> "Bad request";
+            case 404 -> "Resource not found";
+            case 405 -> "Method not allowed";
+            case 415 -> "Unsupported media type";
+            default -> "Request failed";
+        };
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
