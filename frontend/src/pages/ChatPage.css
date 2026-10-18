@@ -9226,3 +9226,27 @@ html.theme-transitioning *::after {
   .global-search-result { padding: 11px 8px; }
   .global-search-result-topline { align-items: flex-start; flex-direction: column; gap: 2px; }
 }
+
+/* ==========================================================================
+   Long-conversation rendering (MessageList)
+
+   Every row stays in the DOM — jump-to-message (querySelector on
+   [data-message-id]), the unread divider ref and the load-older scroll
+   anchoring all rely on real nodes — but the browser skips style/layout/paint
+   for rows far outside the viewport. `contain-intrinsic-size: auto` remembers
+   a row's real height once it has rendered, so the scrollbar stays stable
+   while scrolling back up through a long history. Upgrade path if histories
+   ever grow past a few thousand loaded messages: @tanstack/react-virtual with
+   scrollToIndex wiring instead of the querySelector-based jumps.
+   ========================================================================== */
+
+.messages-container .message {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+
+.messages-container .message-date-divider,
+.messages-container .message-unread-divider {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 40px;
+}
