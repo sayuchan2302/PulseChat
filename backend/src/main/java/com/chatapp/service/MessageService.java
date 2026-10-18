@@ -28,14 +28,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
 public class MessageService {
+    private static final String SENDER_CLIENT_UNIQUE_INDEX = "uk_messages_sender_client";
+    private static final String UNIQUE_VIOLATION_SQL_STATE = "23505";
+
     private final MessageRepository messageRepository;
     private final MessageReactionRepository messageReactionRepository;
     private final UserService userService;
@@ -52,12 +57,40 @@ public class MessageService {
         MessageType type = MessagePayloadMapper.normalizeType(request.type());
         String content = MessagePayloadMapper.normalizeContent(request.content());
         MessagePayloadMapper.validate(type, content, request.media());
+        authorizePrivateSend(currentUsername, request);
         LinkPreviewMetadata preview = resolveLinkPreview(type, content);
         try {
             return transactionTemplate.execute(status -> sendPrivateInTransaction(currentUsername, request, preview));
         } catch (org.springframework.dao.DataIntegrityViolationException conflict) {
             return replayAfterConcurrentInsert(currentUsername, request.clientId(), request.receiverId(), null, conflict);
         }
+    }
+
+    /**
+     * Fail-fast authorization so outbound link-preview HTTP requests only happen for senders
+     * who may actually write to this conversation; the write transaction re-validates
+     * everything before inserting.
+     */
+    private void authorizePrivateSend(String currentUsername, SendMessageRequest request) {
+        transactionTemplate.execute(status -> {
+            User sender = userService.findByUsername(currentUsername);
+            User receiver = userService.findById(request.receiverId());
+            validatePrivateSend(sender, receiver, currentUsername, request);
+            resolvePrivateReplyTarget(sender, receiver, request.replyToMessageId());
+            return null;
+        });
+    }
+
+    private void validatePrivateSend(User sender, User receiver, String currentUsername, SendMessageRequest request) {
+        if (sender.getId().equals(receiver.getId())) {
+            throw new AppException(ErrorCode.SELF_MESSAGE_NOT_ALLOWED);
+        }
+        userBlockService.ensureNotBlocked(sender, receiver);
+        MessageType type = MessagePayloadMapper.normalizeType(request.type());
+        boolean areFriends = friendshipService.areFriends(sender, receiver);
+        validateNonFriendMessage(areFriends, type, request.media() != null);
+        MessagePayloadMapper.validate(type, MessagePayloadMapper.normalizeContent(request.content()), request.media());
+        mediaAccessService.validateAttachment(currentUsername, request.media());
     }
 
     private MessageResponse sendPrivateInTransaction(String currentUsername, SendMessageRequest request,
@@ -68,15 +101,7 @@ public class MessageService {
         MessageType type = MessagePayloadMapper.normalizeType(request.type());
         String content = MessagePayloadMapper.normalizeContent(request.content());
 
-        if (sender.getId().equals(receiver.getId())) {
-            throw new AppException(ErrorCode.SELF_MESSAGE_NOT_ALLOWED);
-        }
-        userBlockService.ensureNotBlocked(sender, receiver);
-
-        boolean areFriends = friendshipService.areFriends(sender, receiver);
-        validateNonFriendMessage(areFriends, type, request.media() != null);
-        MessagePayloadMapper.validate(type, content, request.media());
-        mediaAccessService.validateAttachment(currentUsername, request.media());
+        validatePrivateSend(sender, receiver, currentUsername, request);
         Message replyToMessage = resolvePrivateReplyTarget(sender, receiver, request.replyToMessageId());
 
         if (clientId != null) {
@@ -103,6 +128,7 @@ public class MessageService {
         MessageType type = MessagePayloadMapper.normalizeType(request.type());
         String content = MessagePayloadMapper.normalizeContent(request.content());
         MessagePayloadMapper.validate(type, content, request.media());
+        authorizeRoomSend(currentUsername, roomId, request);
         LinkPreviewMetadata preview = resolveLinkPreview(type, content);
         try {
             return transactionTemplate.execute(status -> sendRoomInTransaction(currentUsername, roomId, request, preview));
@@ -119,8 +145,7 @@ public class MessageService {
         MessageType type = MessagePayloadMapper.normalizeType(request.type());
         String content = MessagePayloadMapper.normalizeContent(request.content());
 
-        MessagePayloadMapper.validate(type, content, request.media());
-        mediaAccessService.validateAttachment(currentUsername, request.media());
+        validateRoomSend(currentUsername, request);
         Message replyToMessage = resolveRoomReplyTarget(sender, room, request.replyToMessageId());
 
         if (clientId != null) {
@@ -142,10 +167,35 @@ public class MessageService {
         return saveRoomMessage(sender, room, content, null, type, request.media(), linkPreview, replyToMessage);
     }
 
+    /**
+     * Fail-fast authorization for room sends; mirrors editMessage by resolving link previews
+     * only after the sender has been checked against the room, media and reply target.
+     * The write transaction re-validates everything before inserting.
+     */
+    private void authorizeRoomSend(String currentUsername, Long roomId, SendRoomMessageRequest request) {
+        transactionTemplate.execute(status -> {
+            User sender = userService.findByUsername(currentUsername);
+            ChatRoom room = chatRoomService.findGroupRoomForMember(sender, roomId);
+            validateRoomSend(currentUsername, request);
+            resolveRoomReplyTarget(sender, room, request.replyToMessageId());
+            return null;
+        });
+    }
+
+    private void validateRoomSend(String currentUsername, SendRoomMessageRequest request) {
+        MessagePayloadMapper.validate(
+                MessagePayloadMapper.normalizeType(request.type()),
+                MessagePayloadMapper.normalizeContent(request.content()),
+                request.media());
+        mediaAccessService.validateAttachment(currentUsername, request.media());
+    }
+
     private MessageResponse replayAfterConcurrentInsert(String username, String rawClientId,
             Long receiverId, Long roomId, org.springframework.dao.DataIntegrityViolationException conflict) {
         String clientId = normalizeClientId(rawClientId);
-        if (clientId == null) throw conflict;
+        if (clientId == null || !isSenderClientIdUniqueViolation(conflict)) {
+            throw conflict;
+        }
         // The failed transaction has already rolled back. Read the winning insert in a fresh transaction.
         return transactionTemplate.execute(status -> {
             User sender = userService.findByUsername(username);
@@ -153,6 +203,20 @@ public class MessageService {
                     .map(existing -> replayForConversation(existing, receiverId, roomId, sender.getId()))
                     .orElseThrow(() -> conflict);
         });
+    }
+
+    /**
+     * Only a lost race on the (sender_id, client_id) unique index is replayable; every other
+     * integrity failure (foreign key, check, not-null, ...) must surface to the caller unchanged.
+     */
+    private boolean isSenderClientIdUniqueViolation(org.springframework.dao.DataIntegrityViolationException conflict) {
+        Throwable cause = conflict.getMostSpecificCause();
+        if (!(cause instanceof SQLException sqlException)
+                || !UNIQUE_VIOLATION_SQL_STATE.equals(sqlException.getSQLState())) {
+            return false;
+        }
+        String message = sqlException.getMessage();
+        return message != null && message.toLowerCase(Locale.ROOT).contains(SENDER_CLIENT_UNIQUE_INDEX);
     }
 
     private MessageResponse replayForConversation(Message existing, Long receiverId, Long roomId, long currentUserId) {

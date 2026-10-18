@@ -106,7 +106,7 @@ class MessageServiceTest {
         }
 
         @Test
-        void linkPreviewIsResolvedBeforeStartingTheWriteTransaction() {
+        void linkPreviewIsResolvedOnlyAfterAuthorization() {
                 User sender = user(1L, "alice");
                 User receiver = user(2L, "bob");
                 when(userService.findByUsername("alice")).thenReturn(sender);
@@ -114,9 +114,74 @@ class MessageServiceTest {
                 Message existing = privateMessage(10L, "https://example.com", sender, receiver);
                 when(messageRepository.findBySenderIdAndClientId(1L, "same-key")).thenReturn(Optional.of(existing));
                 messageService.sendMessage("alice", new SendMessageRequest(2L, "https://example.com", "same-key", null, MessageType.TEXT, null));
-                var order = org.mockito.Mockito.inOrder(linkPreviewService, transactionTemplate);
-                order.verify(linkPreviewService).resolveFirstPreview("https://example.com");
-                order.verify(transactionTemplate).execute(any());
+
+                var afterAuthorization = org.mockito.Mockito.inOrder(userBlockService, linkPreviewService);
+                afterAuthorization.verify(userBlockService).ensureNotBlocked(sender, receiver);
+                afterAuthorization.verify(linkPreviewService).resolveFirstPreview("https://example.com");
+
+                var beforeWriteTransaction = org.mockito.Mockito.inOrder(linkPreviewService, transactionTemplate);
+                beforeWriteTransaction.verify(linkPreviewService).resolveFirstPreview("https://example.com");
+                beforeWriteTransaction.verify(transactionTemplate).execute(any());
+        }
+
+        @Test
+        void sendMessageRejectsBlockedReceiverBeforeResolvingLinkPreview() {
+                User sender = user(1L, "alice");
+                User receiver = user(2L, "bob");
+                when(userService.findByUsername("alice")).thenReturn(sender);
+                when(userService.findById(2L)).thenReturn(receiver);
+                org.mockito.Mockito.doThrow(new AppException(ErrorCode.USER_BLOCKED))
+                                .when(userBlockService).ensureNotBlocked(sender, receiver);
+
+                AppException exception = assertThrows(AppException.class, () -> messageService.sendMessage("alice",
+                                new SendMessageRequest(2L, "https://example.com/secret", "key-1", null, MessageType.TEXT, null)));
+
+                assertEquals(ErrorCode.USER_BLOCKED, exception.getErrorCode());
+                org.mockito.Mockito.verifyNoInteractions(linkPreviewService);
+                verify(messageRepository, never()).saveAndFlush(any(Message.class));
+        }
+
+        @Test
+        void sendMessageReplaysWhenTheSenderClientUniqueIndexLosesTheRace() {
+                User sender = user(1L, "alice");
+                User receiver = user(2L, "bob");
+                when(userService.findByUsername("alice")).thenReturn(sender);
+                when(userService.findById(2L)).thenReturn(receiver);
+                Message winner = privateMessage(30L, "hello", sender, receiver);
+                when(messageRepository.findBySenderIdAndClientId(1L, "key-1"))
+                                .thenReturn(Optional.empty(), Optional.of(winner));
+                when(messageRepository.saveAndFlush(any(Message.class))).thenThrow(
+                                new org.springframework.dao.DataIntegrityViolationException("insert failed",
+                                                new java.sql.SQLException(
+                                                                "duplicate key value violates unique constraint \"uk_messages_sender_client\"",
+                                                                "23505")));
+
+                MessageResponse response = messageService.sendMessage("alice",
+                                new SendMessageRequest(2L, "hello", "key-1", null, MessageType.TEXT, null));
+
+                assertEquals(30L, response.id());
+        }
+
+        @Test
+        void sendMessageRethrowsIntegrityViolationsThatAreNotTheSenderClientIndex() {
+                User sender = user(1L, "alice");
+                User receiver = user(2L, "bob");
+                when(userService.findByUsername("alice")).thenReturn(sender);
+                when(userService.findById(2L)).thenReturn(receiver);
+                when(messageRepository.findBySenderIdAndClientId(1L, "key-1")).thenReturn(Optional.empty());
+                org.springframework.dao.DataIntegrityViolationException conflict = new org.springframework.dao.DataIntegrityViolationException(
+                                "insert failed",
+                                new java.sql.SQLException("null value in column \"content\" violates not-null constraint",
+                                                "23502"));
+                when(messageRepository.saveAndFlush(any(Message.class))).thenThrow(conflict);
+
+                org.springframework.dao.DataIntegrityViolationException thrown = assertThrows(
+                                org.springframework.dao.DataIntegrityViolationException.class,
+                                () -> messageService.sendMessage("alice",
+                                                new SendMessageRequest(2L, "hello", "key-1", null, MessageType.TEXT, null)));
+
+                assertTrue(thrown == conflict);
+                verify(messageRepository).findBySenderIdAndClientId(1L, "key-1");
         }
 
         @Test
