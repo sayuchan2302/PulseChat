@@ -2,7 +2,7 @@ import { dbService } from '../services/dbService';
 import { useCallback, useRef } from 'react';
 import type { Dispatch, FormEvent, MutableRefObject, SetStateAction } from 'react';
 import { soundService } from '../services/soundService';
-import type { ChatRoom, MediaAttachment, MessageType, User } from '../types';
+import type { ChatRoom, MessageType, User } from '../types';
 import type { ChatMessage, PendingMedia, SendMessagePayload, SendRoomMessagePayload } from '../types/chat.types';
 import {
   appendOptimisticMessage, createOptimisticMessage,
@@ -76,16 +76,20 @@ export function useMessageSending(options: Options) {
       return;
     }
 
-    const mediaPayload: MediaAttachment | undefined = undefined;
     const messageType: MessageType = mediaToSend ? mediaToSend.type : 'TEXT';
     const replyTo = createReplyFromMessage(replyingToMessage);
     const replyToMessageId = replyTo?.id;
     const clientId = createClientId();
-    const optimistic = selectedUser
-      ? createOptimisticMessage(getNextOptimisticMessageId(), currentUser.id, selectedUser.id,
-          content, clientId, messageType, mediaPayload, replyTo)
-      : createOptimisticRoomMessage(getNextOptimisticMessageId(), currentUser, selectedRoom!.id,
-          content, clientId, messageType, mediaPayload, replyTo);
+    let optimistic: ChatMessage;
+    if (selectedUser) {
+      optimistic = createOptimisticMessage(getNextOptimisticMessageId(), currentUser.id, selectedUser.id,
+          content, clientId, messageType, undefined, replyTo);
+    } else if (selectedRoom) {
+      optimistic = createOptimisticRoomMessage(getNextOptimisticMessageId(), currentUser, selectedRoom.id,
+          content, clientId, messageType, undefined, replyTo);
+    } else {
+      return;
+    }
     persisting.current = true;
     setMediaUploading(true);
     const persisted = await dbService.enqueuePendingMessage(currentUser.id, {
@@ -94,7 +98,7 @@ export function useMessageSending(options: Options) {
       conversationKey: selectedUser ? `user_${selectedUser.id}` : `room_${selectedRoom!.id}`,
       destination: selectedUser ? '/messages' : `/rooms/${selectedRoom!.id}/messages`,
       body: { ...(selectedUser ? { receiverId: selectedUser.id } : {}),
-        content, clientId, replyToMessageId, type: messageType, media: mediaPayload },
+        content, clientId, replyToMessageId, type: messageType },
     });
     persisting.current = false;
     setMediaUploading(false);
@@ -113,7 +117,7 @@ export function useMessageSending(options: Options) {
     if (selectedUser) {
       const optimisticMessage = optimistic;
       const payload: SendMessagePayload = {
-        receiverId: selectedUser.id, content, clientId, replyToMessageId, type: messageType, media: mediaPayload,
+        receiverId: selectedUser.id, content, clientId, replyToMessageId, type: messageType,
       };
       stopTyping(selectedUser.id);
       soundService.playMessageSentSound();
@@ -127,7 +131,7 @@ export function useMessageSending(options: Options) {
 
     if (selectedRoom) {
       const optimisticMessage = optimistic;
-      const payload: SendRoomMessagePayload = { content, clientId, replyToMessageId, type: messageType, media: mediaPayload };
+      const payload: SendRoomMessagePayload = { content, clientId, replyToMessageId, type: messageType };
       stopRoomTyping(selectedRoom.id);
       soundService.playMessageSentSound();
       setMessages((items) => appendOptimisticMessage(items, optimisticMessage));

@@ -644,9 +644,7 @@ public class ChatRoomService {
     }
 
     private ConversationSetting findSetting(Long currentUserId, Long roomId) {
-        java.util.Optional<ConversationSetting> setting = conversationSettingRepository
-                .findByUserIdAndChatRoomId(currentUserId, roomId);
-        return setting == null ? null : setting.orElse(null);
+        return conversationSettingRepository.findByUserIdAndChatRoomId(currentUserId, roomId).orElse(null);
     }
 
     private int compareByConversationActivity(ChatRoomResponse firstRoom, ChatRoomResponse secondRoom) {

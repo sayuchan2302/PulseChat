@@ -6,5 +6,10 @@ export default mergeConfig(viteConfig, defineConfig({
     environment: 'jsdom',
     clearMocks: true,
     restoreMocks: true,
+    setupFiles: ['./src/test/setup.ts'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+    },
   },
 }));

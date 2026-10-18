@@ -26,7 +26,7 @@ describe('useFocusTrap', () => {
 
     rerender(<Harness active />);
 
-    expect(document.activeElement).toBe(getByTestId('first'));
+    expect(getByTestId('first')).toHaveFocus();
   });
 
   it('wraps Tab from the last element to the first and Shift+Tab back', () => {

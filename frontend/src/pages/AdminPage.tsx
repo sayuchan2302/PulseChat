@@ -1,20 +1,13 @@
-import axios from 'axios';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '../config/constants';
 import { useAuth } from '../context/useAuth';
 import { apiClient } from '../services/api';
+import { getApiErrorMessage } from '../utils/apiErrorUtils';
 import type { AdminAccount, AdminAccountPage, AccountRole } from '../types';
 import './AdminPage.css';
 
 const PAGE_SIZE = 25;
-
-function errorMessage(error: unknown, fallback: string) {
-  if (axios.isAxiosError<{ message?: string }>(error)) {
-    return error.response?.data?.message ?? fallback;
-  }
-  return fallback;
-}
 
 function formatCreatedAt(value: string) {
   const date = new Date(value);
@@ -44,7 +37,7 @@ export default function AdminPage() {
         setAccounts(response.data);
       }).catch((requestError: unknown) => {
         if (!controller.signal.aborted) {
-          setError(errorMessage(requestError, 'Unable to load accounts.'));
+          setError(getApiErrorMessage(requestError, 'Unable to load accounts.'));
         }
       }).finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -75,7 +68,7 @@ export default function AdminPage() {
       }));
       setNotice(`${account.username}'s account was updated.`);
     } catch (requestError) {
-      setError(errorMessage(requestError, 'Unable to update this account.'));
+      setError(getApiErrorMessage(requestError, 'Unable to update this account.'));
     } finally {
       setPendingUserId(null);
     }

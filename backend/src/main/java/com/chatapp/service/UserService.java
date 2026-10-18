@@ -118,6 +118,11 @@ public class UserService {
 
     private String normalizeFullName(String fullName) {
         String normalized = fullName.trim();
+        // Mirrors the full_name column length so oversized names fail fast instead of at flush time.
+        if (normalized.length() > 100) {
+            throw new AppException(ErrorCode.VALIDATION_FAILED, "Full name must be 100 characters or fewer");
+        }
+
         return normalized.isBlank() ? null : normalized;
     }
 

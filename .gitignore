@@ -5,6 +5,7 @@ frontend/.env
 frontend/.env.local
 frontend/.env.production
 frontend/.vite
+frontend/coverage/
 
 # Backend
 backend/target/

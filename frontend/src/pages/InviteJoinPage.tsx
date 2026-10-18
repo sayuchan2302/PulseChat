@@ -5,6 +5,7 @@ import type { GroupPreviewResponse, ChatRoom } from '../types';
 import { ROUTES } from '../config/constants';
 import { useAuth } from '../context/useAuth';
 import { useTheme } from '../hooks/useTheme';
+import { getApiErrorMessage } from '../utils/apiErrorUtils';
 import './InviteJoinPage.css';
 
 export default function InviteJoinPage() {
@@ -73,11 +74,9 @@ export default function InviteJoinPage() {
             const response = await apiClient.post<ChatRoom>(`/rooms/join/${inviteCode}`);
             const room = response.data;
             navigate(`${ROUTES.CHAT}/room/${room.id}`, { replace: true });
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error('Failed to join group:', err);
-            setJoinError(
-                err.response?.data?.message || 'Unable to join group. Please try again.'
-            );
+            setJoinError(getApiErrorMessage(err, 'Unable to join group. Please try again.'));
         } finally {
             setJoining(false);
         }

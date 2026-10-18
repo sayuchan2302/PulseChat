@@ -3,6 +3,7 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { ChatRoom, GroupMemberRole, User } from '../types';
 import type { ChatMessage } from '../types/chat.types';
 import { apiClient } from '../services/api';
+import { getApiErrorMessage } from '../utils/apiErrorUtils';
 
 interface Options {
   selectedRoom: ChatRoom | null;
@@ -61,23 +62,30 @@ export function useGroupMemberActions({
     try { applyRoomMembershipUpdate(await request()); }
     catch (error: unknown) {
       console.error(fallback, error);
-      const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message ?? fallback;
-      setGroupSettingsError(message);
+      setGroupSettingsError(getApiErrorMessage(error, fallback));
     } finally { setGroupSettingsPendingAction(null); }
   }, [applyRoomMembershipUpdate, groupSettingsSaving, selectedRoom, setGroupSettingsError, setGroupSettingsPendingAction]);
-  const handleKickRoomMember = useCallback((user: User) => runMemberUpdate(
-    `kick-${user.id}`, () => apiClient.delete<ChatRoom>(`/rooms/${selectedRoom!.id}/members/${user.id}`).then((response) => response.data), 'Unable to remove member.',
-  ), [runMemberUpdate, selectedRoom]);
+  const handleKickRoomMember = useCallback((user: User) => {
+    if (!selectedRoom) return Promise.resolve();
+    return runMemberUpdate(
+      `kick-${user.id}`, () => apiClient.delete<ChatRoom>(`/rooms/${selectedRoom.id}/members/${user.id}`).then((response) => response.data), 'Unable to remove member.',
+    );
+  }, [runMemberUpdate, selectedRoom]);
   const handleTransferRoomOwner = useCallback((user: User) => {
+    if (!selectedRoom) return Promise.resolve();
     setOpenGroupMemberMenuId(null);
-    return runMemberUpdate(`owner-${user.id}`, () => apiClient.patch<ChatRoom>(`/rooms/${selectedRoom!.id}/owner`, { ownerId: user.id }).then((response) => response.data), 'Unable to transfer owner.');
+    return runMemberUpdate(`owner-${user.id}`, () => apiClient.patch<ChatRoom>(`/rooms/${selectedRoom.id}/owner`, { ownerId: user.id }).then((response) => response.data), 'Unable to transfer owner.');
   }, [runMemberUpdate, selectedRoom, setOpenGroupMemberMenuId]);
-  const handleLeaveSelectedGroup = useCallback(() => runMemberUpdate(
-    'leave', () => apiClient.delete<ChatRoom>(`/rooms/${selectedRoom!.id}/members/me`).then((response) => response.data), 'Unable to leave group.',
-  ), [runMemberUpdate, selectedRoom]);
+  const handleLeaveSelectedGroup = useCallback(() => {
+    if (!selectedRoom) return Promise.resolve();
+    return runMemberUpdate(
+      'leave', () => apiClient.delete<ChatRoom>(`/rooms/${selectedRoom.id}/members/me`).then((response) => response.data), 'Unable to leave group.',
+    );
+  }, [runMemberUpdate, selectedRoom]);
   const handleUpdateMemberRole = useCallback((user: User, role: GroupMemberRole) => {
+    if (!selectedRoom) return Promise.resolve();
     setOpenGroupMemberMenuId(null);
-    return runMemberUpdate(`role-${user.id}`, () => apiClient.patch<ChatRoom>(`/rooms/${selectedRoom!.id}/members/${user.id}/role`, { role }).then((response) => response.data), 'Unable to update member role.');
+    return runMemberUpdate(`role-${user.id}`, () => apiClient.patch<ChatRoom>(`/rooms/${selectedRoom.id}/members/${user.id}/role`, { role }).then((response) => response.data), 'Unable to update member role.');
   }, [runMemberUpdate, selectedRoom, setOpenGroupMemberMenuId]);
   const handleDeleteSelectedGroup = useCallback(async () => {
     if (!selectedRoom || groupSettingsSaving || !window.confirm(`Are you sure you want to dissolve group "${selectedRoom.name}"? All messages and members will be removed.`)) return;
@@ -88,7 +96,7 @@ export function useGroupMemberActions({
       selectedRoomIdRef.current = null; navigateToChat(); setMessages([]);
     } catch (error: unknown) {
       console.error('Failed to delete group:', error);
-      setGroupSettingsError((error as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Unable to delete group.');
+      setGroupSettingsError(getApiErrorMessage(error, 'Unable to delete group.'));
     } finally { setGroupSettingsPendingAction(null); }
   }, [groupSettingsSaving, navigateToChat, selectedRoom, selectedRoomIdRef, setGroupSettingsError, setGroupSettingsPendingAction, setMessages, setRooms, setSelectedRoom]);
   return { handleGroupMemberNicknameChange, handleToggleGroupMemberMenu, handleStartEditGroupMemberNickname, handleCancelEditGroupMemberNickname, handleUpdateRoomMemberNickname, handleKickRoomMember, handleTransferRoomOwner, handleLeaveSelectedGroup, handleUpdateMemberRole, handleDeleteSelectedGroup };

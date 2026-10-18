@@ -1,6 +1,8 @@
 package com.chatapp.service;
 
 import com.chatapp.dto.response.UserResponse;
+import com.chatapp.exception.AppException;
+import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.User;
 import com.chatapp.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -16,6 +18,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -66,6 +69,17 @@ class UserServiceTest {
         assertNull(user.getFullName());
         assertNull(user.getBio());
         assertEquals("sayu", response.fullName());
+    }
+
+    @Test
+    void updateProfileRejectsFullNameLongerThanTheProfileColumn() {
+        User user = user();
+        when(userRepository.findByUsername("sayu")).thenReturn(Optional.of(user));
+
+        AppException exception = assertThrows(AppException.class,
+                () -> userService.updateProfile("sayu", "x".repeat(101), null, null));
+
+        assertEquals(ErrorCode.VALIDATION_FAILED, exception.getErrorCode());
     }
 
     @Test

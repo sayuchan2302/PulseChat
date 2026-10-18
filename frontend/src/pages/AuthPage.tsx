@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../services/api';
 import { ROUTES } from '../config/constants';
 import { useAuth } from '../context/useAuth';
+import { getApiErrorMessage } from '../utils/apiErrorUtils';
 import type { AuthResponse } from '../types';
 import './AuthPage.css';
 
@@ -40,8 +41,8 @@ export default function AuthPage() {
         sessionStorage.removeItem('redirect_after_login');
         navigate(redirect?.startsWith('/') ? redirect : ROUTES.CHAT, { replace: true });
       }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Authentication failed. Please check your details.');
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'Authentication failed. Please check your details.'));
     } finally {
       setLoading(false);
     }

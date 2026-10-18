@@ -874,20 +874,22 @@ export default function ChatPage() {
     setOpenConversationMenuKey(null);
   }, [conversationFilter, selectedRoomId, selectedUserId, userSearchQuery]);
 
+  const selectedUserMessageRequest = selectedUser?.messageRequest;
+
   useEffect(() => {
     const previousState = selectedMessageRequestStateRef.current;
     if (
       conversationFilter === 'requests' &&
-      selectedUser?.messageRequest === false &&
-      previousState?.userId === selectedUser.id &&
+      selectedUserMessageRequest === false &&
+      previousState?.userId === selectedUserId &&
       previousState.isRequest
     ) {
       setConversationFilter('all');
     }
-    selectedMessageRequestStateRef.current = selectedUser
-      ? { userId: selectedUser.id, isRequest: Boolean(selectedUser.messageRequest) }
+    selectedMessageRequestStateRef.current = selectedUserId
+      ? { userId: selectedUserId, isRequest: Boolean(selectedUserMessageRequest) }
       : null;
-  }, [conversationFilter, selectedUser?.id, selectedUser?.messageRequest]);
+  }, [conversationFilter, selectedUserId, selectedUserMessageRequest]);
 
   useEffect(() => {
     if (!currentUser?.id) {
