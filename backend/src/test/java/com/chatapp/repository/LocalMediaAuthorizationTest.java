@@ -55,13 +55,13 @@ class LocalMediaAuthorizationTest {
         message.getHiddenByUsers().add(bob);
         entityManager.flush();
 
-        assertEquals(0, messages.findConversationPage(bob.getId(), alice.getId(), null, PageRequest.of(0, 10)).size());
-        assertEquals(1, messages.findConversationPage(alice.getId(), bob.getId(), null, PageRequest.of(0, 10)).size());
-        assertEquals(0, messages.findConversationSearchPage(bob.getId(), alice.getId(), "%hidden phrase%", null,
+        assertEquals(0, messages.findConversationPage(bob.getId(), alice.getId(), null, null, PageRequest.of(0, 10)).size());
+        assertEquals(1, messages.findConversationPage(alice.getId(), bob.getId(), null, null, PageRequest.of(0, 10)).size());
+        assertEquals(0, messages.findConversationSearchPage(bob.getId(), alice.getId(), "%hidden phrase%", null, null,
                 PageRequest.of(0, 10)).size());
         assertEquals(0, messages.findConversationMediaPage(bob.getId(), alice.getId(),
-                List.of(Message.MessageType.IMAGE), null, PageRequest.of(0, 10)).size());
-        assertEquals(0, messages.findConversationLinkPage(bob.getId(), alice.getId(), null,
+                List.of(Message.MessageType.IMAGE), null, null, PageRequest.of(0, 10)).size());
+        assertEquals(0, messages.findConversationLinkPage(bob.getId(), alice.getId(), null, null,
                 PageRequest.of(0, 10)).size());
         assertEquals(0, messages.countUnreadMessagesGroupedBySender(bob.getId()).size());
         assertEquals(0, messages.findLatestMessagesForPrivateConversations(bob.getId(), List.of(alice.getId())).size());
@@ -89,13 +89,13 @@ class LocalMediaAuthorizationTest {
         message.getHiddenByUsers().add(bob);
         entityManager.flush();
 
-        assertEquals(0, messages.findRoomMessagePage(room.getId(), bob.getId(), null, PageRequest.of(0, 10)).size());
-        assertEquals(1, messages.findRoomMessagePage(room.getId(), alice.getId(), null, PageRequest.of(0, 10)).size());
-        assertEquals(0, messages.findRoomSearchPage(room.getId(), "%group hidden phrase%", bob.getId(), null,
+        assertEquals(0, messages.findRoomMessagePage(room.getId(), bob.getId(), null, null, PageRequest.of(0, 10)).size());
+        assertEquals(1, messages.findRoomMessagePage(room.getId(), alice.getId(), null, null, PageRequest.of(0, 10)).size());
+        assertEquals(0, messages.findRoomSearchPage(room.getId(), "%group hidden phrase%", bob.getId(), null, null,
                 PageRequest.of(0, 10)).size());
         assertEquals(0, messages.findRoomMediaPage(room.getId(), List.of(Message.MessageType.IMAGE), bob.getId(), null,
-                PageRequest.of(0, 10)).size());
-        assertEquals(0, messages.findRoomLinkPage(room.getId(), bob.getId(), null, PageRequest.of(0, 10)).size());
+                null, PageRequest.of(0, 10)).size());
+        assertEquals(0, messages.findRoomLinkPage(room.getId(), bob.getId(), null, null, PageRequest.of(0, 10)).size());
         assertEquals(0, messages.countUnreadRoomMessages(bob.getId(), List.of(room.getId())).size());
         assertEquals(0, messages.findLatestMessagesForRooms(List.of(room.getId()), bob.getId()).size());
         assertEquals(Optional.empty(), messages.findRoomMessageById(room.getId(), message.getId(), bob.getId()));

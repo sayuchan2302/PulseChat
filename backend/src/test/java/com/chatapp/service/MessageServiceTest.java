@@ -190,7 +190,7 @@ class MessageServiceTest {
                 User otherUser = user(2L, "thinh");
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
-                when(messageRepository.findConversationPage(eq(1L), eq(2L), isNull(), any(Pageable.class)))
+                when(messageRepository.findConversationPage(eq(1L), eq(2L), isNull(), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of(
                                                 privateMessage(3L, "three", currentUser, otherUser),
                                                 privateMessage(2L, "two", otherUser, currentUser),
@@ -203,7 +203,7 @@ class MessageServiceTest {
                 assertEquals(List.of(2L, 3L), page.items().stream().map(message -> message.id()).toList());
 
                 ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-                verify(messageRepository).findConversationPage(eq(1L), eq(2L), isNull(), pageableCaptor.capture());
+                verify(messageRepository).findConversationPage(eq(1L), eq(2L), isNull(), isNull(), pageableCaptor.capture());
                 assertEquals(3, pageableCaptor.getValue().getPageSize());
         }
 
@@ -213,13 +213,13 @@ class MessageServiceTest {
                 User otherUser = user(2L, "thinh");
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
-                when(messageRepository.findConversationPage(eq(1L), eq(2L), isNull(), any(Pageable.class)))
+                when(messageRepository.findConversationPage(eq(1L), eq(2L), isNull(), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of());
 
                 MessagePageResponse page = messageQueryService.getConversation("sayu", otherUser.getId(), null, 30);
 
                 assertTrue(page.items().isEmpty());
-                verify(messageRepository).findConversationPage(eq(1L), eq(2L), isNull(), any(Pageable.class));
+                verify(messageRepository).findConversationPage(eq(1L), eq(2L), isNull(), isNull(), any(Pageable.class));
         }
 
         @Test
@@ -228,7 +228,7 @@ class MessageServiceTest {
                 User sender = user(1L, "sayu");
                 when(userService.findByUsername("sayu")).thenReturn(sender);
                 when(chatRoomService.findGroupRoomForMember("sayu", room.getId())).thenReturn(room);
-                when(messageRepository.findRoomMessagePage(eq(room.getId()), eq(1L), eq(8L), any(Pageable.class)))
+                when(messageRepository.findRoomMessagePage(eq(room.getId()), eq(1L), eq(8L), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of(
                                                 roomMessage(7L, "older", sender, room),
                                                 roomMessage(6L, "oldest", sender, room)));
@@ -240,7 +240,7 @@ class MessageServiceTest {
                 assertEquals(List.of(6L, 7L), page.items().stream().map(message -> message.id()).toList());
 
                 ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-                verify(messageRepository).findRoomMessagePage(eq(room.getId()), eq(1L), eq(8L), pageableCaptor.capture());
+                verify(messageRepository).findRoomMessagePage(eq(room.getId()), eq(1L), eq(8L), isNull(), pageableCaptor.capture());
                 assertEquals(31, pageableCaptor.getValue().getPageSize());
         }
 
@@ -251,14 +251,14 @@ class MessageServiceTest {
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
                 when(messageRepository.findConversationMediaPage(
-                                eq(1L), eq(2L), any(), isNull(), any(Pageable.class)))
+                                eq(1L), eq(2L), any(), isNull(), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of());
 
                 MessagePageResponse page = messageQueryService.getConversationMedia("sayu", otherUser.getId(), null, 12);
 
                 assertTrue(page.items().isEmpty());
                 verify(messageRepository).findConversationMediaPage(
-                                eq(1L), eq(2L), any(), isNull(), any(Pageable.class));
+                                eq(1L), eq(2L), any(), isNull(), isNull(), any(Pageable.class));
         }
 
         @Test
@@ -272,6 +272,7 @@ class MessageServiceTest {
                                 eq(2L),
                                 eq(List.of(MessageType.IMAGE, MessageType.VIDEO, MessageType.AUDIO, MessageType.FILE)),
                                 eq(10L),
+                                isNull(),
                                 any(Pageable.class))).thenReturn(List.of(
                                                 mediaMessage(9L, currentUser, otherUser, MessageType.IMAGE),
                                                 mediaMessage(8L, otherUser, currentUser, MessageType.VIDEO),
@@ -289,6 +290,7 @@ class MessageServiceTest {
                                 eq(2L),
                                 eq(List.of(MessageType.IMAGE, MessageType.VIDEO, MessageType.AUDIO, MessageType.FILE)),
                                 eq(10L),
+                                isNull(),
                                 pageableCaptor.capture());
                 assertEquals(3, pageableCaptor.getValue().getPageSize());
         }
@@ -299,7 +301,7 @@ class MessageServiceTest {
                 User otherUser = user(2L, "thinh");
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
-                when(messageRepository.findConversationLinkPage(eq(1L), eq(2L), isNull(), any(Pageable.class)))
+                when(messageRepository.findConversationLinkPage(eq(1L), eq(2L), isNull(), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of(
                                                 linkMessage(6L, currentUser, otherUser),
                                                 linkMessage(5L, otherUser, currentUser)));
@@ -321,7 +323,7 @@ class MessageServiceTest {
                                 () -> messageQueryService.getRoomMedia("sayu", 10L, null, 12));
 
                 assertEquals(ErrorCode.ROOM_ACCESS_DENIED, exception.getErrorCode());
-                verify(messageRepository, never()).findRoomMediaPage(any(), any(), any(), any(), any());
+                verify(messageRepository, never()).findRoomMediaPage(any(), any(), any(), any(), any(), any());
         }
 
         @Test
@@ -330,7 +332,7 @@ class MessageServiceTest {
                 User sender = user(1L, "sayu");
                 when(userService.findByUsername("sayu")).thenReturn(sender);
                 when(chatRoomService.findGroupRoomForMember("sayu", room.getId())).thenReturn(room);
-                when(messageRepository.findRoomLinkPage(eq(room.getId()), eq(1L), eq(20L), any(Pageable.class)))
+                when(messageRepository.findRoomLinkPage(eq(room.getId()), eq(1L), eq(20L), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of(
                                                 roomLinkMessage(19L, sender, room),
                                                 roomLinkMessage(18L, sender, room),
@@ -350,7 +352,7 @@ class MessageServiceTest {
                 when(userService.findByUsername("sayu")).thenReturn(currentUser);
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
                 when(messageRepository.findConversationSearchPage(
-                                eq(1L), eq(2L), any(), isNull(), any(Pageable.class)))
+                                eq(1L), eq(2L), any(), isNull(), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of());
 
                 MessagePageResponse page = messageQueryService.searchConversation(
@@ -358,7 +360,7 @@ class MessageServiceTest {
 
                 assertTrue(page.items().isEmpty());
                 verify(messageRepository).findConversationSearchPage(
-                                eq(1L), eq(2L), any(), isNull(), any(Pageable.class));
+                                eq(1L), eq(2L), any(), isNull(), isNull(), any(Pageable.class));
         }
 
         @Test
@@ -372,6 +374,7 @@ class MessageServiceTest {
                                 eq(2L),
                                 eq("%hello%"),
                                 eq(12L),
+                                isNull(),
                                 any(Pageable.class))).thenReturn(List.of(
                                                 privateMessage(11L, "hello newer", currentUser, otherUser),
                                                 privateMessage(10L, "hello older", otherUser, currentUser),
@@ -390,6 +393,7 @@ class MessageServiceTest {
                                 eq(2L),
                                 eq("%hello%"),
                                 eq(12L),
+                                isNull(),
                                 pageableCaptor.capture());
                 assertEquals(3, pageableCaptor.getValue().getPageSize());
         }
@@ -404,7 +408,7 @@ class MessageServiceTest {
                                 () -> messageQueryService.searchRoom("sayu", 10L, "hello", null, 12));
 
                 assertEquals(ErrorCode.ROOM_ACCESS_DENIED, exception.getErrorCode());
-                verify(messageRepository, never()).findRoomSearchPage(any(), any(), any(), any(), any());
+                verify(messageRepository, never()).findRoomSearchPage(any(), any(), any(), any(), any(), any());
         }
 
         @Test
@@ -416,13 +420,13 @@ class MessageServiceTest {
                 when(userService.findById(otherUser.getId())).thenReturn(otherUser);
                 when(messageRepository.findConversationMessageById(1L, 2L, anchor.getId()))
                                 .thenReturn(Optional.of(anchor));
-                when(messageRepository.findConversationMessagesBefore(eq(1L), eq(2L), eq(anchor.getId()),
+                when(messageRepository.findConversationMessagesBefore(eq(1L), eq(2L), eq(anchor.getId()), isNull(),
                                 any(Pageable.class)))
                                 .thenReturn(List.of(
                                                 privateMessage(9L, "before 9", otherUser, currentUser),
                                                 privateMessage(8L, "before 8", currentUser, otherUser),
                                                 privateMessage(7L, "before 7", otherUser, currentUser)));
-                when(messageRepository.findConversationMessagesAfter(eq(1L), eq(2L), eq(anchor.getId()),
+                when(messageRepository.findConversationMessagesAfter(eq(1L), eq(2L), eq(anchor.getId()), isNull(),
                                 any(Pageable.class)))
                                 .thenReturn(List.of(
                                                 privateMessage(11L, "after 11", otherUser, currentUser),
@@ -453,8 +457,8 @@ class MessageServiceTest {
                                 () -> messageQueryService.getConversationAroundMessage("sayu", otherUser.getId(), 30L, 30));
 
                 assertEquals(ErrorCode.MESSAGE_NOT_FOUND, exception.getErrorCode());
-                verify(messageRepository, never()).findConversationMessagesBefore(any(), any(), any(), any());
-                verify(messageRepository, never()).findConversationMessagesAfter(any(), any(), any(), any());
+                verify(messageRepository, never()).findConversationMessagesBefore(any(), any(), any(), any(), any());
+                verify(messageRepository, never()).findConversationMessagesAfter(any(), any(), any(), any(), any());
         }
 
         @Test
@@ -467,9 +471,9 @@ class MessageServiceTest {
                 when(messageRepository.findRoomMessageById(room.getId(), anchor.getId(), sender.getId()))
                                 .thenReturn(Optional.of(anchor));
                 when(messageRepository.findRoomMessagesBefore(eq(room.getId()), eq(anchor.getId()),
-                                eq(sender.getId()), any(Pageable.class)))
+                                eq(sender.getId()), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of(roomMessage(14L, "before", sender, room)));
-                when(messageRepository.findRoomMessagesAfter(eq(room.getId()), eq(anchor.getId()), eq(sender.getId()), any(Pageable.class)))
+                when(messageRepository.findRoomMessagesAfter(eq(room.getId()), eq(anchor.getId()), eq(sender.getId()), isNull(), any(Pageable.class)))
                                 .thenReturn(List.of(
                                                 roomMessage(16L, "after", sender, room),
                                                 roomMessage(17L, "after newer", sender, room)));

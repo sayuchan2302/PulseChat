@@ -79,7 +79,7 @@ class MessageHydrationQueryCountTest {
         statistics.clear();
 
         List<Message> page = messages.findRoomMessagePage(
-                room.getId(), alice.getId(), null, PageRequest.of(0, PAGE_SIZE));
+                room.getId(), alice.getId(), null, null, PageRequest.of(0, PAGE_SIZE));
         assertEquals(PAGE_SIZE, page.size());
         page.forEach(message -> MessageResponse.from(message, alice.getId()));
 

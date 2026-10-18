@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -57,6 +58,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               )
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
+              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
               and (:before is null or m.id < :before)
             order by m.id desc
             """)
@@ -64,6 +66,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             @Param("currentUserId") Long currentUserId,
             @Param("otherUserId") Long otherUserId,
             @Param("before") Long before,
+            @Param("clearedAt") LocalDateTime clearedAt,
             Pageable pageable
     );
 
@@ -81,6 +84,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.mediaUrl is not null
               and m.type in :mediaTypes
+              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
               and (:before is null or m.id < :before)
             order by m.id desc
             """)
@@ -89,6 +93,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             @Param("otherUserId") Long otherUserId,
             @Param("mediaTypes") List<MessageType> mediaTypes,
             @Param("before") Long before,
+            @Param("clearedAt") LocalDateTime clearedAt,
             Pageable pageable
     );
 
@@ -105,6 +110,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.linkPreviewUrl is not null
+              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
               and (:before is null or m.id < :before)
             order by m.id desc
             """)
@@ -112,6 +118,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             @Param("currentUserId") Long currentUserId,
             @Param("otherUserId") Long otherUserId,
             @Param("before") Long before,
+            @Param("clearedAt") LocalDateTime clearedAt,
             Pageable pageable
     );
 
@@ -133,6 +140,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                   or lower(coalesce(m.linkPreviewDescription, '')) like :queryPattern
                   or lower(coalesce(m.linkPreviewDomain, '')) like :queryPattern
               )
+              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
               and (:before is null or m.id < :before)
             order by m.id desc
             """)
@@ -141,6 +149,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             @Param("otherUserId") Long otherUserId,
             @Param("queryPattern") String queryPattern,
             @Param("before") Long before,
+            @Param("clearedAt") LocalDateTime clearedAt,
             Pageable pageable
     );
 
@@ -219,12 +228,14 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.id < :anchorId
+              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
             order by m.id desc
             """)
     List<Message> findConversationMessagesBefore(
             @Param("currentUserId") Long currentUserId,
             @Param("otherUserId") Long otherUserId,
             @Param("anchorId") Long anchorId,
+            @Param("clearedAt") LocalDateTime clearedAt,
             Pageable pageable
     );
 
@@ -240,12 +251,14 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.id > :anchorId
+              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
             order by m.id asc
             """)
     List<Message> findConversationMessagesAfter(
             @Param("currentUserId") Long currentUserId,
             @Param("otherUserId") Long otherUserId,
             @Param("anchorId") Long anchorId,
+            @Param("clearedAt") LocalDateTime clearedAt,
             Pageable pageable
     );
 
@@ -393,6 +406,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             join fetch m.chatRoom
             left join fetch m.receiver
             where m.chatRoom.id = :roomId
+              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
               and (:before is null or m.id < :before)
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
@@ -402,6 +416,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             @Param("roomId") Long roomId,
             @Param("currentUserId") Long currentUserId,
             @Param("before") Long before,
+            @Param("clearedAt") LocalDateTime clearedAt,
             Pageable pageable
     );
 
@@ -438,6 +453,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.mediaUrl is not null
               and m.type in :mediaTypes
+              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
               and (:before is null or m.id < :before)
             order by m.id desc
             """)
@@ -446,6 +462,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             @Param("mediaTypes") List<MessageType> mediaTypes,
             @Param("currentUserId") Long currentUserId,
             @Param("before") Long before,
+            @Param("clearedAt") LocalDateTime clearedAt,
             Pageable pageable
     );
 
@@ -459,6 +476,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.linkPreviewUrl is not null
+              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
               and (:before is null or m.id < :before)
             order by m.id desc
             """)
@@ -466,6 +484,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             @Param("roomId") Long roomId,
             @Param("currentUserId") Long currentUserId,
             @Param("before") Long before,
+            @Param("clearedAt") LocalDateTime clearedAt,
             Pageable pageable
     );
 
@@ -484,6 +503,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                   or lower(coalesce(m.linkPreviewDescription, '')) like :queryPattern
                   or lower(coalesce(m.linkPreviewDomain, '')) like :queryPattern
               )
+              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
               and (:before is null or m.id < :before)
             order by m.id desc
             """)
@@ -492,6 +512,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             @Param("queryPattern") String queryPattern,
             @Param("currentUserId") Long currentUserId,
             @Param("before") Long before,
+            @Param("clearedAt") LocalDateTime clearedAt,
             Pageable pageable
     );
 
@@ -520,12 +541,14 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.id < :anchorId
+              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
             order by m.id desc
             """)
     List<Message> findRoomMessagesBefore(
             @Param("roomId") Long roomId,
             @Param("anchorId") Long anchorId,
             @Param("currentUserId") Long currentUserId,
+            @Param("clearedAt") LocalDateTime clearedAt,
             Pageable pageable
     );
 
@@ -538,12 +561,14 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.id > :anchorId
+              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
             order by m.id asc
             """)
     List<Message> findRoomMessagesAfter(
             @Param("roomId") Long roomId,
             @Param("anchorId") Long anchorId,
             @Param("currentUserId") Long currentUserId,
+            @Param("clearedAt") LocalDateTime clearedAt,
             Pageable pageable
     );
 }

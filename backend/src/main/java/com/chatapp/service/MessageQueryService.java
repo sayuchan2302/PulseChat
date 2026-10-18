@@ -55,11 +55,11 @@ public class MessageQueryService {
                 participants.currentUser().getId(),
                 participants.otherUser().getId(),
                 before,
+                privateClearedAt(participants),
                 PageRequest.of(0, pageSize + 1));
 
         return MessagePageAssembler.fromNewestFirst(
-                filterClearedMessages(messages, privateClearedAt(participants)), pageSize,
-                participants.currentUser().getId());
+                messages, pageSize, participants.currentUser().getId());
     }
 
     @Transactional(readOnly = true)
@@ -77,10 +77,9 @@ public class MessageQueryService {
         Long currentUserId = userService.findByUsername(username).getId();
         int pageSize = normalizePageSize(size);
         List<Message> messages = messageRepository.findRoomMessagePage(
-                roomId, currentUserId, before, PageRequest.of(0, pageSize + 1));
+                roomId, currentUserId, before, roomClearedAt(username, roomId), PageRequest.of(0, pageSize + 1));
 
-        return MessagePageAssembler.fromNewestFirst(
-                filterClearedMessages(messages, roomClearedAt(username, roomId)), pageSize, currentUserId);
+        return MessagePageAssembler.fromNewestFirst(messages, pageSize, currentUserId);
     }
 
     @Transactional(readOnly = true)
@@ -89,10 +88,9 @@ public class MessageQueryService {
         int pageSize = normalizePageSize(size);
         List<Message> messages = messageRepository.findConversationMediaPage(
                 participants.currentUser().getId(), participants.otherUser().getId(), MEDIA_MESSAGE_TYPES,
-                before, PageRequest.of(0, pageSize + 1));
+                before, privateClearedAt(participants), PageRequest.of(0, pageSize + 1));
 
-        return MessagePageAssembler.galleryFromNewestFirst(
-                filterClearedMessages(messages, privateClearedAt(participants)), pageSize,
+        return MessagePageAssembler.galleryFromNewestFirst(messages, pageSize,
                 participants.currentUser().getId());
     }
 
@@ -102,10 +100,9 @@ public class MessageQueryService {
         int pageSize = normalizePageSize(size);
         List<Message> messages = messageRepository.findConversationLinkPage(
                 participants.currentUser().getId(), participants.otherUser().getId(),
-                before, PageRequest.of(0, pageSize + 1));
+                before, privateClearedAt(participants), PageRequest.of(0, pageSize + 1));
 
-        return MessagePageAssembler.galleryFromNewestFirst(
-                filterClearedMessages(messages, privateClearedAt(participants)), pageSize,
+        return MessagePageAssembler.galleryFromNewestFirst(messages, pageSize,
                 participants.currentUser().getId());
     }
 
@@ -115,10 +112,10 @@ public class MessageQueryService {
         Long currentUserId = userService.findByUsername(username).getId();
         int pageSize = normalizePageSize(size);
         List<Message> messages = messageRepository.findRoomMediaPage(
-                roomId, MEDIA_MESSAGE_TYPES, currentUserId, before, PageRequest.of(0, pageSize + 1));
+                roomId, MEDIA_MESSAGE_TYPES, currentUserId, before, roomClearedAt(username, roomId),
+                PageRequest.of(0, pageSize + 1));
 
-        return MessagePageAssembler.galleryFromNewestFirst(
-                filterClearedMessages(messages, roomClearedAt(username, roomId)), pageSize, currentUserId);
+        return MessagePageAssembler.galleryFromNewestFirst(messages, pageSize, currentUserId);
     }
 
     @Transactional(readOnly = true)
@@ -127,10 +124,9 @@ public class MessageQueryService {
         Long currentUserId = userService.findByUsername(username).getId();
         int pageSize = normalizePageSize(size);
         List<Message> messages = messageRepository.findRoomLinkPage(
-                roomId, currentUserId, before, PageRequest.of(0, pageSize + 1));
+                roomId, currentUserId, before, roomClearedAt(username, roomId), PageRequest.of(0, pageSize + 1));
 
-        return MessagePageAssembler.galleryFromNewestFirst(
-                filterClearedMessages(messages, roomClearedAt(username, roomId)), pageSize, currentUserId);
+        return MessagePageAssembler.galleryFromNewestFirst(messages, pageSize, currentUserId);
     }
 
     @Transactional(readOnly = true)
@@ -145,10 +141,9 @@ public class MessageQueryService {
         int pageSize = normalizePageSize(size);
         List<Message> messages = messageRepository.findConversationSearchPage(
                 participants.currentUser().getId(), participants.otherUser().getId(), queryPattern,
-                before, PageRequest.of(0, pageSize + 1));
+                before, privateClearedAt(participants), PageRequest.of(0, pageSize + 1));
 
-        return MessagePageAssembler.galleryFromNewestFirst(
-                filterClearedMessages(messages, privateClearedAt(participants)), pageSize,
+        return MessagePageAssembler.galleryFromNewestFirst(messages, pageSize,
                 participants.currentUser().getId());
     }
 
@@ -163,10 +158,10 @@ public class MessageQueryService {
 
         int pageSize = normalizePageSize(size);
         List<Message> messages = messageRepository.findRoomSearchPage(
-                roomId, queryPattern, currentUserId, before, PageRequest.of(0, pageSize + 1));
+                roomId, queryPattern, currentUserId, before, roomClearedAt(username, roomId),
+                PageRequest.of(0, pageSize + 1));
 
-        return MessagePageAssembler.galleryFromNewestFirst(
-                filterClearedMessages(messages, roomClearedAt(username, roomId)), pageSize, currentUserId);
+        return MessagePageAssembler.galleryFromNewestFirst(messages, pageSize, currentUserId);
     }
 
     @Transactional(readOnly = true)
@@ -221,12 +216,12 @@ public class MessageQueryService {
                 anchorMessage,
                 normalizePageSize(size),
                 participants.currentUser().getId(),
-                (anchorId, pageable) -> filterClearedMessages(messageRepository.findConversationMessagesBefore(
-                        participants.currentUser().getId(), participants.otherUser().getId(), anchorId, pageable),
-                        clearedAt),
-                (anchorId, pageable) -> filterClearedMessages(messageRepository.findConversationMessagesAfter(
-                        participants.currentUser().getId(), participants.otherUser().getId(), anchorId, pageable),
-                        clearedAt));
+                (anchorId, pageable) -> messageRepository.findConversationMessagesBefore(
+                        participants.currentUser().getId(), participants.otherUser().getId(), anchorId, clearedAt,
+                        pageable),
+                (anchorId, pageable) -> messageRepository.findConversationMessagesAfter(
+                        participants.currentUser().getId(), participants.otherUser().getId(), anchorId, clearedAt,
+                        pageable));
     }
 
     @Transactional(readOnly = true)
@@ -242,10 +237,10 @@ public class MessageQueryService {
                 anchorMessage,
                 normalizePageSize(size),
                 currentUserId,
-                (anchorId, pageable) -> filterClearedMessages(
-                        messageRepository.findRoomMessagesBefore(roomId, anchorId, currentUserId, pageable), clearedAt),
-                (anchorId, pageable) -> filterClearedMessages(
-                        messageRepository.findRoomMessagesAfter(roomId, anchorId, currentUserId, pageable), clearedAt));
+                (anchorId, pageable) -> messageRepository.findRoomMessagesBefore(
+                        roomId, anchorId, currentUserId, clearedAt, pageable),
+                (anchorId, pageable) -> messageRepository.findRoomMessagesAfter(
+                        roomId, anchorId, currentUserId, clearedAt, pageable));
     }
 
     @Transactional(readOnly = true)
@@ -295,15 +290,6 @@ public class MessageQueryService {
         return conversationSettingRepository.findByUserIdAndChatRoomId(currentUser.getId(), roomId)
                 .map(ConversationSetting::getClearedAt)
                 .orElse(null);
-    }
-
-    private List<Message> filterClearedMessages(List<Message> messages, LocalDateTime clearedAt) {
-        if (clearedAt == null) {
-            return messages;
-        }
-        return messages.stream()
-                .filter(message -> message.getTimestamp() != null && message.getTimestamp().isAfter(clearedAt))
-                .toList();
     }
 
     private void requireVisibleAfterClear(Message message, LocalDateTime clearedAt) {
