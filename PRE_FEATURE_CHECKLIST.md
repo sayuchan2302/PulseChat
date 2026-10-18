@@ -95,7 +95,7 @@
 
 ### 2.4 CI (chặn regression vĩnh viễn)
 - [x] Tạo `.github/workflows/ci.yml`: backend `./mvnw -B test` (Java 17 temurin) + frontend `npm ci`/`test`/`lint`/`build` (Node 24) trên push `main`/PR; kèm fix exec bit `mvnw` — commit `80d3194`. ⏳ Chưa chạy thực tế trên GitHub (chưa push).
-- [ ] (Tùy chọn) thêm `npm run test:coverage` với ngưỡng tối thiểu.
+- [x] (Tùy chọn) thêm `npm run test:coverage` với ngưỡng tối thiểu: `thresholds` trong `frontend/vitest.config.ts` (statements 40 / branches 25 / functions 34 / lines 45 — đặt ngay dưới mức hiện tại 44.09 / 28.25 / 37.66 / 49.89 để bắt hồi quy thật nhưng không cản refactor nhỏ). Đã verify cơ chế chặn: tạm nâng statements lên 99 → `test:coverage` **exit 1** kèm dòng `ERROR: Coverage for statements (44.09%) does not meet global threshold (99%)`, sau đó trả về; `test:coverage` (40/40) + lint xanh.
 
 ### Gate Definition of Done (Phase 2)
 - [ ] CI xanh trên repo. (⏳ chờ push lần đầu)
