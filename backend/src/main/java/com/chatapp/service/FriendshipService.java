@@ -17,10 +17,13 @@ import com.chatapp.repository.MessageRepository;
 import com.chatapp.repository.UserRepository;
 import com.chatapp.util.MessagePreviewFormatter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -35,6 +38,8 @@ public class FriendshipService {
     private static final String STATUS_PENDING_OUTGOING = "pending_outgoing";
     private static final String STATUS_ACCEPTED = "accepted";
     private static final String STATUS_DECLINED = "declined";
+    private static final int MAX_SEARCH_RESULTS = 50;
+    private static final int MAX_PRIVATE_CONVERSATION_PARTNERS = 200;
 
     private final FriendshipRepository friendshipRepository;
     private final UserRepository userRepository;
@@ -81,10 +86,7 @@ public class FriendshipService {
                 .map(friendship -> otherParticipant(friendship, currentUser))
                 .forEach(friend -> contactsById.put(friend.getId(), friend));
 
-        List<Long> conversationPartnerIds = messageRepository.findPrivateConversationPartnerIds(currentUser.getId())
-                .stream()
-                .filter(partnerId -> !partnerId.equals(currentUser.getId()))
-                .toList();
+        List<Long> conversationPartnerIds = findRecentPrivateConversationPartnerIds(currentUser);
         Set<Long> repliedToUserIds = conversationPartnerIds.isEmpty()
                 ? Set.of()
                 : Set.copyOf(messageRepository.findPrivateConversationRecipientIdsSentByUser(
@@ -125,16 +127,19 @@ public class FriendshipService {
     public List<UserResponse> searchUsers(String currentUsername, String usernameQuery) {
         User currentUser = userService.findByUsername(currentUsername);
         String normalizedQuery = normalizeSearchQuery(usernameQuery);
+        Pageable limit = PageRequest.of(0, MAX_SEARCH_RESULTS);
         List<User> users = normalizedQuery.isBlank()
-                ? userRepository.findAllByUsernameNotOrderByUsernameAsc(currentUsername)
+                ? userRepository.findAllByUsernameNotOrderByUsernameAsc(currentUsername, limit)
                 : userRepository.findAllByUsernameContainingIgnoreCaseAndUsernameNotOrderByUsernameAsc(
                         normalizedQuery,
-                        currentUsername
+                        currentUsername,
+                        limit
                 );
+        Map<Long, Friendship> friendshipsByUserId = findFriendshipsWith(currentUser, users);
 
         return users
                 .stream()
-                .map(user -> toUserResponseWithFriendshipStatus(currentUser, user))
+                .map(user -> toUserResponseWithFriendshipStatus(currentUser, user, friendshipsByUserId))
                 .toList();
     }
 
@@ -282,16 +287,64 @@ public class FriendshipService {
     }
 
     private UserResponse toUserResponseWithFriendshipStatus(User currentUser, User otherUser) {
-        PairKey pairKey = pairKey(currentUser, otherUser);
+        return toUserResponseWithFriendshipStatus(
+                currentUser,
+                otherUser,
+                findFriendshipsWith(currentUser, List.of(otherUser))
+        );
+    }
 
-        return friendshipRepository
-                .findByUserLowIdAndUserHighId(pairKey.userLowId(), pairKey.userHighId())
-                .map(friendship -> UserResponse.from(
-                        otherUser,
-                        toFriendshipStatus(currentUser, friendship),
-                        friendship.getId()
-                ))
-                .orElseGet(() -> UserResponse.from(otherUser, STATUS_NONE));
+    private UserResponse toUserResponseWithFriendshipStatus(
+            User currentUser,
+            User otherUser,
+            Map<Long, Friendship> friendshipsByUserId
+    ) {
+        Friendship friendship = friendshipsByUserId.get(otherUser.getId());
+        if (friendship == null) {
+            return UserResponse.from(otherUser, STATUS_NONE);
+        }
+
+        return UserResponse.from(otherUser, toFriendshipStatus(currentUser, friendship), friendship.getId());
+    }
+
+    private Map<Long, Friendship> findFriendshipsWith(User currentUser, List<User> otherUsers) {
+        if (otherUsers.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Long> otherUserIds = otherUsers.stream().map(User::getId).toList();
+        return friendshipRepository.findBetweenUserAndOtherUsers(currentUser.getId(), otherUserIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        friendship -> otherParticipant(friendship, currentUser).getId(),
+                        Function.identity()
+                ));
+    }
+
+    /**
+     * Returns the partners with recent private activity, newest first, capped so a single
+     * request never hydrates an unbounded conversation list.
+     */
+    private List<Long> findRecentPrivateConversationPartnerIds(User currentUser) {
+        Map<Long, Long> latestMessageIdByPartnerId = new HashMap<>();
+        messageRepository.findLatestSentActivityByReceiver(currentUser.getId())
+                .forEach(activity -> latestMessageIdByPartnerId.merge(
+                        activity.getPartnerId(),
+                        activity.getLatestMessageId(),
+                        Math::max));
+        messageRepository.findLatestReceivedActivityBySender(currentUser.getId())
+                .forEach(activity -> latestMessageIdByPartnerId.merge(
+                        activity.getPartnerId(),
+                        activity.getLatestMessageId(),
+                        Math::max));
+
+        return latestMessageIdByPartnerId.entrySet()
+                .stream()
+                .filter(entry -> !entry.getKey().equals(currentUser.getId()))
+                .sorted(Map.Entry.<Long, Long>comparingByValue().reversed())
+                .limit(MAX_PRIVATE_CONVERSATION_PARTNERS)
+                .map(Map.Entry::getKey)
+                .toList();
     }
 
     private Map<Long, Message> findLatestMessagesByFriendId(User currentUser, List<User> friends) {

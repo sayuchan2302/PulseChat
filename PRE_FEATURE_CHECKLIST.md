@@ -111,10 +111,10 @@
 ### 3.1 Backend hiệu năng
 - [x] **N+1 khi hydrate message page**: `MessageResponse.java:49-88` + `MessageRepository.java:45-67,187-188` — đã thêm `@BatchSize(50)` cho `Message` (class + `reactions`/`mentions`/`hiddenByUsers`), `ChatRoom` (class + `members`), `User`, `CallSession` → batch-fetch dạng IN theo page. Test chống hồi quy `MessageHydrationQueryCountTest`: hydrate 20 tin nhắn room kèm reply/reaction/mention chỉ tốn **5 query** (trước ~60). Lưu ý: media là cột inline trên `Message`, không có bảng attachments riêng.
 - [x] Tắt `spring.jpa.open-in-view` (`application.yml:18`) sau khi sửa 3.1 — full suite 210/210 pass, không call site nào vỡ lazy.
-- [ ] `UserRepository.searchUsers:33-35` — thêm LIMIT/phân trang; resolve friendship theo lô (hiện N+1 per user).
-- [ ] `MessageRepository.java:271-280` — giới hạn `findPrivateConversationPartnerIds`.
-- [ ] `ChatRoomController.java:313-334` — fan-out participant N+1 → batch query; bắt lỗi non-`AppException` đàng hoàng.
-- [ ] `MediaAccessService.java:21-29` — chuyển filesystem check ra ngoài transaction.
+- [x] Search users — thêm LIMIT 50 (`UserRepository` đổi sang `Pageable`, áp ở `UserService.listOtherUsers` + `FriendshipService.searchUsers`); resolve friendship theo lô 1 query (`findBetweenUserAndOtherUsers`) thay vì N+1.
+- [x] Giới hạn danh sách partner private: tách 2 query `findLatestSentActivityByReceiver`/`findLatestReceivedActivityBySender` (group by 1 cột — chạy được cả H2 lẫn Postgres; CASE tham số trong GROUP BY bị H2 từ chối), merge + sort theo độ mới + cap 200 trong `FriendshipService`.
+- [x] `ChatRoomController` fan-out: thêm `ChatRoomService.getGroupNotificationViews` batch room/settings/unread/latest theo lô; `AppException` lẫn `RuntimeException` đều fallback payload chung kèm log warn thay vì nổ giữa vòng lặp.
+- [x] `MediaAccessService.requireAccess`: bỏ `@Transactional` — filesystem marker check chạy ngoài transaction, 2 count query tự có read-only tx riêng.
 - [ ] (Tùy chọn) pg_trgm index cho `LIKE '%…%'` trong `MessageRepository`/`UserRepository`.
 
 ### 3.2 Frontend hiệu năng & ổn định

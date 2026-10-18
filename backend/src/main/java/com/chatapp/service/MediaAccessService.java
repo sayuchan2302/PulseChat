@@ -7,7 +7,6 @@ import com.chatapp.repository.MessageRepository;
 import com.chatapp.repository.ChatRoomRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 
@@ -18,7 +17,10 @@ public class MediaAccessService {
     private final MessageRepository messageRepository;
     private final ChatRoomRepository chatRoomRepository;
 
-    @Transactional(readOnly = true)
+    /**
+     * Ownership is resolved from the filesystem marker first, outside any transaction; the
+     * repository counts below each run in their own short read-only transaction.
+     */
     public void requireAccess(String username, String filename) {
         storage.validateFilename(filename);
         if (username.equals(storage.getOwner(filename))) return;

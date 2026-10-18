@@ -22,12 +22,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     boolean existsByAccountRoleAndEnabledTrue(AccountRole accountRole);
 
-    List<User> findAllByUsernameNotOrderByUsernameAsc(String username);
+    List<User> findAllByUsernameNotOrderByUsernameAsc(String username, Pageable pageable);
 
     List<User> findAllByUsernameContainingIgnoreCaseAndUsernameNotOrderByUsernameAsc(
             String username,
-            String excludedUsername
+            String excludedUsername,
+            Pageable pageable
     );
+
+    List<User> findAllByUsernameIn(List<String> usernames);
 
     @Query("""
             select u from User u

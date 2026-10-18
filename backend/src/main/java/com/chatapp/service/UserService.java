@@ -7,6 +7,8 @@ import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.User;
 import com.chatapp.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,6 +19,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class UserService {
+    private static final int MAX_SEARCH_RESULTS = 50;
+
     private final UserRepository userRepository;
     private final LocalAvatarStorageService localAvatarStorageService;
 
@@ -28,11 +32,13 @@ public class UserService {
     @Transactional(readOnly = true)
     public List<UserResponse> listOtherUsers(String currentUsername, String usernameQuery) {
         String normalizedQuery = normalizeSearchQuery(usernameQuery);
+        Pageable limit = PageRequest.of(0, MAX_SEARCH_RESULTS);
         List<User> users = normalizedQuery.isBlank()
-                ? userRepository.findAllByUsernameNotOrderByUsernameAsc(currentUsername)
+                ? userRepository.findAllByUsernameNotOrderByUsernameAsc(currentUsername, limit)
                 : userRepository.findAllByUsernameContainingIgnoreCaseAndUsernameNotOrderByUsernameAsc(
                         normalizedQuery,
-                        currentUsername
+                        currentUsername,
+                        limit
                 );
 
         return users

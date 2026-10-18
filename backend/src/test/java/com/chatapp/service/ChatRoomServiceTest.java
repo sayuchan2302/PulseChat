@@ -15,6 +15,7 @@ import com.chatapp.repository.ChatRoomReadStateRepository;
 import com.chatapp.repository.ChatRoomRepository;
 import com.chatapp.repository.ConversationSettingRepository;
 import com.chatapp.repository.MessageRepository;
+import com.chatapp.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -23,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -48,6 +50,9 @@ class ChatRoomServiceTest {
 
     @Mock
     private ConversationSettingRepository conversationSettingRepository;
+
+    @Mock
+    private UserRepository userRepository;
 
     @Mock
     private UserService userService;
@@ -394,6 +399,34 @@ class ChatRoomServiceTest {
                         .nickname());
     }
 
+    @Test
+    void getGroupNotificationViewsBuildsPerUserPayloadsWithBoundedQueries() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice);
+        room.setOwner(sayu);
+        Message latestMessage = message(100L, room, alice, "Latest", LocalDateTime.of(2026, 8, 1, 11, 0));
+
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+        when(userRepository.findAllByUsernameIn(List.of("sayu", "alice"))).thenReturn(List.of(sayu, alice));
+        when(messageRepository.countUnreadRoomMessagesByUser(10L, List.of(1L, 2L)))
+                .thenReturn(List.of(userUnreadCount(2L, 3)));
+        when(conversationSettingRepository.findByChatRoomIdAndUserIdIn(10L, List.of(1L, 2L)))
+                .thenReturn(List.of());
+        when(messageRepository.findTopByChatRoomIdOrderByIdDesc(10L)).thenReturn(Optional.of(latestMessage));
+
+        Map<String, ChatRoomResponse> views = chatRoomService.getGroupNotificationViews(
+                10L,
+                List.of("sayu", "alice"));
+
+        assertEquals(2, views.size());
+        assertEquals(10L, views.get("sayu").id());
+        assertEquals(0, views.get("sayu").unreadCount());
+        assertEquals(3, views.get("alice").unreadCount());
+        assertEquals("Latest", views.get("alice").lastMessageContent());
+        assertEquals("alice", views.get("alice").lastMessageSenderName());
+    }
+
     private User user(Long id, String username) {
         User user = new User();
         user.setId(id);
@@ -423,6 +456,20 @@ class ChatRoomServiceTest {
         message.setTimestamp(timestamp);
         message.setRead(false);
         return message;
+    }
+
+    private MessageRepository.UnreadCountProjection userUnreadCount(Long userId, long unreadCount) {
+        return new MessageRepository.UnreadCountProjection() {
+            @Override
+            public Long getUserId() {
+                return userId;
+            }
+
+            @Override
+            public long getUnreadCount() {
+                return unreadCount;
+            }
+        };
     }
 
     private MessageRepository.RoomUnreadCountProjection roomUnreadCount(Long roomId, long unreadCount) {

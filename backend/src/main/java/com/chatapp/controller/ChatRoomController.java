@@ -19,6 +19,7 @@ import com.chatapp.service.MessageService;
 import com.chatapp.service.MessageQueryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -35,10 +36,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/rooms")
 @RequiredArgsConstructor
+@Slf4j
 public class ChatRoomController {
         private static final String ROOM_QUEUE = "/queue/rooms";
         private static final String MESSAGE_QUEUE = "/queue/messages";
@@ -314,22 +318,30 @@ public class ChatRoomController {
                         Long roomId,
                         List<String> usernames,
                         ChatRoomResponse fallbackRoom) {
-                usernames.forEach(username -> {
-                        if (username != null && !username.isBlank()) {
-                                ChatRoomResponse room = findRoomForNotification(username, roomId, fallbackRoom);
-                                messagingTemplate.convertAndSendToUser(username, ROOM_QUEUE, room);
-                        }
-                });
+                List<String> recipients = usernames.stream()
+                                .filter(Objects::nonNull)
+                                .filter(username -> !username.isBlank())
+                                .distinct()
+                                .toList();
+                if (recipients.isEmpty()) {
+                        return;
+                }
+
+                Map<String, ChatRoomResponse> roomViews = loadRoomViews(roomId, recipients);
+                recipients.forEach(username -> messagingTemplate.convertAndSendToUser(
+                                username,
+                                ROOM_QUEUE,
+                                roomViews.getOrDefault(username, fallbackRoom)));
         }
 
-        private ChatRoomResponse findRoomForNotification(
-                        String username,
-                        Long roomId,
-                        ChatRoomResponse fallbackRoom) {
+        private Map<String, ChatRoomResponse> loadRoomViews(Long roomId, List<String> recipients) {
                 try {
-                        return chatRoomService.getGroup(username, roomId);
+                        return chatRoomService.getGroupNotificationViews(roomId, recipients);
                 } catch (AppException exception) {
-                        return fallbackRoom;
+                        return Map.of();
+                } catch (RuntimeException exception) {
+                        log.warn("Room fan-out fell back to the shared payload: {}", exception.getMessage());
+                        return Map.of();
                 }
         }
 

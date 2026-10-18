@@ -18,15 +18,18 @@ import com.chatapp.repository.ChatRoomReadStateRepository;
 import com.chatapp.repository.ChatRoomRepository;
 import com.chatapp.repository.ConversationSettingRepository;
 import com.chatapp.repository.MessageRepository;
+import com.chatapp.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -41,6 +44,7 @@ public class ChatRoomService {
     private final ChatRoomReadStateRepository chatRoomReadStateRepository;
     private final MessageRepository messageRepository;
     private final ConversationSettingRepository conversationSettingRepository;
+    private final UserRepository userRepository;
     private final UserService userService;
     private final MediaAccessService mediaAccessService;
 
@@ -452,6 +456,90 @@ public class ChatRoomService {
                 unreadCount,
                 findSetting(currentUser.getId(), room.getId()),
                 currentUser.getId());
+    }
+
+    /**
+     * Builds the per-participant room payloads used for WebSocket fan-out with a bounded
+     * number of queries: the room, settings, unread counts and latest message are resolved
+     * once per broadcast instead of once per recipient.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, ChatRoomResponse> getGroupNotificationViews(Long roomId, List<String> usernames) {
+        if (usernames == null || usernames.isEmpty()) {
+            return Map.of();
+        }
+
+        ChatRoom room = chatRoomRepository.findByIdAndType(roomId, ChatRoom.RoomType.GROUP)
+                .orElseThrow(() -> new AppException(ErrorCode.ROOM_NOT_FOUND));
+        Map<String, User> usersByUsername = userRepository.findAllByUsernameIn(usernames)
+                .stream()
+                .collect(Collectors.toMap(User::getUsername, Function.identity()));
+        List<User> members = usernames.stream()
+                .map(usersByUsername::get)
+                .filter(Objects::nonNull)
+                .filter(member -> room.hasMember(member.getId()))
+                .toList();
+        if (members.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Long> memberIds = members.stream().map(User::getId).toList();
+        Map<Long, Long> unreadCountsByUserId = countUnreadMessagesByUser(room.getId(), memberIds);
+        Map<Long, ConversationSetting> settingsByUserId = findSettingsByUserIdForRoom(room.getId(), memberIds);
+        Map<Long, Message> latestMessagesByUserId = findLatestMessagesByUserId(room, members);
+
+        return members.stream()
+                .collect(Collectors.toMap(
+                        User::getUsername,
+                        member -> ChatRoomResponse.from(
+                                room,
+                                latestMessagesByUserId.get(member.getId()),
+                                unreadCountsByUserId.getOrDefault(member.getId(), 0L),
+                                settingsByUserId.get(member.getId()),
+                                member.getId()
+                        )
+                ));
+    }
+
+    private Map<Long, Long> countUnreadMessagesByUser(Long roomId, List<Long> userIds) {
+        return messageRepository.countUnreadRoomMessagesByUser(roomId, userIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        MessageRepository.UnreadCountProjection::getUserId,
+                        MessageRepository.UnreadCountProjection::getUnreadCount));
+    }
+
+    private Map<Long, ConversationSetting> findSettingsByUserIdForRoom(Long roomId, List<Long> userIds) {
+        List<ConversationSetting> settings = conversationSettingRepository.findByChatRoomIdAndUserIdIn(roomId, userIds);
+        if (settings == null || settings.isEmpty()) {
+            return Map.of();
+        }
+
+        return settings.stream()
+                .collect(Collectors.toMap(setting -> setting.getUser().getId(), Function.identity()));
+    }
+
+    private Map<Long, Message> findLatestMessagesByUserId(ChatRoom room, List<User> members) {
+        Message globalLatest = messageRepository.findTopByChatRoomIdOrderByIdDesc(room.getId()).orElse(null);
+        if (globalLatest == null) {
+            return Map.of();
+        }
+
+        Set<Long> hiddenByUserIds = globalLatest.getHiddenByUsers()
+                .stream()
+                .map(User::getId)
+                .collect(Collectors.toSet());
+
+        Map<Long, Message> latestMessagesByUserId = new HashMap<>();
+        members.stream()
+                .filter(member -> !hiddenByUserIds.contains(member.getId()))
+                .forEach(member -> latestMessagesByUserId.put(member.getId(), globalLatest));
+        // Rare path: a member who hid the newest room message needs their own latest visible message.
+        members.stream()
+                .filter(member -> hiddenByUserIds.contains(member.getId()))
+                .forEach(member -> findLatestMessagesByRoomId(List.of(room.getId()), member.getId())
+                        .forEach((visibleRoomId, message) -> latestMessagesByUserId.put(member.getId(), message)));
+        return latestMessagesByUserId;
     }
 
     private void validateGroupOwner(ChatRoom room, User currentUser) {

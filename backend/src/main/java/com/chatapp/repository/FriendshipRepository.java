@@ -57,4 +57,15 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
             where friendship.requester.id = :userId or friendship.receiver.id = :userId
             """)
     List<Friendship> findFriendshipsForUser(@Param("userId") Long userId);
+
+    @EntityGraph(attributePaths = {"requester", "receiver"})
+    @Query("""
+            select friendship from Friendship friendship
+            where (friendship.requester.id = :userId and friendship.receiver.id in :otherUserIds)
+               or (friendship.receiver.id = :userId and friendship.requester.id in :otherUserIds)
+            """)
+    List<Friendship> findBetweenUserAndOtherUsers(
+            @Param("userId") Long userId,
+            @Param("otherUserIds") List<Long> otherUserIds
+    );
 }

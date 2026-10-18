@@ -40,6 +40,12 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
         long getUnreadCount();
     }
 
+    interface PartnerActivityProjection {
+        Long getPartnerId();
+
+        Long getLatestMessageId();
+    }
+
     @Query("""
             select m from Message m
             join fetch m.sender
@@ -269,15 +275,22 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     );
 
     @Query("""
-            select distinct case
-                when m.sender.id = :userId then m.receiver.id
-                else m.sender.id
-            end
+            select m.receiver.id as partnerId, max(m.id) as latestMessageId
             from Message m
             where m.chatRoom is null
-              and (m.sender.id = :userId or m.receiver.id = :userId)
+              and m.sender.id = :userId
+            group by m.receiver.id
             """)
-    List<Long> findPrivateConversationPartnerIds(@Param("userId") Long userId);
+    List<PartnerActivityProjection> findLatestSentActivityByReceiver(@Param("userId") Long userId);
+
+    @Query("""
+            select m.sender.id as partnerId, max(m.id) as latestMessageId
+            from Message m
+            where m.chatRoom is null
+              and m.receiver.id = :userId
+            group by m.sender.id
+            """)
+    List<PartnerActivityProjection> findLatestReceivedActivityBySender(@Param("userId") Long userId);
 
     @Query("""
             select distinct m.receiver.id
@@ -335,6 +348,29 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             @Param("currentUserId") Long currentUserId,
             @Param("roomIds") List<Long> roomIds
     );
+
+    @Query("""
+            select member.user.id as userId, count(m) as unreadCount
+            from ChatRoomMember member
+            left join ChatRoomReadState readState
+              on readState.chatRoom.id = member.chatRoom.id
+             and readState.user.id = member.user.id
+            left join Message m
+              on m.chatRoom.id = member.chatRoom.id
+             and m.sender.id <> member.user.id
+             and (readState.id is null or m.timestamp > readState.lastReadAt)
+             and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
+                             where hiddenMessage = m and hidden.id = member.user.id)
+            where member.chatRoom.id = :roomId
+              and member.user.id in :userIds
+            group by member.user.id
+            """)
+    List<UnreadCountProjection> countUnreadRoomMessagesByUser(
+            @Param("roomId") Long roomId,
+            @Param("userIds") List<Long> userIds
+    );
+
+    Optional<Message> findTopByChatRoomIdOrderByIdDesc(Long chatRoomId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""

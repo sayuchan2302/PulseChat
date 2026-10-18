@@ -13,6 +13,8 @@ public interface ConversationSettingRepository extends JpaRepository<Conversatio
 
     List<ConversationSetting> findByUserIdAndChatRoomIdIn(Long userId, List<Long> roomIds);
 
+    List<ConversationSetting> findByChatRoomIdAndUserIdIn(Long chatRoomId, List<Long> userIds);
+
     Optional<ConversationSetting> findByUserIdAndTargetUserId(Long userId, Long targetUserId);
 
     Optional<ConversationSetting> findByUserIdAndChatRoomId(Long userId, Long roomId);

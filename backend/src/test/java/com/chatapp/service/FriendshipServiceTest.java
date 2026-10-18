@@ -17,6 +17,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -238,7 +239,8 @@ class FriendshipServiceTest {
         Message message = message(10L, sender, currentUser, "Hello from a non-friend", LocalDateTime.of(2026, 8, 1, 10, 0));
         when(userService.findByUsername("sayu")).thenReturn(currentUser);
         when(friendshipRepository.findFriendshipsForUser(currentUser.getId())).thenReturn(List.of());
-        when(messageRepository.findPrivateConversationPartnerIds(currentUser.getId())).thenReturn(List.of(sender.getId()));
+        when(messageRepository.findLatestReceivedActivityBySender(currentUser.getId()))
+                .thenReturn(List.of(partnerActivity(sender.getId(), 10L)));
         when(userRepository.findAllById(List.of(sender.getId()))).thenReturn(List.of(sender));
         when(messageRepository.findLatestMessagesForPrivateConversations(currentUser.getId(), List.of(sender.getId())))
                 .thenReturn(List.of(message));
@@ -259,14 +261,39 @@ class FriendshipServiceTest {
         friendship.setId(77L);
         when(userService.findByUsername("sayu")).thenReturn(currentUser);
         when(userService.findByUsername("thinh")).thenReturn(profileUser);
-        when(friendshipRepository.findByUserLowIdAndUserHighId(1L, 2L))
-                .thenReturn(Optional.of(friendship));
+        when(friendshipRepository.findBetweenUserAndOtherUsers(1L, List.of(2L)))
+                .thenReturn(List.of(friendship));
 
         UserResponse response = friendshipService.getUserProfile("sayu", "thinh");
 
         assertEquals("thinh", response.username());
         assertEquals("accepted", response.friendshipStatus());
         assertEquals(77L, response.friendshipId());
+    }
+
+    @Test
+    void searchUsersResolvesFriendshipStatusWithOneBatchQuery() {
+        User currentUser = user(1L, "sayu");
+        User friend = user(2L, "thinh");
+        User stranger = user(3L, "mallory");
+        Friendship friendship = friendship(currentUser, friend, FriendshipStatus.ACCEPTED);
+        friendship.setId(77L);
+        when(userService.findByUsername("sayu")).thenReturn(currentUser);
+        when(userRepository.findAllByUsernameContainingIgnoreCaseAndUsernameNotOrderByUsernameAsc(
+                "m",
+                "sayu",
+                PageRequest.of(0, 50)))
+                .thenReturn(List.of(friend, stranger));
+        when(friendshipRepository.findBetweenUserAndOtherUsers(1L, List.of(2L, 3L)))
+                .thenReturn(List.of(friendship));
+
+        List<UserResponse> results = friendshipService.searchUsers("sayu", "m");
+
+        assertEquals(2, results.size());
+        assertEquals("accepted", results.get(0).friendshipStatus());
+        assertEquals(77L, results.get(0).friendshipId());
+        assertEquals("none", results.get(1).friendshipStatus());
+        verify(friendshipRepository, never()).findByUserLowIdAndUserHighId(any(), any());
     }
 
     private User user(Long id, String username) {
@@ -297,5 +324,19 @@ class FriendshipServiceTest {
         message.setContent(content);
         message.setTimestamp(timestamp);
         return message;
+    }
+
+    private MessageRepository.PartnerActivityProjection partnerActivity(Long partnerId, Long messageId) {
+        return new MessageRepository.PartnerActivityProjection() {
+            @Override
+            public Long getPartnerId() {
+                return partnerId;
+            }
+
+            @Override
+            public Long getLatestMessageId() {
+                return messageId;
+            }
+        };
     }
 }
