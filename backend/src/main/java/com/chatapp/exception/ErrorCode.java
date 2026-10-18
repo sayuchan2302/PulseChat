@@ -86,6 +86,7 @@ public enum ErrorCode {
         ROOM_INVITE_INVALID(HttpStatus.NOT_FOUND, "ROOM_011", "Invite link is invalid or disabled"),
         CANNOT_REMOVE_ADMIN(HttpStatus.FORBIDDEN, "ROOM_012", "Cannot remove an admin or higher privileged member"),
         CANNOT_EDIT_ADMIN(HttpStatus.FORBIDDEN, "ROOM_013", "Cannot edit an admin or higher privileged member"),
+        ROOM_MEMBER_NOT_FRIEND(HttpStatus.FORBIDDEN, "ROOM_014", "You can only add friends to a group"),
 
         AI_SUMMARY_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "AI_001", "AI summary is not configured"),
         AI_SUMMARY_NO_MESSAGES(HttpStatus.BAD_REQUEST, "AI_002", "There are no messages to summarize"),

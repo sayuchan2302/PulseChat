@@ -10,13 +10,18 @@ import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.ChatRoom;
 import com.chatapp.model.ChatRoomMember;
 import com.chatapp.model.ChatRoomReadState;
+import com.chatapp.model.Friendship;
 import com.chatapp.model.Message;
 import com.chatapp.model.User;
+import com.chatapp.model.UserBlock;
 import com.chatapp.repository.ChatRoomReadStateRepository;
 import com.chatapp.repository.ChatRoomRepository;
 import com.chatapp.repository.ConversationSettingRepository;
+import com.chatapp.repository.FriendshipRepository;
 import com.chatapp.repository.MessageRepository;
+import com.chatapp.repository.UserBlockRepository;
 import com.chatapp.repository.UserRepository;
+import com.chatapp.security.RateLimitService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -34,8 +39,11 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -59,6 +67,15 @@ class ChatRoomServiceTest {
 
     @Mock
     private UserService userService;
+
+    @Mock
+    private FriendshipRepository friendshipRepository;
+
+    @Mock
+    private UserBlockRepository userBlockRepository;
+
+    @Mock
+    private RateLimitService rateLimitService;
 
     @InjectMocks
     private ChatRoomService chatRoomService;
@@ -99,6 +116,9 @@ class ChatRoomServiceTest {
         User alice = user(2L, "alice");
         User bob = user(3L, "bob");
         when(userService.findByUsername("sayu")).thenReturn(creator);
+        when(rateLimitService.allowRoomMemberAdds("sayu", 2)).thenReturn(true);
+        when(friendshipRepository.findBetweenUserAndOtherUsers(eq(1L), anyList()))
+                .thenReturn(List.of(acceptedFriendship(creator, alice), acceptedFriendship(creator, bob)));
         when(userService.findById(2L)).thenReturn(alice);
         when(userService.findById(3L)).thenReturn(bob);
         when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> {
@@ -115,6 +135,65 @@ class ChatRoomServiceTest {
         assertEquals("group", response.type());
         assertEquals(1L, response.ownerId());
         assertEquals(3, response.participants().size());
+        verify(rateLimitService).allowRoomMemberAdds("sayu", 2);
+    }
+
+    @Test
+    void createGroupRejectsParticipantsThatAreNotFriends() {
+        User creator = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        when(userService.findByUsername("sayu")).thenReturn(creator);
+        when(rateLimitService.allowRoomMemberAdds("sayu", 2)).thenReturn(true);
+        when(friendshipRepository.findBetweenUserAndOtherUsers(eq(1L), anyList()))
+                .thenReturn(List.of(acceptedFriendship(creator, alice)));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> chatRoomService.createGroup(
+                        "sayu",
+                        new CreateChatRoomRequest("Study group", Set.of(2L, 3L))));
+
+        assertEquals(ErrorCode.ROOM_MEMBER_NOT_FRIEND, exception.getErrorCode());
+        verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
+    }
+
+    @Test
+    void createGroupRejectsBlockedParticipants() {
+        User creator = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        when(userService.findByUsername("sayu")).thenReturn(creator);
+        when(rateLimitService.allowRoomMemberAdds("sayu", 2)).thenReturn(true);
+        when(friendshipRepository.findBetweenUserAndOtherUsers(eq(1L), anyList()))
+                .thenReturn(List.of(acceptedFriendship(creator, alice), acceptedFriendship(creator, bob)));
+        when(userBlockRepository.findBetweenUserAndOtherUsers(eq(1L), anyList()))
+                .thenReturn(List.of(userBlock(bob, creator)));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> chatRoomService.createGroup(
+                        "sayu",
+                        new CreateChatRoomRequest("Study group", Set.of(2L, 3L))));
+
+        assertEquals(ErrorCode.USER_BLOCKED, exception.getErrorCode());
+        verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
+    }
+
+    @Test
+    void createGroupIsRateLimited() {
+        User creator = user(1L, "sayu");
+        when(userService.findByUsername("sayu")).thenReturn(creator);
+        when(rateLimitService.allowRoomMemberAdds("sayu", 2)).thenReturn(false);
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> chatRoomService.createGroup(
+                        "sayu",
+                        new CreateChatRoomRequest("Study group", Set.of(2L, 3L))));
+
+        assertEquals(ErrorCode.TOO_MANY_REQUESTS, exception.getErrorCode());
+        verifyNoInteractions(friendshipRepository);
+        verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
     }
 
     @Test
@@ -241,6 +320,9 @@ class ChatRoomServiceTest {
         when(chatRoomRepository.saveAndFlush(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(messageRepository.findLatestMessagesForRooms(List.of(10L), 1L)).thenReturn(List.of());
         when(messageRepository.countUnreadRoomMessages(1L, List.of(10L))).thenReturn(List.of());
+        when(rateLimitService.allowRoomMemberAdds("sayu", 1)).thenReturn(true);
+        when(friendshipRepository.findBetweenUserAndOtherUsers(eq(1L), anyList()))
+                .thenReturn(List.of(acceptedFriendship(sayu, charlie)));
 
         ChatRoomResponse response = chatRoomService.addMembers(
                 "sayu",
@@ -254,6 +336,55 @@ class ChatRoomServiceTest {
                         .stream()
                         .filter(participant -> participant.username().equals("charlie"))
                         .count());
+    }
+
+    @Test
+    void addMembersRejectsParticipantsThatAreNotFriends() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(sayu);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+        when(rateLimitService.allowRoomMemberAdds("sayu", 1)).thenReturn(true);
+        when(friendshipRepository.findBetweenUserAndOtherUsers(eq(1L), anyList()))
+                .thenReturn(List.of());
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> chatRoomService.addMembers(
+                        "sayu",
+                        10L,
+                        new AddRoomMembersRequest(Set.of(4L))));
+
+        assertEquals(ErrorCode.ROOM_MEMBER_NOT_FRIEND, exception.getErrorCode());
+        verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
+    }
+
+    @Test
+    void addMembersIsRateLimited() {
+        User sayu = user(1L, "sayu");
+        User alice = user(2L, "alice");
+        User bob = user(3L, "bob");
+        ChatRoom room = room(10L, "Study group", LocalDateTime.of(2026, 8, 1, 9, 0), sayu, alice, bob);
+        room.setOwner(sayu);
+
+        when(userService.findByUsername("sayu")).thenReturn(sayu);
+        when(chatRoomRepository.findByIdAndType(10L, ChatRoom.RoomType.GROUP)).thenReturn(Optional.of(room));
+        when(rateLimitService.allowRoomMemberAdds("sayu", 1)).thenReturn(false);
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> chatRoomService.addMembers(
+                        "sayu",
+                        10L,
+                        new AddRoomMembersRequest(Set.of(4L))));
+
+        assertEquals(ErrorCode.TOO_MANY_REQUESTS, exception.getErrorCode());
+        verifyNoInteractions(friendshipRepository);
+        verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
     }
 
     @Test
@@ -673,5 +804,20 @@ class ChatRoomServiceTest {
                 return unreadCount;
             }
         };
+    }
+
+    private Friendship acceptedFriendship(User requester, User receiver) {
+        Friendship friendship = new Friendship();
+        friendship.setRequester(requester);
+        friendship.setReceiver(receiver);
+        friendship.setStatus(Friendship.FriendshipStatus.ACCEPTED);
+        return friendship;
+    }
+
+    private UserBlock userBlock(User blocker, User blockedUser) {
+        UserBlock userBlock = new UserBlock();
+        userBlock.setBlocker(blocker);
+        userBlock.setBlockedUser(blockedUser);
+        return userBlock;
     }
 }

@@ -15,7 +15,7 @@ class RateLimitServiceTest {
     private static final Duration WINDOW = Duration.ofMinutes(15);
 
     private final TestClock clock = new TestClock();
-    private final RateLimitService service = new RateLimitService(3, 2, 5, WINDOW, clock);
+    private final RateLimitService service = new RateLimitService(3, 2, 5, 5, WINDOW, clock);
 
     @Test
     void loginAttemptsAreLimitedPerIpAndPerAccount() {
@@ -66,6 +66,20 @@ class RateLimitServiceTest {
         assertFalse(service.allowRegisterAttempt("10.0.0.3"));
 
         assertTrue(service.allowRefreshAttempt("10.0.0.3"));
+    }
+
+    @Test
+    void roomMemberAddsAreLimitedByInviteeCount() {
+        assertTrue(service.allowRoomMemberAdds("sayu", 3));
+        assertTrue(service.allowRoomMemberAdds("sayu", 2));
+        assertFalse(service.allowRoomMemberAdds("sayu", 1));
+    }
+
+    @Test
+    void roomMemberAddsKeepSeparateBucketsPerAccount() {
+        assertFalse(service.allowRoomMemberAdds("sayu", 6));
+
+        assertTrue(service.allowRoomMemberAdds("thinh", 5));
     }
 
     private static final class TestClock extends Clock {

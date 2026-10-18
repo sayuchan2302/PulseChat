@@ -12,13 +12,18 @@ import com.chatapp.model.ChatRoom;
 import com.chatapp.model.ChatRoomMember;
 import com.chatapp.model.ChatRoomReadState;
 import com.chatapp.model.ConversationSetting;
+import com.chatapp.model.Friendship;
 import com.chatapp.model.Message;
 import com.chatapp.model.User;
+import com.chatapp.model.UserBlock;
 import com.chatapp.repository.ChatRoomReadStateRepository;
 import com.chatapp.repository.ChatRoomRepository;
 import com.chatapp.repository.ConversationSettingRepository;
+import com.chatapp.repository.FriendshipRepository;
 import com.chatapp.repository.MessageRepository;
+import com.chatapp.repository.UserBlockRepository;
 import com.chatapp.repository.UserRepository;
+import com.chatapp.security.RateLimitService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +52,9 @@ public class ChatRoomService {
     private final UserRepository userRepository;
     private final UserService userService;
     private final MediaAccessService mediaAccessService;
+    private final FriendshipRepository friendshipRepository;
+    private final UserBlockRepository userBlockRepository;
+    private final RateLimitService rateLimitService;
 
     @Transactional
     public ChatRoomResponse createGroup(String currentUsername, CreateChatRoomRequest request) {
@@ -57,6 +65,11 @@ public class ChatRoomService {
         if (participantIds.size() < MIN_INVITED_PARTICIPANTS) {
             throw new AppException(ErrorCode.GROUP_REQUIRES_MINIMUM_MEMBERS);
         }
+
+        if (!rateLimitService.allowRoomMemberAdds(currentUsername, participantIds.size())) {
+            throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
+        }
+        ensureParticipantsCanBeAdded(creator, participantIds);
 
         ChatRoom room = new ChatRoom();
         room.setName(request.name().trim());
@@ -168,6 +181,11 @@ public class ChatRoomService {
         if (newParticipantIds.isEmpty()) {
             throw new AppException(ErrorCode.ROOM_MEMBER_ALREADY_EXISTS);
         }
+
+        if (!rateLimitService.allowRoomMemberAdds(currentUsername, newParticipantIds.size())) {
+            throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
+        }
+        ensureParticipantsCanBeAdded(currentUser, newParticipantIds);
 
         newParticipantIds.stream()
                 .map(userService::findById)
@@ -578,6 +596,54 @@ public class ChatRoomService {
         if (member.getRole() != ChatRoomMember.Role.MODERATOR && member.getRole() != ChatRoomMember.Role.OWNER) {
             throw new AppException(ErrorCode.ROOM_ADMIN_REQUIRED);
         }
+    }
+
+    /**
+     * Minimal consent check for group membership: a user can only be added by someone they are
+     * accepted friends with and who is not blocked by or blocking them. Applies both when a
+     * group is created with participants and when members are added later, so nobody can be
+     * pulled into a group chat by a stranger.
+     */
+    private void ensureParticipantsCanBeAdded(User inviter, Set<Long> participantIds) {
+        List<Long> candidateIds = participantIds.stream()
+                .filter(participantId -> !participantId.equals(inviter.getId()))
+                .toList();
+        if (candidateIds.isEmpty()) {
+            return;
+        }
+
+        Set<Long> friendIds = friendshipRepository
+                .findBetweenUserAndOtherUsers(inviter.getId(), candidateIds)
+                .stream()
+                .filter(friendship -> friendship.getStatus() == Friendship.FriendshipStatus.ACCEPTED)
+                .map(friendship -> otherParticipantId(friendship, inviter.getId()))
+                .collect(Collectors.toSet());
+        Set<Long> blockedIds = userBlockRepository
+                .findBetweenUserAndOtherUsers(inviter.getId(), candidateIds)
+                .stream()
+                .map(userBlock -> otherParticipantId(userBlock, inviter.getId()))
+                .collect(Collectors.toSet());
+
+        for (Long candidateId : candidateIds) {
+            if (blockedIds.contains(candidateId)) {
+                throw new AppException(ErrorCode.USER_BLOCKED);
+            }
+            if (!friendIds.contains(candidateId)) {
+                throw new AppException(ErrorCode.ROOM_MEMBER_NOT_FRIEND);
+            }
+        }
+    }
+
+    private static Long otherParticipantId(Friendship friendship, Long inviterId) {
+        return friendship.getRequester().getId().equals(inviterId)
+                ? friendship.getReceiver().getId()
+                : friendship.getRequester().getId();
+    }
+
+    private static Long otherParticipantId(UserBlock userBlock, Long inviterId) {
+        return userBlock.getBlocker().getId().equals(inviterId)
+                ? userBlock.getBlockedUser().getId()
+                : userBlock.getBlocker().getId();
     }
 
     private User findEffectiveOwner(ChatRoom room) {

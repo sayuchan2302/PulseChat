@@ -141,6 +141,8 @@ export interface CloudinaryUploadSignature {
   timestamp: number;
   signature: string;
   folder: string;
+  publicId: string;
+  allowedFormats: string;
   resourceType: string;
   uploadUrl: string;
 }

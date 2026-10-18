@@ -10,9 +10,10 @@ import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * In-memory fixed-window rate limiter for the auth endpoints (login per IP + per account, register/refresh per IP).
- * Single-instance only: if the app is ever scaled behind a load balancer, move the counters to a shared store
- * (e.g. Redis) — otherwise each instance limits independently.
+ * In-memory fixed-window rate limiter for the auth endpoints (login per IP + per account,
+ * register/refresh per IP) and for group member invites (per account).
+ * Single-instance only: if the app is ever scaled behind a load balancer, move the counters to a
+ * shared store (e.g. Redis) — otherwise each instance limits independently.
  */
 @Component
 public class RateLimitService {
@@ -21,6 +22,7 @@ public class RateLimitService {
     private final int loginMaxAttempts;
     private final int registerMaxAttempts;
     private final int refreshMaxAttempts;
+    private final int roomMemberAddsMax;
     private final long windowMillis;
     private final Clock clock;
     private final ConcurrentHashMap<String, long[]> counters = new ConcurrentHashMap<>();
@@ -30,14 +32,23 @@ public class RateLimitService {
             @Value("${app.rate-limit.login-max-attempts:10}") int loginMaxAttempts,
             @Value("${app.rate-limit.register-max-attempts:10}") int registerMaxAttempts,
             @Value("${app.rate-limit.refresh-max-attempts:60}") int refreshMaxAttempts,
+            @Value("${app.rate-limit.room-member-adds-max:100}") int roomMemberAddsMax,
             @Value("${app.rate-limit.window-seconds:900}") long windowSeconds) {
-        this(loginMaxAttempts, registerMaxAttempts, refreshMaxAttempts, Duration.ofSeconds(windowSeconds), Clock.systemUTC());
+        this(loginMaxAttempts, registerMaxAttempts, refreshMaxAttempts, roomMemberAddsMax,
+                Duration.ofSeconds(windowSeconds), Clock.systemUTC());
     }
 
-    RateLimitService(int loginMaxAttempts, int registerMaxAttempts, int refreshMaxAttempts, Duration window, Clock clock) {
+    RateLimitService(
+            int loginMaxAttempts,
+            int registerMaxAttempts,
+            int refreshMaxAttempts,
+            int roomMemberAddsMax,
+            Duration window,
+            Clock clock) {
         this.loginMaxAttempts = loginMaxAttempts;
         this.registerMaxAttempts = registerMaxAttempts;
         this.refreshMaxAttempts = refreshMaxAttempts;
+        this.roomMemberAddsMax = roomMemberAddsMax;
         this.windowMillis = window.toMillis();
         this.clock = clock;
     }
@@ -57,11 +68,23 @@ public class RateLimitService {
         return consume("refresh-ip:" + clientIp, refreshMaxAttempts);
     }
 
+    /**
+     * Consumes one unit per invitee; used before creating a group with participants or adding
+     * members, so mass-invite spam stays bounded even between friends.
+     */
+    public boolean allowRoomMemberAdds(String username, int inviteeCount) {
+        return consume("room-member-adds:" + normalize(username), roomMemberAddsMax, inviteeCount);
+    }
+
     public void clearLoginAttempts(String username) {
         counters.remove("login-account:" + normalize(username));
     }
 
     private boolean consume(String key, int maxAttempts) {
+        return consume(key, maxAttempts, 1);
+    }
+
+    private boolean consume(String key, int maxAttempts, int weight) {
         long now = clock.millis();
         pruneExpired(now);
         long[] counter = counters.computeIfAbsent(key, ignored -> new long[]{now, 0});
@@ -70,7 +93,7 @@ public class RateLimitService {
                 counter[0] = now;
                 counter[1] = 0;
             }
-            counter[1]++;
+            counter[1] += weight;
             return counter[1] <= maxAttempts;
         }
     }

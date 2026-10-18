@@ -6,6 +6,8 @@ public record CloudinaryUploadSignatureResponse(
         long timestamp,
         String signature,
         String folder,
+        String publicId,
+        String allowedFormats,
         String resourceType,
         String uploadUrl
 ) {

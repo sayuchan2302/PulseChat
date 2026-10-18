@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import type { ChatRoom } from '../types';
 import { apiClient } from '../services/api';
+import { getApiErrorMessage } from '../utils/apiErrorUtils';
 
 interface Options {
   selectedRoom: ChatRoom | null;
@@ -40,7 +41,8 @@ export function useGroupSettingsActions({
       const response = await apiClient.post<ChatRoom>(`/rooms/${selectedRoom.id}/members`, { participantIds: selectedAddMemberIds });
       setSelectedAddMemberIds([]); applyRoomMembershipUpdate(response.data); setAddMembersModalOpen(false);
     } catch (error) {
-      console.error('Failed to add group members:', error); setError('Unable to add members.');
+      console.error('Failed to add group members:', error);
+      setError(getApiErrorMessage(error, 'Unable to add members.'));
     } finally { setPendingAction(null); }
   }, [applyRoomMembershipUpdate, pendingAction, selectedAddMemberIds, selectedRoom, setAddMembersModalOpen, setError, setPendingAction, setSelectedAddMemberIds]);
   return { handleUpdateGroupSettingsName, handleAddRoomMembers };

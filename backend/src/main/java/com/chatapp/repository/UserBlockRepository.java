@@ -24,4 +24,13 @@ public interface UserBlockRepository extends JpaRepository<UserBlock, Long> {
     boolean existsBetweenUsers(
             @Param("firstUserId") Long firstUserId,
             @Param("secondUserId") Long secondUserId);
+
+    @Query("""
+            select userBlock from UserBlock userBlock
+            where (userBlock.blocker.id = :userId and userBlock.blockedUser.id in :otherUserIds)
+               or (userBlock.blockedUser.id = :userId and userBlock.blocker.id in :otherUserIds)
+            """)
+    List<UserBlock> findBetweenUserAndOtherUsers(
+            @Param("userId") Long userId,
+            @Param("otherUserIds") List<Long> otherUserIds);
 }

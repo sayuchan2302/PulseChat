@@ -21,8 +21,8 @@ public class MediaController {
     private final LocalMediaStorageService localMediaStorageService;
 
     @PostMapping("/upload-signature")
-    public CloudinaryUploadSignatureResponse createUploadSignature() {
-        return cloudinarySignatureService.createUploadSignature();
+    public CloudinaryUploadSignatureResponse createUploadSignature(Authentication authentication) {
+        return cloudinarySignatureService.createUploadSignature(authentication.getName());
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

@@ -3,6 +3,7 @@ import type { Dispatch, FormEvent, MutableRefObject, SetStateAction } from 'reac
 import type { ChatRoom, User } from '../types';
 import type { ChatMessage } from '../types/chat.types';
 import { apiClient } from '../services/api';
+import { getApiErrorMessage } from '../utils/apiErrorUtils';
 import { appendOrUpdateRoom } from '../utils/conversationUtils';
 
 interface Options {
@@ -43,7 +44,10 @@ export function useGroupCreation(options: Options) {
       setRooms((rooms) => appendOrUpdateRoom(rooms, room)); setSelectedUser(null); selectedUserIdRef.current = null;
       setSelectedRoom(room); selectedRoomIdRef.current = room.id; navigateToRoom(room.id); setDetailsOpen(shouldOpenDetails());
       resetMessagePagination(); setMessages([]); setMessageInput(''); setOpen(false); setName(''); setMemberIds([]);
-    } catch (error) { console.error('Failed to create group:', error); setError('Unable to create group.'); }
+    } catch (error) {
+      console.error('Failed to create group:', error);
+      setError(getApiErrorMessage(error, 'Unable to create group.'));
+    }
     finally { setCreating(false); }
   }, [memberIds, minimumInvitedMembers, name, navigateToRoom, resetMessagePagination, selectedRoomIdRef, selectedUserIdRef, setCreating, setDetailsOpen, setError, setMemberIds, setMessageInput, setMessages, setName, setOpen, setRooms, setSelectedRoom, setSelectedUser, shouldOpenDetails, stopRoomTyping, stopTyping]);
 }

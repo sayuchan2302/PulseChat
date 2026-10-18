@@ -41,6 +41,9 @@ export function useMediaUpload(
       formData.append('timestamp', String(signature.timestamp));
       formData.append('signature', signature.signature);
       formData.append('folder', signature.folder);
+      // Every signed parameter must be sent back unchanged or Cloudinary rejects the upload.
+      formData.append('public_id', signature.publicId);
+      formData.append('allowed_formats', signature.allowedFormats);
 
       const response = await fetch(signature.uploadUrl, { method: 'POST', body: formData });
       if (!response.ok) {
