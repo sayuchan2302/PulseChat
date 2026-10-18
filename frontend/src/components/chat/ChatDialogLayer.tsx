@@ -8,6 +8,7 @@ import { getUserDisplayName } from '../../utils/userUtils';
 import ForwardPickerBody from './ForwardPickerBody';
 import EditMessageModal from './EditMessageModal';
 import DeleteMessageForMeModal from './DeleteMessageForMeModal';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 const MediaLightbox = lazy(() => import('./MediaLightbox'));
 const GroupSeenByModal = lazy(() => import('./GroupSeenByModal'));
@@ -114,12 +115,17 @@ export function ChatDialogLayer({
   reactionModalGroups,
   onCloseReactionSummary,
 }: ChatDialogLayerProps) {
+  const mediaViewerRef = useFocusTrap<HTMLDivElement>(Boolean(mediaViewerUrl));
+  const conversationDeleteRef = useFocusTrap<HTMLDivElement>(Boolean(conversationDeleteTarget));
+  const forwardPickerRef = useFocusTrap<HTMLDivElement>(Boolean(forwardingMessage));
+  const inviteModalRef = useFocusTrap<HTMLDivElement>(Boolean(inviteModalOpen && selectedRoom));
+
   return <>
     {editingMessage ? <EditMessageModal message={editingMessage} onClose={onCloseEditMessage} onSave={onSaveEditMessage} /> : null}
     {messageToDeleteForMe ? <DeleteMessageForMeModal message={messageToDeleteForMe} onClose={onCloseDeleteForMe} onConfirm={onConfirmDeleteForMe} /> : null}
 
     {mediaViewerUrl ? <div className="modal-backdrop media-viewer-backdrop" onClick={onCloseMediaViewer}>
-      <div className="media-viewer-modal" role="dialog" aria-modal="true" aria-label={mediaViewerType === 'VIDEO' ? 'Video preview' : 'Image preview'} onClick={(event) => event.stopPropagation()}>
+      <div className="media-viewer-modal" ref={mediaViewerRef} role="dialog" aria-modal="true" aria-label={mediaViewerType === 'VIDEO' ? 'Video preview' : 'Image preview'} onClick={(event) => event.stopPropagation()}>
         <button type="button" className="media-viewer-close" onClick={onCloseMediaViewer} aria-label="Close media preview"><CloseIcon className="media-viewer-close-icon" /></button>
         {mediaViewerType === 'VIDEO' ? <video className="media-viewer-video" src={mediaViewerUrl} controls autoPlay /> : <img src={mediaViewerUrl} alt={mediaViewerMessage?.content || 'Shared image preview'} />}
         {mediaViewerMessage?.content ? <div className="media-viewer-caption">{mediaViewerMessage.content}</div> : null}
@@ -127,7 +133,7 @@ export function ChatDialogLayer({
     </div> : null}
 
     {conversationDeleteTarget ? <div className="modal-backdrop delete-conversation-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-conversation-title" aria-describedby="delete-conversation-description" onClick={(event) => { if (event.target === event.currentTarget && conversationSettingPendingKey === null) onCloseConversationDelete(); }}>
-      <div className="delete-conversation-modal">
+      <div className="delete-conversation-modal" ref={conversationDeleteRef}>
         <div className="delete-conversation-icon" aria-hidden="true"><TrashIcon /></div>
         <h3 id="delete-conversation-title">Delete chat?</h3>
         <p id="delete-conversation-description">This removes your conversation with <strong>{conversationDeleteTarget.type === 'user' ? getUserDisplayName(conversationDeleteTarget.user) : conversationDeleteTarget.room.name}</strong> from this account only. Other people will still see it, and new messages will appear normally.</p>
@@ -137,13 +143,13 @@ export function ChatDialogLayer({
     </div> : null}
 
     {forwardingMessage ? <div className="forward-picker-overlay" role="dialog" aria-modal="true" aria-label="Forward message" onClick={(event) => { if (event.target === event.currentTarget) onCloseForward(); }}>
-      <div className="forward-picker-modal"><div className="forward-picker-header"><span className="forward-picker-title">Forward to…</span><button type="button" className="forward-picker-close" onClick={onCloseForward} aria-label="Close">×</button></div><ForwardPickerBody friends={friends} rooms={rooms} onSelect={onForward} /></div>
+      <div className="forward-picker-modal" ref={forwardPickerRef}><div className="forward-picker-header"><span className="forward-picker-title">Forward to…</span><button type="button" className="forward-picker-close" onClick={onCloseForward} aria-label="Close">×</button></div><ForwardPickerBody friends={friends} rooms={rooms} onSelect={onForward} /></div>
     </div> : null}
 
     {addMembersModalOpen && selectedRoom ? <Suspense fallback={null}><AddMembersModal roomName={selectedRoom.name} candidates={addMemberCandidates} selectedMemberIds={selectedAddMemberIds} saving={groupSettingsSaving} error={groupSettingsError} onClose={onCloseAddMembers} onToggleMember={onToggleAddMember} onAddMembers={onAddMembers} /></Suspense> : null}
 
     {inviteModalOpen && selectedRoom ? <div className="modal-backdrop invite-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title" onClick={(event) => { if (event.target === event.currentTarget) onCloseInvite(); }}>
-      <div className="group-modal invite-modal"><div className="group-modal-header"><div><h3 id="invite-modal-title">Group Invite Link</h3><span>Anyone with this link can join {selectedRoom.name}</span></div><button type="button" className="modal-close-btn" onClick={onCloseInvite} aria-label="Close">×</button></div>
+      <div className="group-modal invite-modal" ref={inviteModalRef}><div className="group-modal-header"><div><h3 id="invite-modal-title">Group Invite Link</h3><span>Anyone with this link can join {selectedRoom.name}</span></div><button type="button" className="modal-close-btn" onClick={onCloseInvite} aria-label="Close">×</button></div>
         <div className="invite-modal-body">{inviteLoading ? <div className="invite-modal-loading">Loading invite link...</div> : <><div className="invite-link-box"><input type="text" readOnly value={getInviteUrl()} className="invite-link-input" /><button type="button" className={`invite-copy-btn ${inviteCopied ? 'copied' : ''}`} onClick={onCopyInvite}>{inviteCopied ? '✓ Copied' : 'Copy link'}</button></div>{inviteError ? <div className="invite-error-msg">{inviteError}</div> : null}{canManageInvite ? <div className="invite-admin-actions"><p>You can revoke the old link and generate a new invite code if needed:</p><button type="button" className="invite-revoke-btn" disabled={inviteRevoking} onClick={onRevokeInvite}>{inviteRevoking ? 'Generating...' : '🔄 Revoke & Generate new link'}</button></div> : null}</>}</div>
         <div className="group-modal-actions"><button type="button" className="secondary-btn" onClick={onCloseInvite}>Close</button></div>
       </div>

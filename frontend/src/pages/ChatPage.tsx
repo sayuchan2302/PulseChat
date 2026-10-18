@@ -133,6 +133,13 @@ import type { ReactionDetailGroup } from '../components/chat/ReactionSummaryModa
 import { buildLatestRoomSeenByMessageId, buildMessageListItems } from '../utils/messageListUtils';
 import './ChatPage.css';
 
+/** Debounce IndexedDB cache writes so bursts of message/typing updates collapse into one write. */
+const CACHE_WRITE_DEBOUNCE_MS = 400;
+
+/** Wait time until the next cache write: full debounce window, but never more than 400ms after the previous write. */
+const cacheWriteDelay = (lastWrittenAt: number) =>
+  Math.max(0, CACHE_WRITE_DEBOUNCE_MS - (Date.now() - lastWrittenAt));
+
 export default function ChatPage() {
   const { isDark, toggleTheme } = useTheme();
   const { user: authenticatedUser, logout, updateCurrentUser } = useAuth();
@@ -258,6 +265,8 @@ export default function ChatPage() {
   const messageSearchQueryRef = useRef('');
   const messageSearchRequestedQueryRef = useRef('');
   const optimisticMessageIdRef = useRef(-Date.now() * 1000);
+  const conversationsCacheWrittenAtRef = useRef(0);
+  const messagesCacheWrittenAtRef = useRef(0);
   const hasConnectedRef = useRef(false);
   const realtimeActiveRef = useRef(false);
   const hasLoadedInitialUsersRef = useRef(false);
@@ -550,21 +559,29 @@ export default function ChatPage() {
   }, [currentUser?.id]);
 
   useEffect(() => {
-    if (currentUser?.id && (rooms.length > 0 || users.length > 0)) {
-      void dbService.saveConversationsCache(currentUser.id, 'conversations_cache', { rooms, users });
-    }
+    if (!currentUser?.id || (rooms.length === 0 && users.length === 0)) return;
+    const userId = currentUser.id;
+    const timeoutId = window.setTimeout(() => {
+      conversationsCacheWrittenAtRef.current = Date.now();
+      void dbService.saveConversationsCache(userId, 'conversations_cache', { rooms, users });
+    }, cacheWriteDelay(conversationsCacheWrittenAtRef.current));
+    return () => window.clearTimeout(timeoutId);
   }, [currentUser?.id, rooms, users]);
 
   useEffect(() => {
-    if (currentUser?.id && messages.length > 0) {
-      const key = selectedUser ? `user_${selectedUser.id}` : selectedRoom ? `room_${selectedRoom.id}` : null;
-      if (key) {
-        void dbService.saveMessagesCache(currentUser.id, key, messages.filter((message) =>
-          selectedRoom ? message.chatRoomId === selectedRoom.id : !message.chatRoomId &&
-            ((message.senderId === currentUser.id && message.receiverId === selectedUser?.id) ||
-             (message.receiverId === currentUser.id && message.senderId === selectedUser?.id))));
-      }
-    }
+    if (!currentUser?.id || messages.length === 0) return;
+    const key = selectedUser ? `user_${selectedUser.id}` : selectedRoom ? `room_${selectedRoom.id}` : null;
+    if (!key) return;
+    const userId = currentUser.id;
+    const cachedMessages = messages.filter((message) =>
+      selectedRoom ? message.chatRoomId === selectedRoom.id : !message.chatRoomId &&
+        ((message.senderId === userId && message.receiverId === selectedUser?.id) ||
+         (message.receiverId === userId && message.senderId === selectedUser?.id)));
+    const timeoutId = window.setTimeout(() => {
+      messagesCacheWrittenAtRef.current = Date.now();
+      void dbService.saveMessagesCache(userId, key, cachedMessages);
+    }, cacheWriteDelay(messagesCacheWrittenAtRef.current));
+    return () => window.clearTimeout(timeoutId);
   }, [currentUser?.id, messages, selectedUser, selectedRoom]);
 
   const resetMessageSearchState = useCallback(() => {
@@ -575,10 +592,10 @@ export default function ChatPage() {
     setHighlightedMessageId(null);
   }, [clearMessageSearch, setActiveMessageSearchId, setHighlightedMessageId]);
 
-  const getNextOptimisticMessageId = () => {
+  const getNextOptimisticMessageId = useCallback(() => {
     optimisticMessageIdRef.current -= 1;
     return optimisticMessageIdRef.current;
-  };
+  }, []);
 
   const updateMessageInputSelection = () => {
     const input = messageInputRef.current;
@@ -1846,11 +1863,14 @@ export default function ChatPage() {
     [selectedRoom, currentUser, groupSettingsSaving, isCurrentUserOwner, isCurrentUserModerator]
   );
   const sidebarBusy = hasUserSearch ? usersLoading : usersLoading || roomsLoading;
-  const messageListItems = buildMessageListItems(
-    messages,
-    selectedRoom,
-    currentUser?.id ?? null,
-    unreadDividerMessageId
+  const messageListItems = useMemo(
+    () => buildMessageListItems(
+      messages,
+      selectedRoom,
+      currentUser?.id ?? null,
+      unreadDividerMessageId
+    ),
+    [currentUser?.id, messages, selectedRoom, unreadDividerMessageId]
   );
   const remoteTypingUsers = useMemo(
     () =>
@@ -1886,7 +1906,7 @@ export default function ChatPage() {
   const mediaViewerType = mediaViewerMessage ? getMessageType(mediaViewerMessage) : 'IMAGE';
   const activeReplyPreview = createReplyFromMessage(replyingToMessage);
 
-  const handleOpenReactionSummary = (message: ChatMessage) => {
+  const handleOpenReactionSummary = useCallback((message: ChatMessage) => {
     if (!message.reactions || message.reactions.length === 0) return;
     const map = new Map<string, User[]>();
     for (const r of message.reactions) {
@@ -1906,18 +1926,18 @@ export default function ChatPage() {
       users,
     }));
     setReactionModalGroups(groups);
-  };
+  }, []);
 
-  const renderMessageReactions = (message: ChatMessage) => (
+  const renderMessageReactions = useCallback((message: ChatMessage) => (
     <MessageReactions
       message={message}
       currentUserId={currentUser?.id ?? null}
       onReact={(target, emoji) => void handleReactToMessage(target, emoji)}
       onOpenSummary={handleOpenReactionSummary}
     />
-  );
+  ), [currentUser?.id, handleOpenReactionSummary, handleReactToMessage]);
 
-  const renderMessageActions = (message: ChatMessage, isSentByCurrentUser: boolean) => (
+  const renderMessageActions = useCallback((message: ChatMessage, isSentByCurrentUser: boolean) => (
     <MessageActions
       message={message} isSentByCurrentUser={isSentByCurrentUser}
       currentUserId={currentUser?.id ?? null} pinnedMessage={pinnedMessage}
@@ -1928,9 +1948,9 @@ export default function ChatPage() {
       onRecall={(target) => void handleRecallMessage(target)} onPin={(target) => void handlePinMessage(target)}
       onForward={handleForwardMessage}
     />
-  );
+  ), [currentUser?.id, handleCopyMessage, handleEditMessage, handleForwardMessage, handlePinMessage, handleReactToMessage, handleRecallMessage, handleReplyToMessage, handleRequestDeleteMessageForMe, pinnedMessage]);
 
-  const renderCallMessageBody = (message: ChatMessage) => {
+  const renderCallMessageBody = useCallback((message: ChatMessage) => {
     const peer = getCallMessagePeer(message);
     return (
       <CallMessageBody
@@ -1941,24 +1961,24 @@ export default function ChatPage() {
         onDeleteForMe={handleRequestDeleteMessageForMe}
       />
     );
-  };
+  }, [activeCall, getCallMessagePeer, handleCallBackFromMessage, handleRequestDeleteMessageForMe]);
 
-  const renderMessageBody = (message: ChatMessage) => (
+  const renderMessageBody = useCallback((message: ChatMessage) => (
     <MessageContent
       message={message}
       onOpenLightbox={handleOpenLightbox}
       onAssetLoaded={handleMessageAssetLoaded}
     />
-  );
+  ), [handleMessageAssetLoaded, handleOpenLightbox]);
 
-  const renderGroupSeenBy = (message: ChatMessage, users: User[]) => (
+  const renderGroupSeenBy = useCallback((message: ChatMessage, users: User[]) => (
     <GroupSeenBy
       message={message}
       users={users}
       open={seenByPopupMessageId === message.id}
       onOpenModal={(target, seenUsers) => setGroupSeenModalMessage({ message: target, seenUsers })}
     />
-  );
+  ), [seenByPopupMessageId]);
 
   const handleDeleteConversation = async () => {
     if (!conversationDeleteTarget) {
@@ -2118,6 +2138,54 @@ export default function ChatPage() {
     );
   };
 
+  const messageListProps = useMemo(() => ({
+    items: messageListItems,
+    currentUser,
+    selectedUser,
+    selectedRoom,
+    unreadDividerRef,
+    latestSeenOutgoingMessageId,
+    latestOutgoingMessageId,
+    latestRoomSeenByByMessageId,
+    seenByLoadingMessageIds,
+    detailsOpen,
+    rightSidebarTab,
+    messageSearchQuery,
+    messageSearchResultIds,
+    highlightedMessageId,
+    renderCallMessageBody,
+    findKnownUserById,
+    handleOpenUserProfile,
+    renderMessageActions,
+    renderMessageBody,
+    renderMessageReactions,
+    handleRetryMessage,
+    renderGroupSeenBy,
+  }), [
+    currentUser,
+    detailsOpen,
+    findKnownUserById,
+    handleOpenUserProfile,
+    handleRetryMessage,
+    highlightedMessageId,
+    latestOutgoingMessageId,
+    latestRoomSeenByByMessageId,
+    latestSeenOutgoingMessageId,
+    messageListItems,
+    messageSearchQuery,
+    messageSearchResultIds,
+    renderCallMessageBody,
+    renderGroupSeenBy,
+    renderMessageActions,
+    renderMessageBody,
+    renderMessageReactions,
+    rightSidebarTab,
+    seenByLoadingMessageIds,
+    selectedRoom,
+    selectedUser,
+    unreadDividerRef,
+  ]);
+
   return (
     <div className="chat-page">
       <AppHeader
@@ -2263,30 +2331,7 @@ export default function ChatPage() {
               messagesError={messagesError}
               hasMoreMessages={hasMoreMessages}
               olderMessagesLoading={olderMessagesLoading}
-              messageListProps={{
-                items: messageListItems,
-                currentUser,
-                selectedUser,
-                selectedRoom,
-                unreadDividerRef,
-                latestSeenOutgoingMessageId,
-                latestOutgoingMessageId,
-                latestRoomSeenByByMessageId,
-                seenByLoadingMessageIds,
-                detailsOpen,
-                rightSidebarTab,
-                messageSearchQuery,
-                messageSearchResultIds,
-                highlightedMessageId,
-                renderCallMessageBody,
-                findKnownUserById,
-                handleOpenUserProfile,
-                renderMessageActions,
-                renderMessageBody,
-                renderMessageReactions,
-                handleRetryMessage,
-                renderGroupSeenBy,
-              }}
+              messageListProps={messageListProps}
               messageInputProps={{
                 onSubmit: handleSendMessage,
                 mediaFileInputRef,

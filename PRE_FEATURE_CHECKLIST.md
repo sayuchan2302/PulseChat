@@ -118,9 +118,9 @@
 - [ ] (Tùy chọn) pg_trgm index cho `LIKE '%…%'` trong `MessageRepository`/`UserRepository`.
 
 ### 3.2 Frontend hiệu năng & ổn định
-- [ ] `MessageItem.tsx:34` — bọc `React.memo`; ổn định props/handler (`ChatPage.tsx:2267` đang tạo object inline mỗi render; `getNextOptimisticMessageId` đưa vào `useCallback`). *(để lại buổi sau — cần sửa `ChatPage` ~2500 dòng)*
+- [x] `MessageItem.tsx` — bọc `React.memo` (`MessageItemComponent` giữ nguyên named + default export); ổn định toàn bộ props: `messageListItems` + 5 render fn (`renderMessageReactions`/`...Actions`/`...CallMessageBody`/`...MessageBody`/`...GroupSeenBy`) + `handleOpenReactionSummary` chuyển sang `useMemo`/`useCallback` (deps dựa trên các handler `useCallback` sẵn có từ hooks); object `messageListProps` gom `useMemo` thay vì tạo inline mỗi render; `getNextOptimisticMessageId` → `useCallback`. → memo có tác dụng thật (gõ input không còn re-render từng `MessageItem`).
 - [x] `App.tsx:11-29` — thêm **ErrorBoundary** cấp cao (`AppErrorBoundary`: fallback + reload) bọc toàn bộ `BrowserRouter`; `AuthLoading` hiển thị spinner (CSS `.app-auth-*`, `.app-error-boundary` trong `App.css`).
-- [ ] `ChatPage.tsx:552-568` — debounce ghi IndexedDB (300–500ms) + ghi tăng dần thay vì serialize cả mảng mỗi state change. *(để lại buổi sau)*
+- [x] `ChatPage.tsx` — debounce ghi IndexedDB 400ms (`CACHE_WRITE_DEBOUNCE_MS`) cho cả conversations cache lẫn messages cache; kèm trần `cacheWriteDelay` (không để quá 400ms kể từ lần ghi trước → stream tin nhắn liên tục không "đói" timer), hủy timer khi effect re-run/unmount. Vẫn ghi cả mảng mỗi lần thay vì ghi tăng dần theo id — ghi tăng dần sẽ bỏ sót nội dung message bị edit/recall/reaction (id không đổi nhưng content đổi), làm cache cũ. `saveMessagesCache` với mảng rỗng là no-op nên nhịp chuyển hội thoại vẫn an toàn.
 - [x] `dbService.ts:35-45` — `onupgradeneeded` chỉ xoá store khi `oldVersion < 2` (v1→v2); các version sau **không xoá**; thêm `request.onblocked` reject để không treo promise khi tab khác đang giữ DB.
 - [x] `dbService.ts:59-77` — `run()` log `console.warn` (tên store + mode) khi IndexedDB thất bại thay vì nuốt im lặng; fallback giữ nguyên.
 - [x] `websocket.ts:130` — reconnect exponential backoff (1s→30s, reset khi connect thành công) + jitter 50–100%; khi `!navigator.onLine` giãn delay tối đa để tạm dừng dò mạng.
@@ -132,7 +132,7 @@
 - [x] Xoá dead code: `VirtualizedMessageList.tsx` (không ai import — đã `git rm`).
 - [x] `useGroupAvatar.ts:27` — capture `previewUrl` và `URL.revokeObjectURL` trong `finally`.
 - [x] `websocket.ts:143` — console log `Connected to WebSocket` chỉ còn ở DEV (`import.meta.env.DEV`).
-- [ ] `ChatDialogLayer.tsx:121-150` — focus trap + restore cho các modal. *(để lại buổi sau)*
+- [x] `ChatDialogLayer.tsx` — hook mới `hooks/useFocusTrap.ts`: focus phần tử đầu khi mở, Tab/Shift+Tab wrap trong dialog, restore focus khi đóng, nhường focus nếu có dialog khác xếp trên. Áp cho media viewer, delete conversation, forward picker, invite modal. Kèm 4 unit test (`useFocusTrap.test.tsx`) → FE vitest **19/19**, lint 0 cảnh báo mới, build OK.
 
 ---
 

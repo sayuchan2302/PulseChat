@@ -31,7 +31,7 @@ export interface MessageItemProps {
     renderGroupSeenBy: (msg: ChatMessage, users: User[]) => React.ReactNode;
 }
 
-export function MessageItem({
+function MessageItemComponent({
     item,
     currentUser,
     selectedUser,
@@ -218,5 +218,7 @@ export function MessageItem({
         </div>
     );
 }
+
+export const MessageItem = React.memo(MessageItemComponent);
 
 export default MessageItem;
