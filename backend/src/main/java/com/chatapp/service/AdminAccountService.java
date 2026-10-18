@@ -9,6 +9,7 @@ import com.chatapp.model.AccountRole;
 import com.chatapp.model.User;
 import com.chatapp.repository.RefreshTokenRepository;
 import com.chatapp.repository.UserRepository;
+import com.chatapp.security.WebSocketSessionRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -27,6 +28,7 @@ public class AdminAccountService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final PresenceService presenceService;
     private final AfterCommitExecutor afterCommitExecutor;
+    private final WebSocketSessionRegistry webSocketSessionRegistry;
 
     @Transactional(readOnly = true)
     public AdminAccountPageResponse search(String query, int page, int size) {
@@ -80,6 +82,9 @@ public class AdminAccountService {
             user.setOnline(false);
             user.setLastSeenAt(now);
             refreshTokenRepository.revokeAllActiveByUserId(user.getId());
+
+            String username = user.getUsername();
+            afterCommitExecutor.execute(() -> webSocketSessionRegistry.closeSessionsForUsername(username));
 
             if (wasOnline) {
                 PresenceResponse presence = new PresenceResponse(user.getId(), user.getUsername(), false, now);

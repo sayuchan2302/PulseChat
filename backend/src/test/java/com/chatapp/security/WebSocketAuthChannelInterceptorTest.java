@@ -22,7 +22,9 @@ import static org.mockito.Mockito.*;
 class WebSocketAuthChannelInterceptorTest {
     private final JwtService jwt = mock(JwtService.class);
     private final CustomUserDetailsService users = mock(CustomUserDetailsService.class);
-    private final WebSocketAuthChannelInterceptor interceptor = new WebSocketAuthChannelInterceptor(jwt, users);
+    private final WebSocketSessionRegistry registry = mock(WebSocketSessionRegistry.class);
+    private final WebSocketAuthChannelInterceptor interceptor =
+            new WebSocketAuthChannelInterceptor(jwt, users, registry);
 
     @Test
     void connectValidatesJwtAndSetsAuthenticatedPrincipal() {
@@ -31,11 +33,13 @@ class WebSocketAuthChannelInterceptorTest {
         when(users.loadUserByUsername("alice")).thenReturn(user);
         when(jwt.isTokenValid("valid", user)).thenReturn(true);
         var accessor = StompHeaderAccessor.create(StompCommand.CONNECT);
+        accessor.setSessionId("session-1");
         accessor.setNativeHeader("Authorization", "Bearer valid");
         accessor.setLeaveMutable(true);
         var message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
         interceptor.preSend(message, null);
         assertEquals("alice", accessor.getUser().getName());
+        verify(registry).linkUsername("session-1", "alice");
     }
 
     @Test
@@ -91,19 +95,41 @@ class WebSocketAuthChannelInterceptorTest {
     }
 
     @Test
-    void rejectsFramesWhenAccountIsDisabled() {
+    void connectRejectsDisabledAccounts() {
         var disabledUser = User.withUsername("alice").password("unused").authorities("USER").disabled(true).build();
-        var message = frame(StompCommand.SEND, "/app/chat.send", true);
+        when(jwt.extractUsername("disabled")).thenReturn("alice");
         when(users.loadUserByUsername("alice")).thenReturn(disabledUser);
+        var accessor = StompHeaderAccessor.create(StompCommand.CONNECT);
+        accessor.setSessionId("session-1");
+        accessor.setNativeHeader("Authorization", "Bearer disabled");
+        accessor.setLeaveMutable(true);
+        var message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
 
         assertThrows(BadCredentialsException.class, () -> interceptor.preSend(message, null));
+        verifyNoInteractions(registry);
+    }
+
+    @Test
+    void subsequentFramesReuseTheConnectPrincipalWithoutReloadingUserDetails() {
+        var connectAccessor = StompHeaderAccessor.create(StompCommand.CONNECT);
+        connectAccessor.setSessionId("session-1");
+        connectAccessor.setNativeHeader("Authorization", "Bearer valid");
+        connectAccessor.setLeaveMutable(true);
+        var alice = enabledUser("alice");
+        when(jwt.extractUsername("valid")).thenReturn("alice");
+        when(users.loadUserByUsername("alice")).thenReturn(alice);
+        when(jwt.isTokenValid("valid", alice)).thenReturn(true);
+        interceptor.preSend(MessageBuilder.createMessage(new byte[0], connectAccessor.getMessageHeaders()), null);
+
+        interceptor.preSend(frame(StompCommand.SEND, "/app/chat.send", true), null);
+
+        verify(users, times(1)).loadUserByUsername("alice");
     }
 
     private Message<byte[]> frame(StompCommand command, String destination, boolean authenticated) {
         var accessor = StompHeaderAccessor.create(command);
         if (destination != null) accessor.setDestination(destination);
         if (authenticated) {
-            when(users.loadUserByUsername("alice")).thenReturn(enabledUser("alice"));
             accessor.setUser(new UsernamePasswordAuthenticationToken("alice", null, List.of()));
         }
         accessor.setLeaveMutable(true);

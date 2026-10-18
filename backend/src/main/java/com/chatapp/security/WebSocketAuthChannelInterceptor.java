@@ -31,6 +31,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             "/user/queue/rooms", "/user/queue/friend-requests", "/user/queue/calls", "/user/queue/errors");
     private final JwtService jwtService;
     private final CustomUserDetailsService userDetailsService;
+    private final WebSocketSessionRegistry sessionRegistry;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -41,19 +42,13 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             if (StompCommand.CONNECT.equals(command)) {
                 authenticate(accessor);
             } else if (command != null && command != StompCommand.DISCONNECT) {
+                // The principal resolved at CONNECT is propagated to every later frame, so no
+                // per-frame UserDetails reload is needed; a disabled account has its sessions
+                // force-closed instead (WebSocketSessionRegistry).
                 if (!(accessor.getUser() instanceof Authentication authentication)
                         || !authentication.isAuthenticated()) {
                     throw new AuthenticationCredentialsNotFoundException("WebSocket authentication is required");
                 }
-                UserDetails currentUser = userDetailsService.loadUserByUsername(authentication.getName());
-                if (!currentUser.isEnabled()) {
-                    throw new BadCredentialsException("This account is disabled");
-                }
-                accessor.setUser(new UsernamePasswordAuthenticationToken(
-                        currentUser,
-                        null,
-                        currentUser.getAuthorities()
-                ));
                 String destination = accessor.getDestination();
                 boolean allowed = switch (command) {
                     case SEND -> destination != null && (SEND_DESTINATIONS.contains(destination)
@@ -83,6 +78,9 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             String username = jwtService.extractUsername(token);
             UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
+            if (!userDetails.isEnabled()) {
+                throw new BadCredentialsException("This account is disabled");
+            }
             if (!jwtService.isTokenValid(token, userDetails)) {
                 throw new BadCredentialsException("Invalid WebSocket token");
             }
@@ -93,6 +91,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
                     userDetails.getAuthorities()
             );
             accessor.setUser(authentication);
+            sessionRegistry.linkUsername(accessor.getSessionId(), username);
         } catch (RuntimeException exception) {
             throw new BadCredentialsException("Invalid WebSocket token", exception);
         }

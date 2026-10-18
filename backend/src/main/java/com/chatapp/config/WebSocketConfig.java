@@ -1,7 +1,7 @@
 package com.chatapp.config;
 
 import com.chatapp.security.WebSocketAuthChannelInterceptor;
-import com.chatapp.security.WebSocketAccountStatusInterceptor;
+import com.chatapp.security.WebSocketSessionRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
@@ -10,6 +10,7 @@ import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 
 import java.util.Arrays;
 
@@ -18,7 +19,7 @@ import java.util.Arrays;
 @RequiredArgsConstructor
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final WebSocketAuthChannelInterceptor authChannelInterceptor;
-    private final WebSocketAccountStatusInterceptor accountStatusInterceptor;
+    private final WebSocketSessionRegistry webSocketSessionRegistry;
 
     @Value("${cors.allowed-origins}")
     private String allowedOrigins;
@@ -36,8 +37,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     }
 
     @Override
-    public void configureClientOutboundChannel(ChannelRegistration registration) {
-        registration.interceptors(accountStatusInterceptor);
+    public void configureWebSocketTransport(WebSocketTransportRegistration registration) {
+        registration.addDecoratorFactory(webSocketSessionRegistry);
     }
 
     @Override
