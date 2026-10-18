@@ -7,7 +7,6 @@ const blockedUser: User = {
   id: 7,
   username: 'thinh',
   fullName: 'Thinh Nguyen',
-  email: 'thinh@example.test',
   online: false,
   createdAt: '2026-10-13T00:00:00',
 };

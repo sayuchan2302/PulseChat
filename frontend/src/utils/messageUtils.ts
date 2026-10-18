@@ -413,7 +413,6 @@ export function getMessageSenderUser(
         id: message.senderId,
         username: message.senderUsername || 'user',
         fullName: message.senderFullName,
-        email: '',
         createdAt: '',
         online: false,
     };

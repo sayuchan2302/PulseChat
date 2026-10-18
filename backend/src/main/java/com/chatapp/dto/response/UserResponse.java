@@ -14,7 +14,6 @@ public record UserResponse(
         String fullName,
         String nickname,
         String role,
-        String email,
         String avatar,
         String bio,
         Boolean online,
@@ -88,7 +87,6 @@ public record UserResponse(
                 displayName(user),
                 nickname,
                 role,
-                user.getEmail(),
                 user.getAvatar(),
                 user.getBio(),
                 user.getOnline(),
@@ -110,14 +108,14 @@ public record UserResponse(
 
     public UserResponse withMessageRequest(Boolean value) {
         return new UserResponse(
-                id, username, fullName, nickname, role, email, avatar, bio, online, lastSeenAt, createdAt,
+                id, username, fullName, nickname, role, avatar, bio, online, lastSeenAt, createdAt,
                 friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId,
                 pinned, muted, archived, pinnedMessageId, pinnedMessage, value, accountRole);
     }
 
     public UserResponse withAccountRole(String value) {
         return new UserResponse(
-                id, username, fullName, nickname, role, email, avatar, bio, online, lastSeenAt, createdAt,
+                id, username, fullName, nickname, role, avatar, bio, online, lastSeenAt, createdAt,
                 friendshipStatus, friendshipId, lastMessageContent, lastMessageAt, lastMessageSenderId,
                 pinned, muted, archived, pinnedMessageId, pinnedMessage, messageRequest, value);
     }

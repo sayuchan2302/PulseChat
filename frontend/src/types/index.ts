@@ -55,7 +55,6 @@ export interface User {
   nickname?: string;
   role?: GroupMemberRole | null;
   accountRole?: AccountRole;
-  email: string;
   avatar?: string;
   bio?: string;
   online: boolean;

@@ -1894,7 +1894,6 @@ export default function ChatPage() {
         id: r.userId,
         username: r.username,
         fullName: r.fullName,
-        email: '',
         online: false,
         createdAt: r.createdAt,
       };
