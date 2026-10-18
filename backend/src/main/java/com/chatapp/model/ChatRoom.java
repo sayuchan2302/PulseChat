@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -21,6 +22,7 @@ import java.util.stream.Collectors;
         @Index(name = "idx_chat_rooms_type_created", columnList = "type, created_at"),
         @Index(name = "idx_chat_rooms_owner", columnList = "owner_id")
 })
+@BatchSize(size = 50)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -54,6 +56,7 @@ public class ChatRoom {
     @JoinColumn(name = "pinned_message_id")
     private Message pinnedMessage;
 
+    @BatchSize(size = 50)
     @OneToMany(mappedBy = "chatRoom", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ChatRoomMember> members = new ArrayList<>();
 

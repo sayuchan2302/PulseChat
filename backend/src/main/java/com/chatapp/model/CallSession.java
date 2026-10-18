@@ -16,6 +16,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -30,6 +31,7 @@ import java.time.LocalDateTime;
                 @Index(name = "idx_call_sessions_status", columnList = "status")
         }
 )
+@BatchSize(size = 50)
 @Getter
 @Setter
 @NoArgsConstructor

@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -24,6 +25,7 @@ import java.util.Set;
         @Index(name = "idx_messages_media_public_id", columnList = "media_public_id"),
         @Index(name = "uk_messages_sender_client", columnList = "sender_id, client_id", unique = true)
 })
+@BatchSize(size = 50)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -109,9 +111,11 @@ public class Message {
     @Column(nullable = false)
     private Boolean recalled = false;
 
+    @BatchSize(size = 50)
     @OneToMany(mappedBy = "message", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<MessageReaction> reactions = new HashSet<>();
 
+    @BatchSize(size = 50)
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(name = "message_mentions", joinColumns = @JoinColumn(name = "message_id"), inverseJoinColumns = @JoinColumn(name = "user_id"), indexes = {
             @Index(name = "idx_message_mentions_user_id", columnList = "user_id"),
@@ -119,6 +123,7 @@ public class Message {
     })
     private Set<User> mentions = new HashSet<>();
 
+    @BatchSize(size = 50)
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(name = "message_hidden_users", joinColumns = @JoinColumn(name = "message_id"), inverseJoinColumns = @JoinColumn(name = "user_id"), indexes = {
             @Index(name = "idx_message_hidden_users_user_id", columnList = "user_id")

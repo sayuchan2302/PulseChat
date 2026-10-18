@@ -109,8 +109,8 @@
 ## Phase 3 — Refactor ROI cao (P2, làm dần song song, ~3–5 ngày)
 
 ### 3.1 Backend hiệu năng
-- [ ] **N+1 khi hydrate message page**: `MessageResponse.java:49-88` + `MessageRepository.java:45-67,187-188` — batch-load attachments/reactions/hiddenBy/reply/mentions theo page (IN query hoặc `@EntityGraph`).
-- [ ] Tắt `spring.jpa.open-in-view` (chưa set ở đâu) sau khi sửa 3.1 — tránh che N+1 và giữ session quá lâu.
+- [x] **N+1 khi hydrate message page**: `MessageResponse.java:49-88` + `MessageRepository.java:45-67,187-188` — đã thêm `@BatchSize(50)` cho `Message` (class + `reactions`/`mentions`/`hiddenByUsers`), `ChatRoom` (class + `members`), `User`, `CallSession` → batch-fetch dạng IN theo page. Test chống hồi quy `MessageHydrationQueryCountTest`: hydrate 20 tin nhắn room kèm reply/reaction/mention chỉ tốn **5 query** (trước ~60). Lưu ý: media là cột inline trên `Message`, không có bảng attachments riêng.
+- [x] Tắt `spring.jpa.open-in-view` (`application.yml:18`) sau khi sửa 3.1 — full suite 210/210 pass, không call site nào vỡ lazy.
 - [ ] `UserRepository.searchUsers:33-35` — thêm LIMIT/phân trang; resolve friendship theo lô (hiện N+1 per user).
 - [ ] `MessageRepository.java:271-280` — giới hạn `findPrivateConversationPartnerIds`.
 - [ ] `ChatRoomController.java:313-334` — fan-out participant N+1 → batch query; bắt lỗi non-`AppException` đàng hoàng.
