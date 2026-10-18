@@ -29,6 +29,9 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -45,6 +48,8 @@ public class LinkPreviewService {
     private static final int MAX_DOMAIN_LENGTH = 255;
     private static final Duration CONNECT_TIMEOUT = Duration.ofMillis(1200);
     private static final Duration REQUEST_TIMEOUT = Duration.ofMillis(2200);
+    static final int CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5;
+    private static final Duration CIRCUIT_BREAKER_COOLDOWN = Duration.ofSeconds(30);
     private static final Pattern URL_PATTERN = Pattern.compile("https?://[^\\s<>'\"`]+", Pattern.CASE_INSENSITIVE);
     private static final Pattern META_TAG_PATTERN = Pattern.compile("<meta\\s+[^>]*>", Pattern.CASE_INSENSITIVE);
     private static final Pattern TITLE_TAG_PATTERN = Pattern.compile(
@@ -61,6 +66,9 @@ public class LinkPreviewService {
     );
 
     private final CloseableHttpClient httpClient;
+    private final LongSupplier nanoClock;
+    private final AtomicInteger consecutiveFetchFailures = new AtomicInteger();
+    private final AtomicLong circuitOpenUntilNanos = new AtomicLong();
     private final ThreadPoolExecutor previewExecutor = new ThreadPoolExecutor(
             4,
             4,
@@ -75,11 +83,16 @@ public class LinkPreviewService {
             new ThreadPoolExecutor.AbortPolicy());
 
     public LinkPreviewService() {
-        this(createHttpClient());
+        this(createHttpClient(), System::nanoTime);
     }
 
     LinkPreviewService(CloseableHttpClient httpClient) {
+        this(httpClient, System::nanoTime);
+    }
+
+    LinkPreviewService(CloseableHttpClient httpClient, LongSupplier nanoClock) {
         this.httpClient = httpClient;
+        this.nanoClock = nanoClock;
     }
 
     private static CloseableHttpClient createHttpClient() {
@@ -165,6 +178,11 @@ public class LinkPreviewService {
     }
 
     private LinkPreviewMetadata fetchPreview(URI uri) {
+        if (isCircuitOpen()) {
+            log.debug("Link preview circuit breaker is open, skipping {}", uri);
+            return null;
+        }
+
         HttpGet request = new HttpGet(uri);
         request.setHeader("User-Agent", "ChatAppLinkPreview/1.0");
         request.setHeader("Accept", "text/html,application/xhtml+xml");
@@ -178,11 +196,14 @@ public class LinkPreviewService {
         }
 
         try {
-            return fetch.get(REQUEST_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            LinkPreviewMetadata preview = fetch.get(REQUEST_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            recordFetchSuccess();
+            return preview;
         } catch (TimeoutException exception) {
             request.cancel();
             fetch.cancel(true);
             previewExecutor.remove((Runnable) fetch);
+            recordFetchFailure();
             log.debug("Link preview timed out for {}", uri);
             return null;
         } catch (InterruptedException exception) {
@@ -192,8 +213,33 @@ public class LinkPreviewService {
             Thread.currentThread().interrupt();
             return null;
         } catch (ExecutionException exception) {
+            recordFetchFailure();
             log.debug("Unable to resolve link preview for {}", uri, exception.getCause());
             return null;
+        }
+    }
+
+    /**
+     * After {@value #CIRCUIT_BREAKER_FAILURE_THRESHOLD} consecutive fetch failures (timeouts or
+     * network errors) the service stops hitting the network for {@value #CIRCUIT_BREAKER_COOLDOWN}.
+     * That keeps a slow or unreachable dependency from pinning all preview threads and stalling
+     * every message send for the full request timeout; queue rejections are back-pressure from
+     * our own saturation and deliberately do not count as dependency failures.
+     */
+    boolean isCircuitOpen() {
+        return nanoClock.getAsLong() < circuitOpenUntilNanos.get();
+    }
+
+    private void recordFetchSuccess() {
+        consecutiveFetchFailures.set(0);
+        circuitOpenUntilNanos.set(0);
+    }
+
+    private void recordFetchFailure() {
+        int failures = consecutiveFetchFailures.incrementAndGet();
+        if (failures >= CIRCUIT_BREAKER_FAILURE_THRESHOLD) {
+            consecutiveFetchFailures.set(CIRCUIT_BREAKER_FAILURE_THRESHOLD);
+            circuitOpenUntilNanos.set(nanoClock.getAsLong() + CIRCUIT_BREAKER_COOLDOWN.toNanos());
         }
     }
 
