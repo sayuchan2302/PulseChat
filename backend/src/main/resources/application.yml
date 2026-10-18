@@ -55,6 +55,11 @@ cors:
 app:
   admin:
     bootstrap-username: ${ADMIN_BOOTSTRAP_USERNAME:}
+  rate-limit:
+    window-seconds: ${RATE_LIMIT_WINDOW_SECONDS:900}
+    login-max-attempts: ${RATE_LIMIT_LOGIN_MAX:10}
+    register-max-attempts: ${RATE_LIMIT_REGISTER_MAX:10}
+    refresh-max-attempts: ${RATE_LIMIT_REFRESH_MAX:60}
   uploads:
     avatar-dir: ${AVATAR_UPLOAD_DIR:uploads/avatars}
     media-dir: ${MEDIA_UPLOAD_DIR:uploads/media}

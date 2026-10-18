@@ -11,6 +11,7 @@ public enum ErrorCode {
         EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "AUTH_002", "Email already exists"),
         INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AUTH_003", "Invalid username or password"),
         INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH_004", "Refresh token is invalid or expired"),
+        TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "AUTH_005", "Too many attempts, please try again later"),
 
         USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_001", "User not found"),
         ACCOUNT_LAST_ADMIN_REQUIRED(HttpStatus.CONFLICT, "ACCOUNT_001", "At least one enabled admin account is required"),

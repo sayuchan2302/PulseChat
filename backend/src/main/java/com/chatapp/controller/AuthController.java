@@ -8,6 +8,7 @@ import com.chatapp.exception.ErrorCode;
 import com.chatapp.service.AuthService;
 import com.chatapp.security.RefreshTokenCookieService;
 import com.chatapp.security.MediaSessionCookieService;
+import com.chatapp.security.RateLimitService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -26,25 +27,39 @@ public class AuthController {
     private final AuthService authService;
     private final RefreshTokenCookieService refreshTokenCookieService;
     private final MediaSessionCookieService mediaSessionCookieService;
+    private final RateLimitService rateLimitService;
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(
             @Valid @RequestBody RegisterRequest request,
+            HttpServletRequest servletRequest,
             HttpServletResponse response
     ) {
+        if (!rateLimitService.allowRegisterAttempt(clientIp(servletRequest))) {
+            throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
+        }
         return withRefreshCookie(authService.register(request), response, HttpStatus.CREATED);
     }
 
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(
             @Valid @RequestBody LoginRequest request,
+            HttpServletRequest servletRequest,
             HttpServletResponse response
     ) {
-        return withRefreshCookie(authService.login(request), response, HttpStatus.OK);
+        if (!rateLimitService.allowLoginAttempt(clientIp(servletRequest), request.username())) {
+            throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
+        }
+        AuthService.AuthResult result = authService.login(request);
+        rateLimitService.clearLoginAttempts(request.username());
+        return withRefreshCookie(result, response, HttpStatus.OK);
     }
 
     @PostMapping("/refresh")
     public ResponseEntity<AuthResponse> refresh(HttpServletRequest request, HttpServletResponse response) {
+        if (!rateLimitService.allowRefreshAttempt(clientIp(request))) {
+            throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
+        }
         try {
             AuthService.AuthResult result = refreshTokenCookieService.readRefreshToken(request)
                     .map(authService::refresh)
@@ -65,6 +80,11 @@ public class AuthController {
         refreshTokenCookieService.clearRefreshToken(response);
         mediaSessionCookieService.clearSession(response);
         return ResponseEntity.noContent().build();
+    }
+
+    private static String clientIp(HttpServletRequest request) {
+        // No reverse proxy is configured, so X-Forwarded-For would be client-controlled: use the socket address only.
+        return request.getRemoteAddr();
     }
 
     private ResponseEntity<AuthResponse> withRefreshCookie(

@@ -1,6 +1,7 @@
 package com.chatapp.controller;
 
 import com.chatapp.dto.request.LoginRequest;
+import com.chatapp.dto.request.RegisterRequest;
 import com.chatapp.dto.response.AuthResponse;
 import com.chatapp.dto.response.UserResponse;
 import com.chatapp.exception.AppException;
@@ -8,6 +9,7 @@ import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.User;
 import com.chatapp.security.RefreshTokenCookieService;
 import com.chatapp.security.MediaSessionCookieService;
+import com.chatapp.security.RateLimitService;
 import com.chatapp.service.AuthService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,10 +27,14 @@ import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,6 +44,9 @@ class AuthControllerTest {
 
     @Mock
     private AuthService authService;
+
+    @Mock
+    private RateLimitService rateLimitService;
 
     private AuthController controller;
 
@@ -51,7 +60,10 @@ class AuthControllerTest {
                 1_209_600_000L
         );
         controller = new AuthController(authService, cookieService,
-                new MediaSessionCookieService("/api", true, "Lax", 1_209_600_000L));
+                new MediaSessionCookieService("/api", true, "Lax", 1_209_600_000L), rateLimitService);
+        lenient().when(rateLimitService.allowLoginAttempt(any(), any())).thenReturn(true);
+        lenient().when(rateLimitService.allowRegisterAttempt(any())).thenReturn(true);
+        lenient().when(rateLimitService.allowRefreshAttempt(any())).thenReturn(true);
     }
 
     @Test
@@ -61,6 +73,7 @@ class AuthControllerTest {
 
         ResponseEntity<AuthResponse> response = controller.login(
                 new LoginRequest("sayu", "password"),
+                new MockHttpServletRequest(),
                 servletResponse
         );
 
@@ -81,6 +94,7 @@ class AuthControllerTest {
                 value.contains("chat_media_session=" + REFRESH_TOKEN)));
         assertFalse(Arrays.stream(AuthResponse.class.getRecordComponents())
                 .anyMatch(component -> component.getName().equals("refreshToken")));
+        verify(rateLimitService).clearLoginAttempts("sayu");
     }
 
     @Test
@@ -124,6 +138,57 @@ class AuthControllerTest {
 
         assertEquals(ErrorCode.INVALID_REFRESH_TOKEN, exception.getErrorCode());
         assertTrue(servletResponse.getHeader(HttpHeaders.SET_COOKIE).contains("Max-Age=0"));
+    }
+
+    @Test
+    void loginReturnsTooManyRequestsWhenRateLimited() {
+        when(rateLimitService.allowLoginAttempt(any(), eq("sayu"))).thenReturn(false);
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> controller.login(
+                        new LoginRequest("sayu", "password"),
+                        new MockHttpServletRequest(),
+                        new MockHttpServletResponse()
+                )
+        );
+
+        assertEquals(ErrorCode.TOO_MANY_REQUESTS, exception.getErrorCode());
+        verifyNoInteractions(authService);
+    }
+
+    @Test
+    void registerReturnsTooManyRequestsWhenRateLimited() {
+        when(rateLimitService.allowRegisterAttempt(any())).thenReturn(false);
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> controller.register(
+                        new RegisterRequest("Sayu", "sayu", "sayu@example.com", "password123"),
+                        new MockHttpServletRequest(),
+                        new MockHttpServletResponse()
+                )
+        );
+
+        assertEquals(ErrorCode.TOO_MANY_REQUESTS, exception.getErrorCode());
+        verifyNoInteractions(authService);
+    }
+
+    @Test
+    void rateLimitedRefreshDoesNotClearSessionCookies() {
+        when(rateLimitService.allowRefreshAttempt(any())).thenReturn(false);
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+        servletRequest.setCookies(new Cookie("chat_refresh_token", REFRESH_TOKEN));
+        MockHttpServletResponse servletResponse = new MockHttpServletResponse();
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> controller.refresh(servletRequest, servletResponse)
+        );
+
+        assertEquals(ErrorCode.TOO_MANY_REQUESTS, exception.getErrorCode());
+        assertNull(servletResponse.getHeader(HttpHeaders.SET_COOKIE));
+        verifyNoInteractions(authService);
     }
 
     private AuthService.AuthResult authResult() {
