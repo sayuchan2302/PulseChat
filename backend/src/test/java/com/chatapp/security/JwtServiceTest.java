@@ -1,9 +1,13 @@
 package com.chatapp.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -11,6 +15,7 @@ import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -101,5 +106,62 @@ class JwtServiceTest {
         IllegalStateException exception = assertThrows(IllegalStateException.class, jwtService::validateConfiguration);
 
         assertTrue(exception.getMessage().contains("32 bytes"));
+    }
+
+    @Test
+    void expiredAccessTokensAreRejected() {
+        JwtService jwtService = jwtService();
+        ReflectionTestUtils.setField(jwtService, "jwtAccessExpirationMs", -1_000L);
+
+        String token = jwtService.generateAccessToken("sayu");
+
+        assertThrows(ExpiredJwtException.class, () -> jwtService.extractUsername(token));
+    }
+
+    @Test
+    void tamperedPayloadsAreRejected() {
+        JwtService jwtService = jwtService();
+        String[] parts = jwtService.generateAccessToken("sayu").split("\\.");
+        char firstPayloadChar = parts[1].charAt(0);
+        String tamperedPayload = (firstPayloadChar == 'A' ? 'B' : 'A') + parts[1].substring(1);
+        String tampered = parts[0] + "." + tamperedPayload + "." + parts[2];
+
+        assertThrows(JwtException.class, () -> jwtService.extractUsername(tampered));
+    }
+
+    @Test
+    void malformedTokensAreRejected() {
+        JwtService jwtService = jwtService();
+
+        assertThrows(JwtException.class, () -> jwtService.extractUsername("not-a-jwt"));
+    }
+
+    @Test
+    void tokensSignedWithAnotherSecretAreRejected() {
+        JwtService issuer = jwtService();
+        JwtService verifier = jwtService();
+        ReflectionTestUtils.setField(verifier, "jwtSecret", "totally-different-signing-secret-with-more-than-32-bytes!");
+
+        String token = issuer.generateAccessToken("sayu");
+
+        assertThrows(JwtException.class, () -> verifier.extractUsername(token));
+    }
+
+    @Test
+    void isTokenValidRejectsDisabledAccounts() {
+        JwtService jwtService = jwtService();
+        String token = jwtService.generateAccessToken("sayu");
+        UserDetails disabled = User.withUsername("sayu").password("unused").roles("USER").disabled(true).build();
+
+        assertFalse(jwtService.isTokenValid(token, disabled));
+    }
+
+    @Test
+    void isTokenValidAcceptsAnEnabledMatchingAccount() {
+        JwtService jwtService = jwtService();
+        String token = jwtService.generateAccessToken("sayu");
+        UserDetails enabled = User.withUsername("sayu").password("unused").roles("USER").build();
+
+        assertTrue(jwtService.isTokenValid(token, enabled));
     }
 }

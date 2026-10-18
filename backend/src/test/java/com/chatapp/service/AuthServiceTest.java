@@ -1,6 +1,9 @@
 package com.chatapp.service;
 
 import com.chatapp.dto.request.LoginRequest;
+import com.chatapp.exception.AppException;
+import com.chatapp.exception.ErrorCode;
+import com.chatapp.model.RefreshToken;
 import com.chatapp.model.User;
 import com.chatapp.repository.UserRepository;
 import com.chatapp.security.JwtService;
@@ -10,13 +13,16 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -63,5 +69,59 @@ class AuthServiceTest {
         assertEquals("signed-media-jwt", result.mediaToken());
         verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
         verify(refreshTokenService).createToken(user);
+    }
+
+    @Test
+    void refreshRotatesTheRefreshTokenAndIssuesNewTokens() {
+        User user = user();
+        when(refreshTokenService.consumeToken("raw-refresh")).thenReturn(refreshTokenFor(user));
+        when(jwtService.generateAccessToken("thinh2302")).thenReturn("new-access-jwt");
+        when(jwtService.generateMediaToken("thinh2302")).thenReturn("new-media-jwt");
+        when(refreshTokenService.createToken(user)).thenReturn("rotated-refresh-token");
+
+        AuthService.AuthResult result = authService.refresh("raw-refresh");
+
+        assertEquals("new-access-jwt", result.response().token());
+        assertEquals("rotated-refresh-token", result.refreshToken());
+        assertEquals("new-media-jwt", result.mediaToken());
+        verify(refreshTokenService).consumeToken("raw-refresh");
+        verify(refreshTokenService).createToken(user);
+    }
+
+    @Test
+    void logoutRevokesTheRefreshToken() {
+        authService.logout("raw-refresh");
+
+        verify(refreshTokenService).revokeToken("raw-refresh");
+    }
+
+    @Test
+    void loginRejectsDisabledAccounts() {
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
+                .thenThrow(new DisabledException("account disabled"));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> authService.login(new LoginRequest("sayu", "password"))
+        );
+
+        assertEquals(ErrorCode.INVALID_CREDENTIALS, exception.getErrorCode());
+        verify(userRepository, never()).findByUsername(any());
+    }
+
+    private static User user() {
+        User user = new User();
+        user.setId(42L);
+        user.setUsername("thinh2302");
+        user.setFullName("Thinh");
+        user.setEmail("thinh@example.com");
+        user.setOnline(false);
+        return user;
+    }
+
+    private static RefreshToken refreshTokenFor(User user) {
+        RefreshToken refreshToken = new RefreshToken();
+        refreshToken.setUser(user);
+        return refreshToken;
     }
 }
