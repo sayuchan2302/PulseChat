@@ -3,7 +3,7 @@
 > Nguồn: đợt full code review (backend logic, backend security, frontend, tests/config) ngày 2026-10-16/17.
 > Quy tắc: **hoàn tất Phase 1 + Phase 2 (Gate) trước khi bắt đầu feature mới.** Nếu feature gấp không thể chờ, tối thiểu phải xong Phase 1.
 > Phạm vi: toàn bộ fix + hardening từ đợt review — **không bao gồm roadmap feature mới** (chọn sau khi qua Gate).
-> Trạng thái: **Phase 1 hoàn tất (2026-10-18)** — admin feature + V5 đã commit, backend suite 171/171 xanh, frontend xanh. Việc tiếp theo: Phase 2 (CI, bảo mật...) — xem "Tiến độ thực thi".
+> Trạng thái: **Phase 1 hoàn tất (2026-10-18); Phase 2 đang thực hiện** — CI ✅, bỏ email ✅, rotation/replay + media token ✅, filter 401 ✅; backend 181/181 xanh. Còn lại: rate limiting, prod hardening, WS error handler, bump dependencies — xem "Tiến độ thực thi".
 
 ---
 
@@ -18,13 +18,22 @@
 **Phát sinh trong Phase 1 (đã xử lý):**
 - [x] Full suite lộ thêm **28 failures ở `WebSocketAuthChannelInterceptorTest`** — tồn tại từ feature admin: interceptor giờ check account mỗi frame và `setUser(...)`, nhưng test cũ chưa stub `loadUserByUsername` (NPE) và tạo accessor frozen (IllegalStateException). Đã đồng bộ test (stub user enabled, `setLeaveMutable(true)`) + thêm case tài khoản bị disable không gửi được frame — commit `8fbbc6d`.
 
+**Phase 2 — Gate an toàn (đang thực hiện):**
+
+- [x] **2.4 CI** — commit `80d3194`: `.github/workflows/ci.yml` chạy backend (`./mvnw -B test`, Java 17) + frontend (`npm ci` → `test` → `lint` → `build`, Node 24) trên push `main`/PR; kèm fix exec bit `mvnw` (100644 → 100755, runner Linux cần). ⏳ CI chưa chạy thực tế vì chưa push.
+- [x] **2.1a Bỏ email khỏi `UserResponse`** — commit `560f36c`: record không còn `email`; admin vẫn có email qua `AdminAccountResponse` (DTO riêng đã tồn tại sẵn); gỡ 4 chỗ FE (`types/index.ts` type `User`, `messageUtils.ts`, `ChatPage.tsx`, `BlockedUsersModal.test.tsx`). Verify: backend 171/171 ✅ + FE 15/15 ✅.
+- [x] **2.1b Rotation nguyên tử + replay detection** — commit `951a040`: `consumeToken` dùng `findByTokenHashForUpdate` (`PESSIMISTIC_WRITE` row lock) → 2 request đồng thời cùng refresh token chỉ 1 thắng; token đã revoke bị dùng lại → **revoke toàn bộ session active của user** + log warn, chạy `REQUIRES_NEW` để sống sót rollback của request lỗi; phân biệt rõ token expired vs revoked vs user bị disable; `revokeAllActiveByUserId` thêm `flushAutomatically + clearAutomatically` (đã rà `AdminAccountService` gọi trước `save(user)` → an toàn).
+- [x] **2.1c Media cookie không còn là refresh token** — commit `951a040`: cookie `chat_media_session` giờ mang JWT riêng (`token_use=media`, TTL 24h qua `JWT_MEDIA_EXPIRATION`) thay vì raw refresh token; `JwtService` tách `extractUsername` (chỉ access) / `extractMediaUsername` (chỉ media) nên 2 loại token **không thể dùng thay thế nhau**; filter media bỏ truy vấn DB mỗi request (nhanh hơn), vẫn chặn user disable/delete qua `loadUserByUsername`.
+- [x] **2.3a Filter 401 thay vì 500 cho user bị xoá** — commit `951a040`: `JwtAuthenticationFilter` bắt `AuthenticationException` ở cả 2 nhánh (bearer + media cookie); thêm regression test (`deletedAccountWithBearerTokenIsRejectedWithUnauthorizedInsteadOfServerError`).
+- [x] **Verify batch** — backend **181/181, BUILD SUCCESS** (+10 test: `JwtServiceTest` 1→4, `RefreshTokenServiceTest` 1→6, `LocalMediaHttpSecurityTest` 6→8).
+
 ---
 
 ## Trạng thái hiện tại (để ghi nhớ)
 
 - [x] ~~33 file admin feature chưa commit, `V5__account_roles_and_status.sql` untracked~~ → đã commit `e694394` (2026-10-18), trước đó verify compile backend + build FE.
 - [x] ~~`ProductionSchemaMigrationTest` đỏ~~ → đã fix `283d29e` (đếm migration động từ classpath + V5 tách câu lệnh chạy được trên H2). Phát hiện thêm: `V5` gốc không chạy được trên H2.
-- [ ] Chưa có CI (`.github/` không tồn tại) → thuộc Phase 2.
+- [x] ~~Chưa có CI (`.github/` không tồn tại)~~ → đã thêm `.github/workflows/ci.yml` (commit `80d3194`); sẽ chạy lần đầu khi push lên GitHub.
 - [ ] Spring Boot 3.2.0 trong `pom.xml:11` (thiếu nhiều bản vá CVE) → thuộc Phase 2.
 - [ ] README trỏ tới `PHASE1_SECURITY.md` và `scripts/run-phase1-smoke.ps1` **không tồn tại** → thuộc Phase 4.
 
@@ -59,14 +68,14 @@
 ## Phase 2 — Gate an toàn trước feature mới (P1, ~2–4 ngày)
 
 ### 2.1 Quyền riêng tư & auth
-- [ ] `backend/src/main/java/com/chatapp/dto/response/UserResponse.java:17,91` — **bỏ `email`** khỏi DTO dùng chung (đang lộ email mọi user cho mọi user).
-  - Tạo DTO admin riêng (vd `AdminUserResponse`) để `AdminPage.tsx` vẫn có email.
-  - Rà `frontend/src/types/index.ts` + các chỗ dùng `email` phía FE.
+- [x] `backend/src/main/java/com/chatapp/dto/response/UserResponse.java:17,91` — **bỏ `email`** khỏi DTO dùng chung (đang lộ email mọi user cho mọi user) — commit `560f36c`.
+  - ✅ DTO admin riêng đã có sẵn: `AdminAccountResponse` (giữ email) — `AdminPage.tsx` dùng DTO này nên không ảnh hưởng.
+  - ✅ Rà FE xong: gỡ `email` khỏi type `User` (`types/index.ts`), `messageUtils.ts`, `ChatPage.tsx`, `BlockedUsersModal.test.tsx`.
 - [ ] Rate limiting / lockout cho `/auth/login`, `/auth/register`, `/auth/refresh` (Bucket4j hoặc filter tự viết; per-IP + per-account).
-- [ ] `RefreshTokenService.java:47-61` — rotation nguyên tử: conditional update (`WHERE revoked=false` + kiểm tra row count) hoặc `SELECT ... FOR UPDATE`.
-- [ ] Phát hiện **replay** refresh token: khi token đã revoke bị dùng lại → revoke toàn bộ token của user đó + log cảnh báo.
-- [ ] `RefreshTokenRepository` — thêm `clearAutomatically = true` cho `@Modifying` revoke (tránh entity stale).
-- [ ] `MediaSessionCookieService.java:34` — không dùng raw refresh token làm cookie media; tạo token media ngắn hạn riêng.
+- [x] `RefreshTokenService.java:47-61` — rotation nguyên tử: dùng `findByTokenHashForUpdate` (`PESSIMISTIC_WRITE` row lock) — request thứ hai với cùng token sẽ thấy `revokedAt` ≠ null và bị coi là replay — commit `951a040`.
+- [x] Phát hiện **replay** refresh token: token đã revoke bị dùng lại → revoke toàn bộ token active của user + log cảnh báo; wrap trong transaction `REQUIRES_NEW` để không bị rollback cùng exception — commit `951a040`.
+- [x] `RefreshTokenRepository` — thêm `flushAutomatically = true, clearAutomatically = true` cho `@Modifying` revoke (tránh entity stale) — commit `951a040`.
+- [x] `MediaSessionCookieService.java:34` — không dùng raw refresh token làm cookie media; cookie giờ mang JWT riêng `token_use=media` (TTL 24h) — commit `951a040`.
 
 ### 2.2 Prod hardening
 - [ ] `application.yml:9` — bỏ default `:dev` (fail-fast nếu thiếu `SPRING_PROFILES_ACTIVE`), hoặc đưa giá trị an toàn (cookie secure, không `ddl-auto: update`) vào base config.
@@ -77,18 +86,18 @@
 ### 2.3 Dependencies & WS
 - [ ] `pom.xml:11` — bump Spring Boot 3.2.0 → bản mới nhất 3.2.x/3.3.x; jjwt ≥ 0.12.5 (đã fix DoS khi parse token). Chạy lại full test sau khi bump.
 - [ ] `ChatWebSocketController.java:172-191` — thêm `@MessageExceptionHandler` map `AppException`/validation → ERROR frame cho client; log các `AppException` bị nuốt ở call signaling.
-- [ ] `JwtAuthenticationFilter.java:52-67` — bắt `AuthenticationException` → 401 (hiện user bị xoá gây 500).
+- [x] `JwtAuthenticationFilter.java:52-67` — bắt `AuthenticationException` → 401 (user bị xoá không còn gây 500); thêm regression test — commit `951a040`.
 
 ### 2.4 CI (chặn regression vĩnh viễn)
-- [ ] Tạo `.github/workflows/ci.yml`: `backend/mvnw test` + `frontend: npm test`, `npm run lint`, `npm run build` trên mỗi PR/push.
+- [x] Tạo `.github/workflows/ci.yml`: backend `./mvnw -B test` (Java 17 temurin) + frontend `npm ci`/`test`/`lint`/`build` (Node 24) trên push `main`/PR; kèm fix exec bit `mvnw` — commit `80d3194`. ⏳ Chưa chạy thực tế trên GitHub (chưa push).
 - [ ] (Tùy chọn) thêm `npm run test:coverage` với ngưỡng tối thiểu.
 
 ### Gate Definition of Done (Phase 2)
-- [ ] CI xanh trên repo.
-- [ ] Không còn `email` trong response cho user thường (kiểm tra bằng test hoặc curl).
-- [ ] Rate limiting hoạt động (test thử 20 lần login sai liên tiếp).
-- [ ] Rotation/replay refresh token đã có test.
-- [ ] Prod checklist: `SPRING_PROFILES_ACTIVE=prod` fail-fast nếu thiếu; cookie/CSRF/CORS đúng.
+- [ ] CI xanh trên repo. (⏳ chờ push lần đầu)
+- [x] Không còn `email` trong response cho user thường (`UserResponse` không còn field; verify qua test + grep toàn bộ `backend/src`).
+- [ ] Rate limiting hoạt động (test thử 20 lần login sai liên tiếp). (⏳ chưa làm)
+- [x] Rotation/replay refresh token đã có test (6 case `RefreshTokenServiceTest`: lock lookup, replay family-revoke, expired, disabled, unknown).
+- [ ] Prod checklist: `SPRING_PROFILES_ACTIVE=prod` fail-fast nếu thiếu; cookie/CSRF/CORS đúng. (⏳ chưa làm)
 
 ---
 
