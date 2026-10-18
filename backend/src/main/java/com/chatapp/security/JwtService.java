@@ -15,30 +15,34 @@ import java.util.function.Function;
 
 @Service
 public class JwtService {
+    static final String TOKEN_USE_CLAIM = "token_use";
+    static final String TOKEN_USE_ACCESS = "access";
+    static final String TOKEN_USE_MEDIA = "media";
+
     @Value("${jwt.secret}")
     private String jwtSecret;
 
     @Value("${jwt.access-expiration}")
     private long jwtAccessExpirationMs;
 
-    public String generateAccessToken(String username) {
-        Date now = new Date();
-        Date expiresAt = new Date(now.getTime() + jwtAccessExpirationMs);
+    @Value("${jwt.media-expiration:86400000}")
+    private long jwtMediaExpirationMs;
 
-        return Jwts.builder()
-                .subject(username)
-                .issuedAt(now)
-                .expiration(expiresAt)
-                .signWith(getSigningKey())
-                .compact();
+    public String generateAccessToken(String username) {
+        return generateToken(username, TOKEN_USE_ACCESS, jwtAccessExpirationMs);
     }
 
-    public String generateToken(String username) {
-        return generateAccessToken(username);
+    /** Media reads (img/video tags) cannot send an Authorization header, so this short-lived token is cookie-delivered. */
+    public String generateMediaToken(String username) {
+        return generateToken(username, TOKEN_USE_MEDIA, jwtMediaExpirationMs);
     }
 
     public String extractUsername(String token) {
-        return extractClaim(token, Claims::getSubject);
+        return extractUsernameWithPurpose(token, TOKEN_USE_ACCESS);
+    }
+
+    public String extractMediaUsername(String token) {
+        return extractUsernameWithPurpose(token, TOKEN_USE_MEDIA);
     }
 
     public boolean isTokenValid(String token, UserDetails userDetails) {
@@ -48,18 +52,41 @@ public class JwtService {
                 && !isTokenExpired(token);
     }
 
+    private String generateToken(String username, String tokenUse, long expirationMs) {
+        Date now = new Date();
+        Date expiresAt = new Date(now.getTime() + expirationMs);
+
+        return Jwts.builder()
+                .subject(username)
+                .claim(TOKEN_USE_CLAIM, tokenUse)
+                .issuedAt(now)
+                .expiration(expiresAt)
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    private String extractUsernameWithPurpose(String token, String expectedUse) {
+        Claims claims = extractClaims(token);
+        if (!expectedUse.equals(claims.get(TOKEN_USE_CLAIM, String.class))) {
+            throw new IllegalArgumentException("Unexpected JWT token use");
+        }
+        return claims.getSubject();
+    }
+
     private boolean isTokenExpired(String token) {
         return extractClaim(token, Claims::getExpiration).before(new Date());
     }
 
     private <T> T extractClaim(String token, Function<Claims, T> resolver) {
-        Claims claims = Jwts.parser()
+        return resolver.apply(extractClaims(token));
+    }
+
+    private Claims extractClaims(String token) {
+        return Jwts.parser()
                 .verifyWith(getSigningKey())
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
-
-        return resolver.apply(claims);
     }
 
     private SecretKey getSigningKey() {

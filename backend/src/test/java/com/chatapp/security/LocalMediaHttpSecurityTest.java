@@ -1,11 +1,10 @@
 package com.chatapp.security;
 
 import com.chatapp.controller.LocalMediaController;
-import com.chatapp.service.LocalMediaStorageService;
-import com.chatapp.service.MediaAccessService;
-import com.chatapp.service.RefreshTokenService;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
+import com.chatapp.service.LocalMediaStorageService;
+import com.chatapp.service.MediaAccessService;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +13,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.Mockito.*;
@@ -23,7 +23,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(controllers = LocalMediaController.class, properties = {
-        "jwt.refresh-expiration=1209600000", "cors.allowed-origins=http://localhost:5173"})
+        "cors.allowed-origins=http://localhost:5173"})
 @Import({SecurityConfig.class, JwtAuthenticationFilter.class, MediaSessionCookieService.class,
         RestAuthenticationEntryPoint.class, RestAccessDeniedHandler.class, UploadSecurityHeadersFilter.class})
 class LocalMediaHttpSecurityTest {
@@ -32,7 +32,6 @@ class LocalMediaHttpSecurityTest {
     @Autowired MockMvc mvc;
     @MockBean JwtService jwt;
     @MockBean CustomUserDetailsService users;
-    @MockBean RefreshTokenService refreshTokens;
     @MockBean MediaAccessService access;
     @MockBean LocalMediaStorageService storage;
 
@@ -52,7 +51,7 @@ class LocalMediaHttpSecurityTest {
 
     @Test
     void browserMediaCookieAuthenticatesAndChecksMembershipWithoutMakingContentCacheable() throws Exception {
-        when(refreshTokens.getActiveUsername("active-session")).thenReturn("alice");
+        when(jwt.extractMediaUsername("active-session")).thenReturn("alice");
         when(users.loadUserByUsername("alice")).thenReturn(User.withUsername("alice").password("unused").roles("USER").build());
         when(storage.loadMedia(FILE)).thenReturn(new ByteArrayResource("private".getBytes()));
         mvc.perform(get(PATH).cookie(new Cookie("chat_media_session", "active-session")))
@@ -66,7 +65,7 @@ class LocalMediaHttpSecurityTest {
 
     @Test
     void revokedMediaCookieCannotAuthenticate() throws Exception {
-        when(refreshTokens.getActiveUsername("revoked")).thenThrow(new AppException(ErrorCode.INVALID_REFRESH_TOKEN));
+        when(jwt.extractMediaUsername("revoked")).thenThrow(new IllegalArgumentException("Unexpected JWT token use"));
         mvc.perform(get(PATH).cookie(new Cookie("chat_media_session", "revoked")))
                 .andExpect(status().isUnauthorized());
         verifyNoInteractions(access, storage);
@@ -76,7 +75,22 @@ class LocalMediaHttpSecurityTest {
     void mediaCookieCannotAuthenticateOtherApiEndpoints() throws Exception {
         mvc.perform(get("/users/me").cookie(new Cookie("chat_media_session", "active-session")))
                 .andExpect(status().isUnauthorized());
-        verifyNoInteractions(refreshTokens);
+        verifyNoInteractions(jwt);
+    }
+
+    @Test
+    void mediaTokenCannotAuthenticateApiRequestsAsBearerToken() throws Exception {
+        when(jwt.extractUsername("media-token")).thenThrow(new IllegalArgumentException("Unexpected JWT token use"));
+        mvc.perform(get("/users/me").header("Authorization", "Bearer media-token"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void deletedAccountWithBearerTokenIsRejectedWithUnauthorizedInsteadOfServerError() throws Exception {
+        when(jwt.extractUsername("ghost-token")).thenReturn("ghost");
+        when(users.loadUserByUsername("ghost")).thenThrow(new UsernameNotFoundException("account deleted"));
+        mvc.perform(get("/users/me").header("Authorization", "Bearer ghost-token"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

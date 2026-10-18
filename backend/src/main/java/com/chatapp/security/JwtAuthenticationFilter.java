@@ -1,8 +1,6 @@
 package com.chatapp.security;
 
 import io.jsonwebtoken.JwtException;
-import com.chatapp.exception.AppException;
-import com.chatapp.service.RefreshTokenService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -26,7 +25,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
     private final MediaSessionCookieService mediaSessionCookieService;
-    private final RefreshTokenService refreshTokenService;
 
     @Override
     protected void doFilterInternal(
@@ -37,12 +35,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            try {
-                mediaSessionCookieService.readSession(request).ifPresent(token ->
-                        authenticateUsername(request, refreshTokenService.getActiveUsername(token)));
-            } catch (AppException ignored) {
-                SecurityContextHolder.clearContext();
-            }
+            authenticateMediaSession(request);
             filterChain.doFilter(request, response);
             return;
         }
@@ -51,11 +44,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             authenticateRequest(request, token);
-        } catch (JwtException | IllegalArgumentException ignored) {
+        } catch (JwtException | IllegalArgumentException | AuthenticationException ignored) {
             SecurityContextHolder.clearContext();
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private void authenticateMediaSession(HttpServletRequest request) {
+        mediaSessionCookieService.readSession(request).ifPresent(token -> {
+            try {
+                authenticateUsername(request, jwtService.extractMediaUsername(token));
+            } catch (JwtException | IllegalArgumentException | AuthenticationException ignored) {
+                SecurityContextHolder.clearContext();
+            }
+        });
     }
 
     private void authenticateRequest(HttpServletRequest request, String token) {

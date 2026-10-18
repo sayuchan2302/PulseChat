@@ -34,6 +34,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AuthControllerTest {
     private static final String REFRESH_TOKEN = "refresh-token-value";
+    private static final String MEDIA_TOKEN = "media-token-value";
 
     @Mock
     private AuthService authService;
@@ -72,10 +73,12 @@ class AuthControllerTest {
         assertTrue(cookie.contains("SameSite=Lax"));
         assertTrue(cookie.contains("Max-Age=1209600"));
         assertTrue(servletResponse.getHeaders(HttpHeaders.SET_COOKIE).stream().anyMatch(value ->
-                value.contains("chat_media_session=" + REFRESH_TOKEN)
+                value.contains("chat_media_session=" + MEDIA_TOKEN)
                         && value.contains("Path=/api/uploads/media")
                         && value.contains("HttpOnly")
                         && value.contains("Max-Age=1209600")));
+        assertFalse(servletResponse.getHeaders(HttpHeaders.SET_COOKIE).stream().anyMatch(value ->
+                value.contains("chat_media_session=" + REFRESH_TOKEN)));
         assertFalse(Arrays.stream(AuthResponse.class.getRecordComponents())
                 .anyMatch(component -> component.getName().equals("refreshToken")));
     }
@@ -131,7 +134,8 @@ class AuthControllerTest {
         user.setOnline(false);
         return new AuthService.AuthResult(
                 new AuthResponse("access-token", UserResponse.from(user)),
-                REFRESH_TOKEN
+                REFRESH_TOKEN,
+                MEDIA_TOKEN
         );
     }
 }

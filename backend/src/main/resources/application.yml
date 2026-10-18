@@ -37,6 +37,7 @@ jwt:
   secret: ${JWT_SECRET}
   access-expiration: ${JWT_ACCESS_EXPIRATION:900000}
   refresh-expiration: ${JWT_REFRESH_EXPIRATION:1209600000}
+  media-expiration: ${JWT_MEDIA_EXPIRATION:86400000}
 
 auth:
   refresh-cookie:

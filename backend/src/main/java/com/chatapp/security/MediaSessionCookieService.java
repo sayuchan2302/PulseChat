@@ -11,7 +11,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.Optional;
 
-/** A revocable session cookie accepted only for reading local media. */
+/** A short-lived media JWT cookie accepted only for reading local media; never a session refresh token. */
 @Component
 public class MediaSessionCookieService {
     private static final String NAME = "chat_media_session";
@@ -24,7 +24,7 @@ public class MediaSessionCookieService {
             @Value("${server.servlet.context-path:}") String contextPath,
             @Value("${auth.refresh-cookie.secure:false}") boolean secure,
             @Value("${auth.refresh-cookie.same-site:Lax}") String sameSite,
-            @Value("${jwt.refresh-expiration}") long expirationMs) {
+            @Value("${jwt.media-expiration:86400000}") long expirationMs) {
         this.path = contextPath.replaceAll("/+$", "") + "/uploads/media";
         this.secure = secure;
         this.sameSite = sameSite;

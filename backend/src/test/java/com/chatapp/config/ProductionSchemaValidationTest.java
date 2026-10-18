@@ -85,6 +85,7 @@ class ProductionSchemaValidationTest {
 
         Assertions.assertEquals("lifetime-test-user", jwtService.extractUsername(loggedIn.response().token()));
         Assertions.assertEquals("lifetime-test-user", jwtService.extractUsername(refreshed.response().token()));
+        Assertions.assertEquals("lifetime-test-user", jwtService.extractMediaUsername(loggedIn.mediaToken()));
         Assertions.assertNotEquals(registered.refreshToken(), loggedIn.refreshToken());
         Assertions.assertNotEquals(loggedIn.refreshToken(), refreshed.refreshToken());
     }

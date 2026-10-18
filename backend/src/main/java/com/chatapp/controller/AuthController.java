@@ -73,7 +73,7 @@ public class AuthController {
             HttpStatus status
     ) {
         refreshTokenCookieService.addRefreshToken(response, result.refreshToken());
-        mediaSessionCookieService.addSession(response, result.refreshToken());
+        mediaSessionCookieService.addSession(response, result.mediaToken());
         return ResponseEntity.status(status).body(result.response());
     }
 }

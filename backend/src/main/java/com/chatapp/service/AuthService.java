@@ -93,12 +93,14 @@ public class AuthService {
     private AuthResult createAuthResponse(User user) {
         String accessToken = jwtService.generateAccessToken(user.getUsername());
         String refreshToken = refreshTokenService.createToken(user);
+        String mediaToken = jwtService.generateMediaToken(user.getUsername());
         return new AuthResult(
                 new AuthResponse(accessToken, UserResponse.from(user).withAccountRole(user.getAccountRole().name())),
-                refreshToken
+                refreshToken,
+                mediaToken
         );
     }
 
-    public record AuthResult(AuthResponse response, String refreshToken) {
+    public record AuthResult(AuthResponse response, String refreshToken, String mediaToken) {
     }
 }

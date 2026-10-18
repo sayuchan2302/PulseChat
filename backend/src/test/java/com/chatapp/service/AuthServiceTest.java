@@ -52,6 +52,7 @@ class AuthServiceTest {
                 .thenReturn(new UsernamePasswordAuthenticationToken("thinh2302", null));
         when(userRepository.findByUsername("thinh2302")).thenReturn(Optional.of(user));
         when(jwtService.generateAccessToken("thinh2302")).thenReturn("signed-access-jwt");
+        when(jwtService.generateMediaToken("thinh2302")).thenReturn("signed-media-jwt");
         when(refreshTokenService.createToken(user)).thenReturn("opaque-refresh-token");
 
         AuthService.AuthResult result = authService.login(new LoginRequest(" thinh2302 ", "password"));
@@ -59,6 +60,7 @@ class AuthServiceTest {
         assertEquals("signed-access-jwt", result.response().token());
         assertEquals("thinh2302", result.response().user().username());
         assertEquals("opaque-refresh-token", result.refreshToken());
+        assertEquals("signed-media-jwt", result.mediaToken());
         verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
         verify(refreshTokenService).createToken(user);
     }
