@@ -94,11 +94,11 @@
 - [x] `JwtAuthenticationFilter.java:52-67` — bắt `AuthenticationException` → 401 (user bị xoá không còn gây 500); thêm regression test — commit `951a040`.
 
 ### 2.4 CI (chặn regression vĩnh viễn)
-- [x] Tạo `.github/workflows/ci.yml`: backend `./mvnw -B test` (Java 17 temurin) + frontend `npm ci`/`test`/`lint`/`build` (Node 24) trên push `main`/PR; kèm fix exec bit `mvnw` — commit `80d3194`. ⏳ Chưa chạy thực tế trên GitHub (chưa push).
+- [x] Tạo `.github/workflows/ci.yml`: backend `./mvnw -B test` (Java 17 temurin) + frontend `npm ci`/`test`/`lint`/`build` (Node 24) trên push `main`/PR; kèm fix exec bit `mvnw` — commit `80d3194`. Đã chạy thực tế trên GitHub — xem Gate DoD bên dưới.
 - [x] (Tùy chọn) thêm `npm run test:coverage` với ngưỡng tối thiểu: `thresholds` trong `frontend/vitest.config.ts` (statements 40 / branches 25 / functions 34 / lines 45 — đặt ngay dưới mức hiện tại 44.09 / 28.25 / 37.66 / 49.89 để bắt hồi quy thật nhưng không cản refactor nhỏ). Đã verify cơ chế chặn: tạm nâng statements lên 99 → `test:coverage` **exit 1** kèm dòng `ERROR: Coverage for statements (44.09%) does not meet global threshold (99%)`, sau đó trả về; `test:coverage` (40/40) + lint xanh.
 
 ### Gate Definition of Done (Phase 2)
-- [ ] CI xanh trên repo. (⏳ chờ push lần đầu)
+- [x] CI xanh trên repo: đã push 41 commit và CI chạy thực tế — run #1 `05e50c5` + run #2 `2bb297c` đều **success** cả 2 job ("Backend tests": `./mvnw -B test`; "Frontend checks": `npm ci` → test → lint → build). CI cũng tự phát hiện 2 cảnh báo deprecation và đã dọn: bump `actions/*` v4→v5 (Node 20→24, commit `2bb297c`) + migrate `@MockBean` → `@MockitoBean` (Spring Boot 3.4+, commit `f232f71`, backend giữ 287/287).
 - [x] Không còn `email` trong response cho user thường (`UserResponse` không còn field; verify qua test + grep toàn bộ `backend/src`).
 - [x] Rate limiting hoạt động (test thử 20 lần login sai liên tiếp). (`RateLimitServiceTest` + `AuthControllerTest`: lần thứ 4 với limit 3 bị chặn → 429; có test cross-IP.)
 - [x] Rotation/replay refresh token đã có test (6 case `RefreshTokenServiceTest`: lock lookup, replay family-revoke, expired, disabled, unknown).
