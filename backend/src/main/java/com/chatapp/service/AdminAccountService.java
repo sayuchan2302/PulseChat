@@ -2,11 +2,15 @@ package com.chatapp.service;
 
 import com.chatapp.dto.response.AdminAccountPageResponse;
 import com.chatapp.dto.response.AdminAccountResponse;
+import com.chatapp.dto.response.AdminAuditLogPageResponse;
+import com.chatapp.dto.response.AdminAuditLogResponse;
 import com.chatapp.dto.response.PresenceResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.AccountRole;
+import com.chatapp.model.AdminAuditLog;
 import com.chatapp.model.User;
+import com.chatapp.repository.AdminAuditLogRepository;
 import com.chatapp.repository.RefreshTokenRepository;
 import com.chatapp.repository.UserRepository;
 import com.chatapp.security.WebSocketSessionRegistry;
@@ -29,6 +33,7 @@ public class AdminAccountService {
     private final PresenceService presenceService;
     private final AfterCommitExecutor afterCommitExecutor;
     private final WebSocketSessionRegistry webSocketSessionRegistry;
+    private final AdminAuditLogRepository adminAuditLogRepository;
 
     @Transactional(readOnly = true)
     public AdminAccountPageResponse search(String query, int page, int size) {
@@ -57,7 +62,12 @@ public class AdminAccountService {
             }
         }
 
+        AccountRole previousRole = user.getAccountRole();
         user.setAccountRole(accountRole);
+        if (previousRole != accountRole) {
+            recordAudit(adminUsername, user, AdminAuditLog.AuditAction.ROLE_CHANGE,
+                    previousRole.name(), accountRole.name());
+        }
         return AdminAccountResponse.from(userRepository.save(user));
     }
 
@@ -75,7 +85,12 @@ public class AdminAccountService {
             }
         }
 
+        boolean wasEnabled = Boolean.TRUE.equals(user.getEnabled());
         user.setEnabled(enabled);
+        if (wasEnabled != enabled) {
+            recordAudit(adminUsername, user, AdminAuditLog.AuditAction.STATUS_CHANGE,
+                    String.valueOf(wasEnabled), String.valueOf(enabled));
+        }
         if (!enabled) {
             LocalDateTime now = LocalDateTime.now();
             boolean wasOnline = Boolean.TRUE.equals(user.getOnline());
@@ -98,5 +113,34 @@ public class AdminAccountService {
     private User findUser(Long userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+    }
+
+    @Transactional(readOnly = true)
+    public AdminAuditLogPageResponse listAuditLogs(int page, int size) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        Page<AdminAuditLogResponse> results = adminAuditLogRepository
+                .findPageWithParticipants(PageRequest.of(safePage, safeSize))
+                .map(AdminAuditLogResponse::from);
+        return AdminAuditLogPageResponse.from(results);
+    }
+
+    private void recordAudit(
+            String adminUsername,
+            User target,
+            AdminAuditLog.AuditAction action,
+            String previousValue,
+            String newValue
+    ) {
+        User actor = userRepository.findByUsername(adminUsername)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        AdminAuditLog auditLog = new AdminAuditLog();
+        auditLog.setActor(actor);
+        auditLog.setTarget(target);
+        auditLog.setAction(action);
+        auditLog.setPreviousValue(previousValue);
+        auditLog.setNewValue(newValue);
+        adminAuditLogRepository.save(auditLog);
     }
 }
