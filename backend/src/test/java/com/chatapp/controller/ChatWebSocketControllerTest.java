@@ -3,6 +3,7 @@ package com.chatapp.controller;
 import com.chatapp.dto.request.CallSignalRequest;
 import com.chatapp.dto.request.CallSignalRequest.CallSignalType;
 import com.chatapp.dto.request.TypingRequest;
+import com.chatapp.dto.response.RealtimeErrorResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.service.CallRealtimeNotifier;
@@ -18,10 +19,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.messaging.handler.annotation.support.MethodArgumentNotValidException;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.security.Principal;
 
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -90,6 +93,47 @@ class ChatWebSocketControllerTest {
         );
 
         Assertions.assertEquals(ErrorCode.FRIENDSHIP_REQUIRED, exception.getErrorCode());
+        verify(messagingTemplate, never()).convertAndSendToUser(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any()
+        );
+    }
+
+    @Test
+    void appExceptionsAreReportedToTheCallerInsteadOfBeingSwallowed() {
+        Principal principal = () -> "sayu";
+
+        controller.handleAppException(new AppException(ErrorCode.FRIENDSHIP_REQUIRED), principal);
+
+        verify(messagingTemplate).convertAndSendToUser(
+                "sayu",
+                "/queue/errors",
+                new RealtimeErrorResponse(
+                        ErrorCode.FRIENDSHIP_REQUIRED.getCode(),
+                        ErrorCode.FRIENDSHIP_REQUIRED.getDefaultMessage())
+        );
+    }
+
+    @Test
+    void validationFailuresAreReportedWithTheStandardValidationCode() {
+        Principal principal = () -> "sayu";
+
+        controller.handleValidationException(mock(MethodArgumentNotValidException.class), principal);
+
+        verify(messagingTemplate).convertAndSendToUser(
+                "sayu",
+                "/queue/errors",
+                new RealtimeErrorResponse(
+                        ErrorCode.VALIDATION_FAILED.getCode(),
+                        ErrorCode.VALIDATION_FAILED.getDefaultMessage())
+        );
+    }
+
+    @Test
+    void errorsWithoutAnAuthenticatedPrincipalAreOnlyLogged() {
+        controller.handleAppException(new AppException(ErrorCode.FRIENDSHIP_REQUIRED), null);
+
         verify(messagingTemplate, never()).convertAndSendToUser(
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyString(),

@@ -183,6 +183,10 @@ export class WebSocketService {
           client.subscribe('/user/queue/calls', (message) => {
             this.handleIncomingCallSignal(message.body);
           });
+
+          client.subscribe('/user/queue/errors', (message) => {
+            this.handleServerError(message.body);
+          });
           this.updateStatus('connected');
 
           resolve();
@@ -334,6 +338,15 @@ export class WebSocketService {
       this.onMessageHiddenReceived?.(event);
     } catch (error) {
       console.error('Failed to parse WebSocket message hide event:', error);
+    }
+  }
+
+  private handleServerError(body: string) {
+    try {
+      const error = JSON.parse(body) as { code?: string; message?: string };
+      console.error(`Server rejected a realtime request (${error.code ?? 'UNKNOWN'}): ${error.message ?? body}`);
+    } catch (parseError) {
+      console.error('Failed to parse WebSocket error event:', parseError, body);
     }
   }
 

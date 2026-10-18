@@ -9,6 +9,7 @@ import com.chatapp.dto.request.TypingRequest;
 import com.chatapp.dto.response.CallSignalResponse;
 import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.dto.response.ReadReceiptResponse;
+import com.chatapp.dto.response.RealtimeErrorResponse;
 import com.chatapp.dto.response.TypingResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
@@ -23,8 +24,10 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
+import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.messaging.handler.annotation.support.MethodArgumentNotValidException;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.stereotype.Controller;
@@ -38,6 +41,7 @@ public class ChatWebSocketController {
     private static final String PRIVATE_MESSAGE_QUEUE = "/queue/messages";
     private static final String TYPING_QUEUE = "/queue/typing";
     private static final String READ_RECEIPT_QUEUE = "/queue/read-receipts";
+    private static final String ERROR_QUEUE = "/queue/errors";
 
     private final CallSessionService callSessionService;
     private final CallRealtimeNotifier callRealtimeNotifier;
@@ -211,6 +215,25 @@ public class ChatWebSocketController {
                 request.eventType() == CallSignalRequest.CallSignalType.ICE_CANDIDATE ||
                 request.eventType() == CallSignalRequest.CallSignalType.SCREEN_SHARE_START ||
                 request.eventType() == CallSignalRequest.CallSignalType.SCREEN_SHARE_STOP;
+    }
+
+    @MessageExceptionHandler(AppException.class)
+    public void handleAppException(AppException exception, Principal principal) {
+        sendErrorMessage(principal, exception.getErrorCode().getCode(), exception.getMessage());
+    }
+
+    @MessageExceptionHandler(MethodArgumentNotValidException.class)
+    public void handleValidationException(MethodArgumentNotValidException exception, Principal principal) {
+        sendErrorMessage(principal, ErrorCode.VALIDATION_FAILED.getCode(), ErrorCode.VALIDATION_FAILED.getDefaultMessage());
+    }
+
+    private void sendErrorMessage(Principal principal, String code, String message) {
+        if (principal == null) {
+            log.warn("Rejected WebSocket request without an authenticated principal: {} - {}", code, message);
+            return;
+        }
+        log.warn("Rejected WebSocket request for {}: {} - {}", principal.getName(), code, message);
+        messagingTemplate.convertAndSendToUser(principal.getName(), ERROR_QUEUE, new RealtimeErrorResponse(code, message));
     }
 
     private Principal requireAuthenticatedPrincipal(Principal principal) {

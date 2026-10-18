@@ -26,9 +26,9 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             "/app/chat.send", "/app/chat.typing", "/app/chat.read", "/app/calls.signal");
     private static final Pattern ROOM_SEND_DESTINATION = Pattern.compile("/app/rooms/[1-9][0-9]*/(send|typing)");
     private static final Set<String> SUBSCRIBE_DESTINATIONS = Set.of(
-            "/topic/presence", "/user/queue/messages", "/user/queue/message-updates",
+            "/topic/presence", "/user/queue/messages", "/user/queue/message-updates", "/user/queue/message-hides",
             "/user/queue/typing", "/user/queue/read-receipts", "/user/queue/room-read-receipts",
-            "/user/queue/rooms", "/user/queue/friend-requests", "/user/queue/calls");
+            "/user/queue/rooms", "/user/queue/friend-requests", "/user/queue/calls", "/user/queue/errors");
     private final JwtService jwtService;
     private final CustomUserDetailsService userDetailsService;
 

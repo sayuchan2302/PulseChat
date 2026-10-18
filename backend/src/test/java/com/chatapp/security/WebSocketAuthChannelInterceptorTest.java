@@ -74,8 +74,9 @@ class WebSocketAuthChannelInterceptorTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"/topic/presence", "/user/queue/messages", "/user/queue/message-updates",
-            "/user/queue/typing", "/user/queue/read-receipts", "/user/queue/room-read-receipts",
-            "/user/queue/rooms", "/user/queue/friend-requests", "/user/queue/calls"})
+            "/user/queue/message-hides", "/user/queue/typing", "/user/queue/read-receipts",
+            "/user/queue/room-read-receipts", "/user/queue/rooms", "/user/queue/friend-requests",
+            "/user/queue/calls", "/user/queue/errors"})
     void allowsExistingOwnSubscriptions(String destination) {
         assertDoesNotThrow(() -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, destination, true), null));
     }
