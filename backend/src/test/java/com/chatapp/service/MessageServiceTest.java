@@ -775,6 +775,26 @@ class MessageServiceTest {
         }
 
         @Test
+        void editMessageRevalidatesInsideTheWriteTransaction() {
+                User sender = user(1L, "sayu");
+                User receiver = user(2L, "thinh");
+                Message editable = privateMessage(20L, "Hello", sender, receiver);
+                Message recalledAfterPreCheck = privateMessage(20L, "Hello", sender, receiver);
+                recalledAfterPreCheck.setRecalled(true);
+                when(userService.findByUsername("sayu")).thenReturn(sender);
+                // The pre-check outside the write transaction sees an editable message; by the
+                // time the write transaction re-reads it the message has been recalled.
+                when(messageRepository.findById(20L))
+                                .thenReturn(Optional.of(editable), Optional.of(recalledAfterPreCheck));
+
+                AppException exception = assertThrows(AppException.class,
+                                () -> messageService.editMessage("sayu", 20L, new EditMessageRequest("Updated")));
+
+                assertEquals(ErrorCode.MESSAGE_EDIT_NOT_ALLOWED, exception.getErrorCode());
+                verify(messageRepository, never()).saveAndFlush(any(Message.class));
+        }
+
+        @Test
         void editRoomMessageRecalculatesMentions() {
                 User sender = user(1L, "sayu");
                 User previousMention = user(2L, "thinh");

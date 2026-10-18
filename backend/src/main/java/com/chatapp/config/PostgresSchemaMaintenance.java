@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.core.Ordered;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +28,7 @@ public class PostgresSchemaMaintenance implements ApplicationListener<ContextRef
 
     private final JdbcTemplate jdbcTemplate;
     private final DataSource dataSource;
+    private final Environment environment;
     private final AtomicBoolean applied = new AtomicBoolean(false);
 
     @Value("${app.schema.self-heal-message-type-check:true}")
@@ -38,6 +41,11 @@ public class PostgresSchemaMaintenance implements ApplicationListener<ContextRef
 
     @Override
     public void onApplicationEvent(ContextRefreshedEvent event) {
+        if (environment.acceptsProfiles(Profiles.of("prod"))) {
+            log.info("Skipping schema self-heal because the 'prod' profile is active");
+            return;
+        }
+
         if (!messageTypeCheckSelfHealEnabled || !applied.compareAndSet(false, true)) {
             return;
         }
