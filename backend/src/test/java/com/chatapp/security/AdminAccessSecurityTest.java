@@ -8,7 +8,7 @@ import com.chatapp.service.AdminAccountService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -29,9 +29,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         RestAuthenticationEntryPoint.class, RestAccessDeniedHandler.class, UploadSecurityHeadersFilter.class})
 class AdminAccessSecurityTest {
     @Autowired MockMvc mvc;
-    @MockBean JwtService jwt;
-    @MockBean CustomUserDetailsService users;
-    @MockBean AdminAccountService adminAccountService;
+    @MockitoBean JwtService jwt;
+    @MockitoBean CustomUserDetailsService users;
+    @MockitoBean AdminAccountService adminAccountService;
 
     @Test
     void anonymousAdminRequestsRequireAuthentication() throws Exception {

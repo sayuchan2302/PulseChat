@@ -9,7 +9,7 @@ import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.security.core.userdetails.User;
@@ -30,10 +30,10 @@ class LocalMediaHttpSecurityTest {
     private static final String FILE = "8c70df6a-ef7d-4fea-8bf6-090a38fd765f.txt";
     private static final String PATH = "/uploads/media/" + FILE;
     @Autowired MockMvc mvc;
-    @MockBean JwtService jwt;
-    @MockBean CustomUserDetailsService users;
-    @MockBean MediaAccessService access;
-    @MockBean LocalMediaStorageService storage;
+    @MockitoBean JwtService jwt;
+    @MockitoBean CustomUserDetailsService users;
+    @MockitoBean MediaAccessService access;
+    @MockitoBean LocalMediaStorageService storage;
 
     @Test
     void anonymousMediaRequestsRequireAuthentication() throws Exception {
