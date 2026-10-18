@@ -160,7 +160,7 @@ export class WebSocketService {
             this.handleIncomingMessageHidden(message.body);
           });
 
-          client.subscribe('/topic/presence', (message) => {
+          client.subscribe('/user/queue/presence', (message) => {
             this.handleIncomingPresence(message.body);
           });
 

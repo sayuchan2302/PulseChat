@@ -1,11 +1,11 @@
 package com.chatapp.websocket;
 
 import com.chatapp.dto.response.PresenceResponse;
+import com.chatapp.service.PresenceService;
 import com.chatapp.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionConnectedEvent;
@@ -19,10 +19,8 @@ import java.util.concurrent.ConcurrentMap;
 @Component
 @RequiredArgsConstructor
 public class WebSocketPresenceEventListener {
-    private static final String PRESENCE_TOPIC = "/topic/presence";
-
     private final UserService userService;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final PresenceService presenceService;
     private final ConcurrentMap<String, Set<String>> sessionsByUsername = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, String> usernamesBySessionId = new ConcurrentHashMap<>();
 
@@ -84,7 +82,7 @@ public class WebSocketPresenceEventListener {
 
     private void publishPresence(String username, boolean online) {
         PresenceResponse presence = userService.updateOnlineStatus(username, online);
-        messagingTemplate.convertAndSend(PRESENCE_TOPIC, presence);
+        presenceService.broadcast(presence);
     }
 
     private String sessionId(SessionConnectedEvent event) {

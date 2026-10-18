@@ -17,6 +17,16 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
             """)
     long countAccessibleLocalAvatars(@Param("username") String username, @Param("filename") String filename);
 
+    @Query("""
+            select distinct participant.user.username
+            from ChatRoom room
+            join room.members member
+            join room.members participant
+            where member.user.id = :userId
+              and participant.user.id <> :userId
+            """)
+    List<String> findCoParticipantUsernames(@Param("userId") Long userId);
+
     @EntityGraph(attributePaths = { "members.user", "owner" })
     List<ChatRoom> findDistinctByMembersUserIdAndTypeOrderByCreatedAtDesc(
             Long memberId,

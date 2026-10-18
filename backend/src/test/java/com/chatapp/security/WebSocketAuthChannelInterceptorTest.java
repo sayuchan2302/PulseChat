@@ -58,7 +58,7 @@ class WebSocketAuthChannelInterceptorTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/queue/messages-user123", "/topic/secret", "/user/bob/queue/messages",
+    @ValueSource(strings = {"/queue/messages-user123", "/topic/secret", "/topic/presence", "/user/bob/queue/messages",
             "/user/queue/unknown", "/user/queue/**", "/app/chat.send"})
     void rejectsRawAndOtherUsersSubscriptions(String destination) {
         assertThrows(AccessDeniedException.class,
@@ -73,7 +73,7 @@ class WebSocketAuthChannelInterceptorTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/topic/presence", "/user/queue/messages", "/user/queue/message-updates",
+    @ValueSource(strings = {"/user/queue/presence", "/user/queue/messages", "/user/queue/message-updates",
             "/user/queue/message-hides", "/user/queue/typing", "/user/queue/read-receipts",
             "/user/queue/room-read-receipts", "/user/queue/rooms", "/user/queue/friend-requests",
             "/user/queue/calls", "/user/queue/errors"})

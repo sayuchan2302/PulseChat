@@ -13,7 +13,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,7 +25,7 @@ public class AdminAccountService {
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final PresenceService presenceService;
 
     @Transactional(readOnly = true)
     public AdminAccountPageResponse search(String query, int page, int size) {
@@ -82,10 +81,7 @@ public class AdminAccountService {
             refreshTokenRepository.revokeAllActiveByUserId(user.getId());
 
             if (wasOnline) {
-                messagingTemplate.convertAndSend(
-                        "/topic/presence",
-                        new PresenceResponse(user.getId(), user.getUsername(), false, now)
-                );
+                presenceService.broadcast(new PresenceResponse(user.getId(), user.getUsername(), false, now));
             }
         }
 
