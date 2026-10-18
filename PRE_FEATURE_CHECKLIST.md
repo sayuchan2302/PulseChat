@@ -3,7 +3,7 @@
 > Nguồn: đợt full code review (backend logic, backend security, frontend, tests/config) ngày 2026-10-16/17.
 > Quy tắc: **hoàn tất Phase 1 + Phase 2 (Gate) trước khi bắt đầu feature mới.** Nếu feature gấp không thể chờ, tối thiểu phải xong Phase 1.
 > Phạm vi: toàn bộ fix + hardening từ đợt review — **không bao gồm roadmap feature mới** (chọn sau khi qua Gate).
-> Trạng thái: **Phase 1 hoàn tất (2026-10-18); Phase 2 gần xong** — CI ✅, bỏ email ✅, rotation/replay + media token ✅, filter 401 ✅, rate limiting ✅, prod hardening ✅, WS error handler ✅ (+fix whitelist message-hides); backend 209/209 xanh. Còn lại: bump dependencies (Spring Boot 3.5.x + jjwt 0.12.7) — xem "Tiến độ thực thi".
+> Trạng thái: **Phase 1 + Phase 2 hoàn tất (2026-10-18)** — CI file đã có (⏳ chờ push lần đầu), bỏ email, rotation/replay + media token, filter 401, rate limiting, prod hardening, WS error handler (+fix whitelist message-hides), bump Spring Boot 3.5.16 + jjwt 0.12.7; backend **209/209** xanh. Tiếp theo: push để CI chạy, sau đó có thể bắt đầu feature mới (Phase 3 làm dần).
 
 ---
 
@@ -18,7 +18,7 @@
 **Phát sinh trong Phase 1 (đã xử lý):**
 - [x] Full suite lộ thêm **28 failures ở `WebSocketAuthChannelInterceptorTest`** — tồn tại từ feature admin: interceptor giờ check account mỗi frame và `setUser(...)`, nhưng test cũ chưa stub `loadUserByUsername` (NPE) và tạo accessor frozen (IllegalStateException). Đã đồng bộ test (stub user enabled, `setLeaveMutable(true)`) + thêm case tài khoản bị disable không gửi được frame — commit `8fbbc6d`.
 
-**Phase 2 — Gate an toàn (đang thực hiện):**
+**Phase 2 — Gate an toàn (hoàn tất 2026-10-18):**
 
 - [x] **2.4 CI** — commit `80d3194`: `.github/workflows/ci.yml` chạy backend (`./mvnw -B test`, Java 17) + frontend (`npm ci` → `test` → `lint` → `build`, Node 24) trên push `main`/PR; kèm fix exec bit `mvnw` (100644 → 100755, runner Linux cần). ⏳ CI chưa chạy thực tế vì chưa push.
 - [x] **2.1a Bỏ email khỏi `UserResponse`** — commit `560f36c`: record không còn `email`; admin vẫn có email qua `AdminAccountResponse` (DTO riêng đã tồn tại sẵn); gỡ 4 chỗ FE (`types/index.ts` type `User`, `messageUtils.ts`, `ChatPage.tsx`, `BlockedUsersModal.test.tsx`). Verify: backend 171/171 ✅ + FE 15/15 ✅.
@@ -26,10 +26,11 @@
 - [x] **2.1c Media cookie không còn là refresh token** — commit `951a040`: cookie `chat_media_session` giờ mang JWT riêng (`token_use=media`, TTL 24h qua `JWT_MEDIA_EXPIRATION`) thay vì raw refresh token; `JwtService` tách `extractUsername` (chỉ access) / `extractMediaUsername` (chỉ media) nên 2 loại token **không thể dùng thay thế nhau**; filter media bỏ truy vấn DB mỗi request (nhanh hơn), vẫn chặn user disable/delete qua `loadUserByUsername`.
 - [x] **2.3a Filter 401 thay vì 500 cho user bị xoá** — commit `951a040`: `JwtAuthenticationFilter` bắt `AuthenticationException` ở cả 2 nhánh (bearer + media cookie); thêm regression test (`deletedAccountWithBearerTokenIsRejectedWithUnauthorizedInsteadOfServerError`).
 - [x] **Verify batch 1** — backend **181/181, BUILD SUCCESS** (+10 test: `JwtServiceTest` 1→4, `RefreshTokenServiceTest` 1→6, `LocalMediaHttpSecurityTest` 6→8).
-- [x] **2.1d Rate limiting auth** — commit `72fbc3d`: `RateLimitService` in-memory fixed-window (`app.rate-limit.*`, mặc định window 15 phút / login 10 / register 10 / refresh 60); login giới hạn **per-IP + per-account** (beta thành công xoá bucket account), register/refresh per-IP; vi phạm → `ErrorCode.TOO_MANY_REQUESTS` (AUTH_005, HTTP 429) nhất quán qua `ApiExceptionHandler`; refresh bị 429 **không** xoá cookie session. Đơn giản, ghi chú rõ giới hạn single-instance trong javadoc. 9 test mới (`RateLimitServiceTest` 5 + `AuthControllerTest` +3, gồm case 429 không clear cookie).
+- [x] **2.1d Rate limiting auth** — commit `72fbc3d`: `RateLimitService` in-memory fixed-window (`app.rate-limit.*`, mặc định window 15 phút / login 10 / register 10 / refresh 60); login giới hạn **per-IP + per-account** (đăng nhập thành công xoá bucket account), register/refresh per-IP; vi phạm → `ErrorCode.TOO_MANY_REQUESTS` (AUTH_005, HTTP 429) nhất quán qua `ApiExceptionHandler`; refresh bị 429 **không** xoá cookie session. Đơn giản, ghi chú rõ giới hạn single-instance trong javadoc. 9 test mới (`RateLimitServiceTest` 5 + `AuthControllerTest` +3, gồm case 429 không clear cookie).
 - [x] **Verify batch 2** — backend **189/189, BUILD SUCCESS** (+8 test: `RateLimitServiceTest` 5 + `AuthControllerTest` 4→7).
 - [x] **2.2 Prod hardening** — commit `84a435d`: `ProdProfileGuard` (BeanFactoryPostProcessor chặn khởi động khi DB không phải local mà thiếu profile `prod` — chạy trước cả Hibernate/Flyway); `CorsConfig` validate lúc startup (không cho `*` khi credentials bật; prod không nhận origin localhost — `ProductionSchemaValidationTest` đổi sang origin prod); `JwtService` validate secret (`@PostConstruct`: chặn placeholder + yêu cầu ≥32 byte) + `.env.example` ghi rõ hướng dẫn; `AuthOriginCheckFilter` kiểm tra Origin/Referer cho `/auth/refresh` + `/auth/logout` (an toàn CSRF dù prod dùng SameSite=None; client không trình duyệt không gửi header thì đi qua). `application-prod.yml` giữ nguyên vì đã đúng. Verify: backend **204/204** BUILD SUCCESS (+15 test).
 - [x] **2.3b WS error handler + fix whitelist** — commit `468681c`: `@MessageExceptionHandler` cho `AppException` + `MethodArgumentNotValidException` → gửi `RealtimeErrorResponse` tới `/user/queue/errors` (FE đã subscribe + log); **fix bug thật**: `/user/queue/message-hides` thiếu trong whitelist SUBSCRIBE → subscribe của FE bị AccessDenied (ERROR frame); đã thêm kèm test. Verify: backend **209/209** (+5 test: controller 2→5, interceptor +2 case), FE 15/15 ✅, lint ✅, build ✅.
+- [x] **2.3c Bump dependencies** — commit `1f8548e`: Spring Boot 3.2.0 → **3.5.16** (3.x mới nhất), jjwt 0.12.3 → **0.12.7** (gom qua property `jjwt.version`); xác nhận bằng `help:evaluate` + `dependency:tree`. Kết quả: backend **209/209 BUILD SUCCESS**, không phải sửa gì thêm; FE không đổi (15/15 + lint + build đã chạy trước đó).
 
 ---
 
@@ -38,7 +39,7 @@
 - [x] ~~33 file admin feature chưa commit, `V5__account_roles_and_status.sql` untracked~~ → đã commit `e694394` (2026-10-18), trước đó verify compile backend + build FE.
 - [x] ~~`ProductionSchemaMigrationTest` đỏ~~ → đã fix `283d29e` (đếm migration động từ classpath + V5 tách câu lệnh chạy được trên H2). Phát hiện thêm: `V5` gốc không chạy được trên H2.
 - [x] ~~Chưa có CI (`.github/` không tồn tại)~~ → đã thêm `.github/workflows/ci.yml` (commit `80d3194`); sẽ chạy lần đầu khi push lên GitHub.
-- [ ] Spring Boot 3.2.0 trong `pom.xml:11` (thiếu nhiều bản vá CVE) → thuộc Phase 2.
+- [x] Spring Boot 3.2.0 trong `pom.xml:11` (thiếu nhiều bản vá CVE) → đã bump **3.5.16** (3.x mới nhất) + jjwt 0.12.7 — commit `1f8548e`.
 - [ ] README trỏ tới `PHASE1_SECURITY.md` và `scripts/run-phase1-smoke.ps1` **không tồn tại** → thuộc Phase 4.
 
 ---
@@ -46,26 +47,26 @@
 ## Phase 1 — Bắt buộc ngay (P0, ~0.5–1 ngày)
 
 ### 1.1 Chốt an toàn feature admin đang dở
-- [ ] Commit trọn gói: admin feature + `backend/src/main/resources/db/migration/V5__account_roles_and_status.sql` **cùng một commit** (tách rời sẽ vỡ `ddl-auto=validate` ở prod).
-- [ ] Kiểm tra `git status` sạch sau commit, xác nhận V5 đã được track (`git ls-files | findstr V5`).
+- [x] Commit trọn gói: admin feature + `backend/src/main/resources/db/migration/V5__account_roles_and_status.sql` **cùng một commit** (tách rời sẽ vỡ `ddl-auto=validate` ở prod) — commit `e694394`.
+- [x] Kiểm tra `git status` sạch sau commit, xác nhận V5 đã được track (`git ls-files | findstr V5`) — đã xác nhận.
 
 ### 1.2 Fix backend test đỏ
-- [ ] `backend/src/test/java/com/chatapp/config/ProductionSchemaMigrationTest.java:25` — `assertEquals(4, ...)` → nên assert **động theo số file migration** (đếm `db/migration/*.sql`) thay vì hardcode.
-- [ ] Chạy `cd backend; .\mvnw.cmd test` — toàn bộ suite phải xanh.
+- [x] `backend/src/test/java/com/chatapp/config/ProductionSchemaMigrationTest.java:25` — `assertEquals(4, ...)` → nên assert **động theo số file migration** (đếm `db/migration/*.sql`) thay vì hardcode — commit `283d29e`.
+- [x] Chạy `cd backend; .\mvnw.cmd test` — toàn bộ suite phải xanh (đã xanh, hiện tại 209/209).
 
 ### 1.3 Fix admin bootstrap (an ninh, đã xác minh)
-- [ ] `backend/src/main/java/com/chatapp/config/AdminRoleBootstrap.java:30-35`:
+- [x] `backend/src/main/java/com/chatapp/config/AdminRoleBootstrap.java:30-35` — commit `f19bb91`:
   - Không `setEnabled(true)` mỗi lần khởi động (đang âm thầm gỡ ban).
   - Chỉ promote khi user đang là `USER` và `enabled`; không hạ cấp/đổi trạng thái ngược lại.
   - Cân nhắc gate bằng flag riêng (`app.admin.bootstrap-enabled`) hoặc profile.
 
 ### 1.4 Fix 2 bug frontend rõ ràng (đã xác minh)
-- [ ] `frontend/src/hooks/useCallFeature.ts:347-361` — timer 1.5s trong `finishCall` không được lưu id → có thể xoá state của **cuộc gọi mới** vừa bắt đầu. Lưu id vào ref + clear trong `finishCall`/khi bắt đầu call/unmount.
-- [ ] `frontend/src/hooks/useMessageHistory.ts:39-64` — id message được đánh dấu "đã load seen-by" trước khi gọi API; khi đổi phòng giữa chừng (return ở dòng 48) id không bị xoá → seen-by mất vĩnh viễn đến khi reload. Xoá id khi `selectedRoomIdRef.current !== roomId`.
+- [x] `frontend/src/hooks/useCallFeature.ts:347-361` — timer 1.5s trong `finishCall` không được lưu id → có thể xoá state của **cuộc gọi mới** vừa bắt đầu. Lưu id vào ref + clear trong `finishCall`/khi bắt đầu call/unmount — commit `679f7e5`.
+- [x] `frontend/src/hooks/useMessageHistory.ts:39-64` — id message được đánh dấu "đã load seen-by" trước khi gọi API; khi đổi phòng giữa chừng (return ở dòng 48) id không bị xoá → seen-by mất vĩnh viễn đến khi reload. Xoá id khi `selectedRoomIdRef.current !== roomId` — commit `679f7e5` (+ regression test).
 
 ### 1.5 Xác nhận sau Phase 1
-- [ ] Backend: `mvnw test` xanh. Frontend: `npm run lint && npm run build` sạch.
-- [ ] Commit sạch, không còn file untracked liên quan admin.
+- [x] Backend: `mvnw test` xanh. Frontend: `npm run lint && npm run build` sạch.
+- [x] Commit sạch, không còn file untracked liên quan admin.
 
 ---
 
@@ -82,13 +83,13 @@
 - [x] `MediaSessionCookieService.java:34` — không dùng raw refresh token làm cookie media; cookie giờ mang JWT riêng `token_use=media` (TTL 24h) — commit `951a040`.
 
 ### 2.2 Prod hardening
-- [ ] `application.yml:9` — bỏ default `:dev` (fail-fast nếu thiếu `SPRING_PROFILES_ACTIVE`), hoặc đưa giá trị an toàn (cookie secure, không `ddl-auto: update`) vào base config.
-- [ ] CSRF/Origin: `SecurityConfig.java:33` (csrf disabled) + prod `SameSite=None` (`application-prod.yml:16-17`) → thêm check Origin/Referer cho `/auth/refresh` + `/auth/logout` (hoặc CSRF token cho 2 endpoint này).
-- [ ] `CorsConfig.java:31-35` + `WebSocketConfig.java:43-48` — validate lúc startup: từ chối `*`/pattern rộng khi credentials bật; prod không nhận origin localhost.
-- [ ] `JwtService.java:65-71` + `backend/.env.example:13` — chặn placeholder secret, enforce Base64 ≥ 32 bytes, log rõ lỗi cấu hình.
+- [x] `application.yml:9` — xử lý bằng `ProdProfileGuard` (commit `84a435d`): giữ default `:dev` cho DX nhưng **chặn khởi động** khi DB không phải local mà thiếu profile `prod` (chạy trước cả Hibernate/Flyway).
+- [x] CSRF/Origin: `SecurityConfig.java:33` (csrf disabled) + prod `SameSite=None` (`application-prod.yml:16-17`) → `AuthOriginCheckFilter` (commit `84a435d`) kiểm tra Origin/Referer cho `/auth/refresh` + `/auth/logout`.
+- [x] `CorsConfig.java:31-35` + `WebSocketConfig.java:43-48` — validate lúc startup: từ chối `*` khi credentials bật; prod không nhận origin localhost (WS dùng chung property `cors.allowed-origins` nên được cover) — commit `84a435d`.
+- [x] `JwtService.java:65-71` + `backend/.env.example:13` — chặn placeholder secret + enforce ≥32 bytes qua `@PostConstruct validateConfiguration`; `.env.example` ghi hướng dẫn `openssl rand -base64 48` — commit `84a435d`.
 
 ### 2.3 Dependencies & WS
-- [ ] `pom.xml:11` — bump Spring Boot 3.2.0 → bản mới nhất 3.2.x/3.3.x; jjwt ≥ 0.12.5 (đã fix DoS khi parse token). Chạy lại full test sau khi bump.
+- [x] `pom.xml:11` — bump Spring Boot 3.2.0 → **3.5.16** (3.x mới nhất); jjwt 0.12.3 → **0.12.7** (qua property `jjwt.version`). Full test sau khi bump: **209/209 BUILD SUCCESS** — commit `1f8548e`.
 - [x] `ChatWebSocketController.java:172-191` — thêm `@MessageExceptionHandler` map `AppException`/validation → ERROR frame cho client; log các `AppException` bị nuốt ở call signaling — commit `468681c`. Ghi chú: call signaling đã có log sẵn; phần bổ sung là error frames chung (`/user/queue/errors`) + fix whitelist `/user/queue/message-hides`.
 - [x] `JwtAuthenticationFilter.java:52-67` — bắt `AuthenticationException` → 401 (user bị xoá không còn gây 500); thêm regression test — commit `951a040`.
 
@@ -101,7 +102,7 @@
 - [x] Không còn `email` trong response cho user thường (`UserResponse` không còn field; verify qua test + grep toàn bộ `backend/src`).
 - [x] Rate limiting hoạt động (test thử 20 lần login sai liên tiếp). (`RateLimitServiceTest` + `AuthControllerTest`: lần thứ 4 với limit 3 bị chặn → 429; có test cross-IP.)
 - [x] Rotation/replay refresh token đã có test (6 case `RefreshTokenServiceTest`: lock lookup, replay family-revoke, expired, disabled, unknown).
-- [ ] Prod checklist: `SPRING_PROFILES_ACTIVE=prod` fail-fast nếu thiếu; cookie/CSRF/CORS đúng. (⏳ chưa làm)
+- [x] Prod checklist: `SPRING_PROFILES_ACTIVE=prod` fail-fast nếu thiếu (guard chặn DB remote không có prod); cookie/CSRF/CORS/JWT-secret đã validate đủ (commit `84a435d`).
 
 ---
 
