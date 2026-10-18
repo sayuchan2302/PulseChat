@@ -3,6 +3,12 @@ package com.chatapp.service;
 import com.chatapp.dto.response.LocalMediaUploadResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
+import com.chatapp.model.MediaUpload;
+import com.chatapp.model.User;
+import com.chatapp.repository.MediaUploadRepository;
+import com.chatapp.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -17,12 +23,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class LocalMediaStorageService {
     private static final long MAX_IMAGE_SIZE_BYTES = 10L * 1024 * 1024;
     private static final long MAX_VIDEO_SIZE_BYTES = 50L * 1024 * 1024;
@@ -76,14 +85,24 @@ public class LocalMediaStorageService {
 
     private static final Tika CONTENT_DETECTOR = new Tika();
 
+    private final UserRepository userRepository;
+    private final MediaUploadRepository mediaUploadRepository;
+
     @Value("${app.uploads.media-dir:uploads/media}")
     private String mediaDirectory;
 
     @Value("${server.servlet.context-path:}")
     private String contextPath;
 
+    @Value("${app.uploads.daily-quota-bytes:262144000}")
+    private long dailyQuotaBytes;
+
     public LocalMediaUploadResponse storeMedia(MultipartFile file, String username) {
         if (!StringUtils.hasText(username)) throw new AppException(ErrorCode.UNAUTHORIZED);
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));
+        enforceDailyQuota(user);
+
         LocalMediaUploadResponse result = storeMedia(file);
         Path ownersDirectory = Paths.get(mediaDirectory).toAbsolutePath().normalize().resolve(".owners");
         try {
@@ -92,7 +111,25 @@ public class LocalMediaStorageService {
         } catch (IOException exception) {
             throw new AppException(ErrorCode.MEDIA_UPLOAD_FAILED);
         }
+
+        recordUpload(user, result);
         return result;
+    }
+
+    /**
+     * Deletes a stored upload and its ownership marker. Returns false when the files cannot be
+     * removed right now; the cleanup job will retry on its next run.
+     */
+    public boolean deleteStoredMedia(String publicId, String format) {
+        Path storageDirectory = Paths.get(mediaDirectory).toAbsolutePath().normalize();
+        try {
+            Files.deleteIfExists(storageDirectory.resolve(publicId + "." + format));
+            Files.deleteIfExists(storageDirectory.resolve(".owners").resolve(publicId));
+            return true;
+        } catch (IOException exception) {
+            log.warn("Unable to delete stored media {}", publicId, exception);
+            return false;
+        }
     }
 
     public String getOwner(String filename) {
@@ -166,6 +203,29 @@ public class LocalMediaStorageService {
                 resourceType,
                 format,
                 mediaFile.getSize());
+    }
+
+    /**
+     * Rolling 24-hour byte quota per user. Checked before the file is written; it is a soft
+     * limit, so a user just under the quota may still overshoot by one file.
+     */
+    private void enforceDailyQuota(User user) {
+        Long usedBytes = mediaUploadRepository.sumSizeBytesSince(
+                user.getId(),
+                LocalDateTime.now().minusDays(1)
+        );
+        if (usedBytes != null && usedBytes >= dailyQuotaBytes) {
+            throw new AppException(ErrorCode.MEDIA_QUOTA_EXCEEDED);
+        }
+    }
+
+    private void recordUpload(User user, LocalMediaUploadResponse result) {
+        MediaUpload upload = new MediaUpload();
+        upload.setUser(user);
+        upload.setPublicId(result.publicId());
+        upload.setFormat(result.format());
+        upload.setSizeBytes(result.bytes());
+        mediaUploadRepository.save(upload);
     }
 
     private void validateFileSize(MultipartFile file, boolean isImage, boolean isVideo, boolean isAudio) {

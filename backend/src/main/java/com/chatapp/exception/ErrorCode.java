@@ -66,6 +66,10 @@ public enum ErrorCode {
                         "MEDIA_003",
                         "Unable to upload media file"),
         MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "MEDIA_005", "Media not found"),
+        MEDIA_QUOTA_EXCEEDED(
+                        HttpStatus.PAYLOAD_TOO_LARGE,
+                        "MEDIA_006",
+                        "Daily media upload quota exceeded"),
 
         ROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "ROOM_001", "Chat room not found"),
         ROOM_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ROOM_002", "You are not a member of this chat room"),

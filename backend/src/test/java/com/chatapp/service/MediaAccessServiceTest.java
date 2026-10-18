@@ -3,8 +3,11 @@ package com.chatapp.service;
 import com.chatapp.dto.request.MediaAttachmentRequest;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
+import com.chatapp.model.User;
+import com.chatapp.repository.MediaUploadRepository;
 import com.chatapp.repository.MessageRepository;
 import com.chatapp.repository.ChatRoomRepository;
+import com.chatapp.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -12,6 +15,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -20,6 +24,8 @@ class MediaAccessServiceTest {
     @TempDir Path directory;
     private final MessageRepository messages = mock(MessageRepository.class);
     private final ChatRoomRepository rooms = mock(ChatRoomRepository.class);
+    private final UserRepository users = mock(UserRepository.class);
+    private final MediaUploadRepository uploads = mock(MediaUploadRepository.class);
     private LocalMediaStorageService storage;
     private MediaAccessService access;
     private String filename;
@@ -27,9 +33,13 @@ class MediaAccessServiceTest {
 
     @BeforeEach
     void setUp() {
-        storage = new LocalMediaStorageService();
+        storage = new LocalMediaStorageService(users, uploads);
         ReflectionTestUtils.setField(storage, "mediaDirectory", directory.toString());
         ReflectionTestUtils.setField(storage, "contextPath", "/api");
+        ReflectionTestUtils.setField(storage, "dailyQuotaBytes", 1024L * 1024);
+        User alice = new User();
+        alice.setId(1L);
+        when(users.findByUsername("alice")).thenReturn(Optional.of(alice));
         access = new MediaAccessService(storage, messages, rooms);
         var upload = storage.storeMedia(new MockMultipartFile("file", "note.txt", "text/plain", "private".getBytes()), "alice");
         publicId = upload.publicId();
