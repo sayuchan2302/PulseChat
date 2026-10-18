@@ -140,7 +140,7 @@
 
 - [ ] Tách `ChatPage.tsx` (~2568 dòng) thành container + slices (tiếp tục hướng "mini module" đã bắt đầu).
 - [ ] Virtualize `MessageList` cho hội thoại dài.
-- [ ] Bật `strict` TypeScript từng bước (`frontend/tsconfig.app.json` chưa có `strict`).
+- [x] Bật `strict` TypeScript: thêm full `"strict": true` vào `tsconfig.app.json` — đo trước bằng config tạm: 120 file src, **0 lỗi** (codebase đã sạch strict nhờ đợt dọn `any`/`!` ở mục 168) nên bật thẳng không cần chia bước; build (`tsc -b` + vite) + lint + 19/19 test đều xanh.
 - [ ] Bổ sung test cho: `services/api.ts` (401→refresh), `AuthContext`, `services/websocket.ts`, `dbService`, auth backend (login/refresh/logout, disabled account, JWT expired/tampered, 403 `/admin/**`).
 - [x] Baseline migration: chọn **quy trình baseline** thay vì `IF NOT EXISTS` — `baseline-on-migrate: true` + `baseline-version: 1` + `validate-on-migrate: true` trong `application-prod.yml` (đã có), README thay bằng quy trình 4 bước cho DB cũ (backup → xác nhận schema khớp V1 → chạy prod → verify `flyway_schema_history`); ghi rõ lý do không viết idempotent (Flyway chạy mỗi version đúng 1 lần, `IF NOT EXISTS` chỉ che drift; fail thì fix-forward bằng version mới). Guard chống đổi config: `ProductionSchemaValidationTest.productionProfileBaselinesExistingDatabasesAtVersionOne`.
 - [x] Admin **audit log**: bảng `admin_audit_logs` (migration `V7`) ghi actor/target/action (`STATUS_CHANGE`/`ROLE_CHANGE`)/giá trị cũ-mới/thời điểm; ghi trong cùng tx với thay đổi, chỉ ghi khi giá trị thực sự đổi (no-op không tạo log); API `GET /admin/audit-logs` phân trang (chỉ ADMIN nhờ rule `/admin/**`). Test: `AdminAccountServiceTest` +4 (disable + audit, no-op status, role change, no-op role, mapping listing).
