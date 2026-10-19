@@ -1,5 +1,6 @@
 import type { CallType, User } from '../../types';
 import { PhoneIcon, VideoCallIcon } from '../../icons/ChatIcons';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { renderUserAvatar } from '../../utils/renderUtils';
 import { getPresenceLabel, getRelationshipLabel, getUserDisplayName } from '../../utils/userUtils';
 
@@ -99,11 +100,12 @@ export function ProfileViewerModal({
   onCancelFriendRequest,
   onToggleBlock,
 }: ProfileViewerModalProps) {
+  const dialogRef = useFocusTrap<HTMLDivElement>(Boolean(user));
   if (!user) return null;
 
   return (
-    <div className="modal-backdrop">
-      <div className="user-profile-modal" role="dialog" aria-modal="true" aria-labelledby="view-profile-title">
+    <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="user-profile-modal" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="view-profile-title">
         <div className="user-profile-header">
           <span>Profile</span>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Close user profile">×</button>
@@ -132,11 +134,13 @@ export function ProfileViewerModal({
                 onCancelFriendRequest={onCancelFriendRequest}
               />
             )}
+          </div>
+          {actionError ? <div className="profile-action-error">{actionError}</div> : null}
+          <div className="profile-danger-zone">
             <button type="button" className="profile-block-btn" disabled={blockActionPending} onClick={() => onToggleBlock(user)}>
               {blockActionPending ? 'Saving…' : blockedByCurrentUser ? 'Unblock user' : 'Block user'}
             </button>
           </div>
-          {actionError ? <div className="profile-action-error">{actionError}</div> : null}
         </div>
       </div>
     </div>

@@ -1364,6 +1364,8 @@ export default function ChatPage() {
         setAddMembersModalOpen(false);
       } else if (inviteModalOpen) {
         setInviteModalOpen(false);
+      } else if (activeViewedProfileUser) {
+        handleCloseUserProfile();
       } else if (detailsOpen) {
         setDetailsOpen(false);
       } else if (profileMenuOpen) {
@@ -1374,12 +1376,14 @@ export default function ChatPage() {
     window.addEventListener('keydown', handleEscapeKey);
     return () => window.removeEventListener('keydown', handleEscapeKey);
   }, [
+    activeViewedProfileUser,
     detailsOpen,
     addMembersModalOpen,
     conversationDeleteTarget,
     conversationSettingPendingKey,
     forwardingMessage,
     groupSeenModalMessage,
+    handleCloseUserProfile,
     inviteModalOpen,
     lightboxState,
     mediaViewerMessage,

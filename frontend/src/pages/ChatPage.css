@@ -6022,6 +6022,9 @@ button.main-list-item {
 
 .user-profile-modal {
   width: min(380px, 100%);
+  max-height: min(640px, calc(100dvh - 40px));
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--purple-100);
   border-radius: 12px;
@@ -6031,6 +6034,7 @@ button.main-list-item {
 }
 
 .user-profile-header {
+  flex-shrink: 0;
   min-height: 58px;
   padding: 12px 16px 12px 20px;
   border-bottom: 1px solid var(--gray-200);
@@ -6047,11 +6051,13 @@ button.main-list-item {
 }
 
 .user-profile-body {
+  min-height: 0;
   padding: 24px 20px 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 16px;
+  overflow-y: auto;
 }
 
 .profile-view-avatar {
@@ -6192,6 +6198,15 @@ button.main-list-item {
   font-size: 13px;
   font-weight: 700;
   text-align: center;
+}
+
+.profile-danger-zone {
+  width: 100%;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gray-200);
+  display: flex;
+  justify-content: center;
 }
 
 .profile-modal {
@@ -9120,16 +9135,16 @@ html.theme-transitioning *::after {
   line-height: 1.45;
 }
 
-.profile-action-row { flex-wrap: wrap; }
 .profile-block-btn {
-  min-height: 40px;
-  padding: 0 15px;
-  border: 1px solid rgba(220, 38, 38, 0.34);
-  border-radius: 11px;
-  background: rgba(220, 38, 38, 0.08);
+  min-height: 34px;
+  padding: 0 16px;
+  border: 1px solid rgba(220, 38, 38, 0.32);
+  border-radius: 10px;
+  background: transparent;
   color: #b91c1c;
   font: inherit;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
 }
 .profile-block-btn:hover:not(:disabled), .blocked-user-unblock:hover:not(:disabled) { background: rgba(220, 38, 38, 0.15); }
