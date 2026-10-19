@@ -13,6 +13,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface MessageRepository extends JpaRepository<Message, Long> {
+    // Optional filters use coalesce(<comparison>, true) instead of "(:param is null or ...)".
+    // PostgreSQL cannot infer the type of an untyped NULL parameter inside "? is null"
+    // (SQLState 42P18); the comparison keeps the parameter typed and coalesce preserves the
+    // "no filter" behavior when the parameter is null.
     @Query("""
             select count(m) from Message m
             left join m.receiver receiver
@@ -58,8 +62,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               )
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
-              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
-              and (:before is null or m.id < :before)
+              and coalesce(:clearedAt < m.timestamp, true)
+              and coalesce(:before > m.id, true)
             order by m.id desc
             """)
     List<Message> findConversationPage(
@@ -84,8 +88,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.mediaUrl is not null
               and m.type in :mediaTypes
-              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
-              and (:before is null or m.id < :before)
+              and coalesce(:clearedAt < m.timestamp, true)
+              and coalesce(:before > m.id, true)
             order by m.id desc
             """)
     List<Message> findConversationMediaPage(
@@ -110,8 +114,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.linkPreviewUrl is not null
-              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
-              and (:before is null or m.id < :before)
+              and coalesce(:clearedAt < m.timestamp, true)
+              and coalesce(:before > m.id, true)
             order by m.id desc
             """)
     List<Message> findConversationLinkPage(
@@ -140,8 +144,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                   or lower(coalesce(m.linkPreviewDescription, '')) like :queryPattern
                   or lower(coalesce(m.linkPreviewDomain, '')) like :queryPattern
               )
-              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
-              and (:before is null or m.id < :before)
+              and coalesce(:clearedAt < m.timestamp, true)
+              and coalesce(:before > m.id, true)
             order by m.id desc
             """)
     List<Message> findConversationSearchPage(
@@ -187,7 +191,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                   or lower(coalesce(m.linkPreviewDescription, '')) like :queryPattern
                   or lower(coalesce(m.linkPreviewDomain, '')) like :queryPattern
               )
-              and (:before is null or m.id < :before)
+              and coalesce(:before > m.id, true)
             order by m.id desc
             """)
     List<Message> findGlobalSearchPage(
@@ -228,7 +232,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.id < :anchorId
-              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
+              and coalesce(:clearedAt < m.timestamp, true)
             order by m.id desc
             """)
     List<Message> findConversationMessagesBefore(
@@ -251,7 +255,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.id > :anchorId
-              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
+              and coalesce(:clearedAt < m.timestamp, true)
             order by m.id asc
             """)
     List<Message> findConversationMessagesAfter(
@@ -406,8 +410,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             join fetch m.chatRoom
             left join fetch m.receiver
             where m.chatRoom.id = :roomId
-              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
-              and (:before is null or m.id < :before)
+              and coalesce(:clearedAt < m.timestamp, true)
+              and coalesce(:before > m.id, true)
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
             order by m.id desc
@@ -453,8 +457,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.mediaUrl is not null
               and m.type in :mediaTypes
-              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
-              and (:before is null or m.id < :before)
+              and coalesce(:clearedAt < m.timestamp, true)
+              and coalesce(:before > m.id, true)
             order by m.id desc
             """)
     List<Message> findRoomMediaPage(
@@ -476,8 +480,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.linkPreviewUrl is not null
-              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
-              and (:before is null or m.id < :before)
+              and coalesce(:clearedAt < m.timestamp, true)
+              and coalesce(:before > m.id, true)
             order by m.id desc
             """)
     List<Message> findRoomLinkPage(
@@ -503,8 +507,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
                   or lower(coalesce(m.linkPreviewDescription, '')) like :queryPattern
                   or lower(coalesce(m.linkPreviewDomain, '')) like :queryPattern
               )
-              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
-              and (:before is null or m.id < :before)
+              and coalesce(:clearedAt < m.timestamp, true)
+              and coalesce(:before > m.id, true)
             order by m.id desc
             """)
     List<Message> findRoomSearchPage(
@@ -541,7 +545,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.id < :anchorId
-              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
+              and coalesce(:clearedAt < m.timestamp, true)
             order by m.id desc
             """)
     List<Message> findRoomMessagesBefore(
@@ -561,7 +565,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               and not exists (select hidden from Message hiddenMessage join hiddenMessage.hiddenByUsers hidden
                               where hiddenMessage = m and hidden.id = :currentUserId)
               and m.id > :anchorId
-              and (:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))
+              and coalesce(:clearedAt < m.timestamp, true)
             order by m.id asc
             """)
     List<Message> findRoomMessagesAfter(
