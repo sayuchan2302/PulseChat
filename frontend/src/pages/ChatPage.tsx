@@ -1147,6 +1147,7 @@ export default function ChatPage() {
     handleAcceptFriendRequest,
     handleDeclineFriendRequest,
     handleCancelFriendRequest,
+    handleUnfriend,
   } = useFriendshipActions({
     currentUserIdRef, setFriendActionKeys, setUsersError, setFriendRequestsError,
     setProfileActionError, setViewedProfileUser, loadUsers, loadIncomingFriendRequests,
@@ -2402,6 +2403,7 @@ export default function ChatPage() {
         onAcceptFriendRequest={(requestId, actionKey) => void handleAcceptFriendRequest(requestId, actionKey)}
         onDeclineFriendRequest={(requestId, actionKey) => void handleDeclineFriendRequest(requestId, actionKey)}
         onCancelFriendRequest={(user) => void handleCancelFriendRequest(user)}
+        onUnfriend={(user) => void handleUnfriend(user)}
         onToggleBlock={(user) => void toggleUserBlock(user)}
       />
 

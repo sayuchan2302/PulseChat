@@ -6207,6 +6207,7 @@ button.main-list-item {
   border-top: 1px solid var(--gray-200);
   display: flex;
   justify-content: center;
+  gap: 8px;
 }
 
 .profile-modal {
@@ -9149,6 +9150,21 @@ html.theme-transitioning *::after {
 }
 .profile-block-btn:hover:not(:disabled), .blocked-user-unblock:hover:not(:disabled) { background: rgba(220, 38, 38, 0.15); }
 .profile-block-btn:disabled, .blocked-user-unblock:disabled { opacity: 0.6; cursor: wait; }
+.profile-unfriend-btn {
+  min-height: 34px;
+  padding: 0 16px;
+  border: 1px solid var(--gray-300);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--gray-700);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.profile-unfriend-btn:hover:not(:disabled) { background: var(--gray-100); }
+.profile-unfriend-btn:disabled { opacity: 0.6; cursor: wait; }
+.profile-unfriend-btn:focus-visible { outline: 2px solid var(--purple-500); outline-offset: 2px; }
 .profile-blocked-status { color: var(--text-secondary, #64748b); font-size: 13px; }
 .blocked-users-backdrop { z-index: 1400; }
 .blocked-users-modal {

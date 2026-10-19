@@ -5,7 +5,7 @@ export type UserFriendshipStatus =
   | 'accepted'
   | 'declined';
 
-export type FriendshipStatus = 'pending' | 'accepted' | 'declined';
+export type FriendshipStatus = 'pending' | 'accepted' | 'declined' | 'removed';
 export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'FILE' | 'CALL';
 
 export interface MediaAttachment {

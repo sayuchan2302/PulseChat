@@ -20,6 +20,7 @@ export interface ProfileViewerModalProps {
   onAcceptFriendRequest: (requestId: number, actionKey: string) => void;
   onDeclineFriendRequest: (requestId: number, actionKey: string) => void;
   onCancelFriendRequest: (user: User) => void;
+  onUnfriend: (user: User) => void;
   onToggleBlock: (user: User) => void;
 }
 
@@ -98,6 +99,7 @@ export function ProfileViewerModal({
   onAcceptFriendRequest,
   onDeclineFriendRequest,
   onCancelFriendRequest,
+  onUnfriend,
   onToggleBlock,
 }: ProfileViewerModalProps) {
   const dialogRef = useFocusTrap<HTMLDivElement>(Boolean(user));
@@ -137,6 +139,11 @@ export function ProfileViewerModal({
           </div>
           {actionError ? <div className="profile-action-error">{actionError}</div> : null}
           <div className="profile-danger-zone">
+            {user.friendshipStatus === 'accepted' && !blockedByCurrentUser ? (
+              <button type="button" className="profile-unfriend-btn" disabled={pendingActionKeys.includes(`unfriend-${user.id}`)} onClick={() => onUnfriend(user)}>
+                {pendingActionKeys.includes(`unfriend-${user.id}`) ? 'Removing…' : 'Unfriend'}
+              </button>
+            ) : null}
             <button type="button" className="profile-block-btn" disabled={blockActionPending} onClick={() => onToggleBlock(user)}>
               {blockActionPending ? 'Saving…' : blockedByCurrentUser ? 'Unblock user' : 'Block user'}
             </button>

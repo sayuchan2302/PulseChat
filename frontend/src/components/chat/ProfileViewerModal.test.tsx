@@ -29,6 +29,7 @@ function renderProfileModal(overrides: Partial<ProfileViewerModalProps> = {}) {
     onAcceptFriendRequest: vi.fn(),
     onDeclineFriendRequest: vi.fn(),
     onCancelFriendRequest: vi.fn(),
+    onUnfriend: vi.fn(),
     onToggleBlock: vi.fn(),
     ...overrides,
   };
@@ -49,6 +50,7 @@ describe('ProfileViewerModal', () => {
     expect(screen.getByRole('button', { name: 'Message' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Start audio call with Minh Tran' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Start video call with Minh Tran' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Unfriend' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Block user' })).toBeTruthy();
   });
 
@@ -74,11 +76,26 @@ describe('ProfileViewerModal', () => {
     expect(props.onToggleBlock).toHaveBeenCalledWith(friend);
   });
 
+  it('unfriends from the danger zone', () => {
+    const { props } = renderProfileModal();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unfriend' }));
+    expect(props.onUnfriend).toHaveBeenCalledWith(friend);
+  });
+
+  it('disables the unfriend button while the request is pending', () => {
+    renderProfileModal({ pendingActionKeys: ['unfriend-42'] });
+
+    const pendingButton = screen.getByRole('button', { name: 'Removing…' });
+    expect(pendingButton.hasAttribute('disabled')).toBe(true);
+  });
+
   it('shows the blocked notice and an unblock action for blocked users', () => {
     const { props } = renderProfileModal({ blockedByCurrentUser: true });
 
     expect(screen.getByText('You blocked this user.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Message' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Unfriend' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Unblock user' }));
     expect(props.onToggleBlock).toHaveBeenCalledWith(friend);
   });

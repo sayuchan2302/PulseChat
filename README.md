@@ -13,7 +13,7 @@ Media uploads use authenticated local storage: every file is served with per-fil
 - 📞 **1-1 Audio/Video Calls**: WebRTC P2P calls with pre-call device setup and minimized floating call bar.
 - 📎 **Rich Media & Links**: Image/video upload (Local / Cloudinary), automatic OpenGraph link previews.
 - 😀 **Message Interactions**: Emoji reactions, quote reply, message recall (unsend), and pinned messages.
-- 👥 **Social & Community**: Friend requests, user search, profile viewer/editor, and invite-by-link for groups.
+- 👥 **Social & Community**: Friend requests, unfriend, user search, profile viewer/editor, and invite-by-link for groups.
 - 👁️ **Presence & Receipts**: Realtime online/offline status, last seen, typing indicators, and group "seen by" receipts.
 - 💾 **Offline Resilience**: IndexedDB client caching for conversations and pending message queue.
 - 🔔 **Notifications & Sounds**: In-app sound effects and browser push notifications.

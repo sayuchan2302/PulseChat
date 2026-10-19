@@ -76,7 +76,19 @@ export function useFriendshipActions({
       setUsersError('Unable to cancel friend request.'); setProfileActionError('Unable to cancel friend request.');
     } finally { setFriendActionPending(actionKey, false); }
   }, [refreshFriendshipState, setFriendActionPending, setProfileActionError, setUsersError, setViewedProfileUser]);
-  return { handleSendFriendRequest, handleAcceptFriendRequest, handleDeclineFriendRequest, handleCancelFriendRequest };
+  const handleUnfriend = useCallback(async (user: User) => {
+    const actionKey = `unfriend-${user.id}`;
+    setFriendActionPending(actionKey, true); setUsersError(''); setProfileActionError('');
+    try {
+      await apiClient.delete(`/friends/${user.id}`);
+      setViewedProfileUser((profile) => profile?.id === user.id ? { ...profile, friendshipId: undefined, friendshipStatus: 'none' } : profile);
+      await refreshFriendshipState();
+    } catch (error) {
+      console.error('Failed to remove friend:', error);
+      setUsersError('Unable to remove friend.'); setProfileActionError('Unable to remove friend.');
+    } finally { setFriendActionPending(actionKey, false); }
+  }, [refreshFriendshipState, setFriendActionPending, setProfileActionError, setUsersError, setViewedProfileUser]);
+  return { handleSendFriendRequest, handleAcceptFriendRequest, handleDeclineFriendRequest, handleCancelFriendRequest, handleUnfriend };
 }
 
 export default useFriendshipActions;
