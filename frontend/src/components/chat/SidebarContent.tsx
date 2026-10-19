@@ -174,7 +174,7 @@ export function SidebarContent(props: SidebarContentProps) {
     ? 'No archived conversations.'
     : conversationFilter === 'requests'
       ? 'No message requests.'
-      : 'No conversations yet. Search a username to start a chat.';
+      : 'No conversations yet.';
   if (sidebarBusy && !hasAnyConversation) return <SidebarSkeletons />;
   if (!sidebarBusy && !usersError && !roomsError && !hasAnyConversation) return <div className="list-state empty-groups-state"><span>{emptyMessage}</span></div>;
   return <>
