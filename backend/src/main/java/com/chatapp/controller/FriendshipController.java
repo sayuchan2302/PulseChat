@@ -102,6 +102,17 @@ public class FriendshipController {
         return ResponseEntity.noContent().build();
     }
 
+    @DeleteMapping("/friends/{userId}")
+    public ResponseEntity<Void> unfriend(
+            Authentication authentication,
+            @PathVariable Long userId
+    ) {
+        FriendshipResponse response = friendshipService.unfriend(authentication.getName(), userId);
+        notifyParticipants(response);
+
+        return ResponseEntity.noContent().build();
+    }
+
     private void notifyParticipants(FriendshipResponse response) {
         notifyUser(response.requester().username(), response);
         notifyUser(response.receiver().username(), response);

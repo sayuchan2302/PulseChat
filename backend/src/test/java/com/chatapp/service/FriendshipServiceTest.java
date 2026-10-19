@@ -1,6 +1,7 @@
 package com.chatapp.service;
 
 import com.chatapp.dto.request.CreateFriendRequest;
+import com.chatapp.dto.response.FriendshipResponse;
 import com.chatapp.dto.response.UserResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
@@ -191,6 +192,58 @@ class FriendshipServiceTest {
         );
 
         assertEquals(ErrorCode.FRIENDSHIP_ACCESS_DENIED, exception.getErrorCode());
+        verify(friendshipRepository, never()).delete(any(Friendship.class));
+    }
+
+    @Test
+    void unfriendRemovesAcceptedFriendshipForNormalizedPair() {
+        User currentUser = user(7L, "thinh");
+        User targetUser = user(3L, "sayu");
+        Friendship acceptedFriendship = friendship(targetUser, currentUser, FriendshipStatus.ACCEPTED);
+        when(userService.findByUsername("thinh")).thenReturn(currentUser);
+        when(userService.findById(targetUser.getId())).thenReturn(targetUser);
+        when(friendshipRepository.findByUserLowIdAndUserHighId(3L, 7L))
+                .thenReturn(Optional.of(acceptedFriendship));
+
+        FriendshipResponse response = friendshipService.unfriend("thinh", targetUser.getId());
+
+        assertEquals("removed", response.status());
+        verify(friendshipRepository).delete(acceptedFriendship);
+    }
+
+    @Test
+    void unfriendRejectsUnknownFriendship() {
+        User currentUser = user(7L, "thinh");
+        User targetUser = user(3L, "sayu");
+        when(userService.findByUsername("thinh")).thenReturn(currentUser);
+        when(userService.findById(targetUser.getId())).thenReturn(targetUser);
+        when(friendshipRepository.findByUserLowIdAndUserHighId(3L, 7L)).thenReturn(Optional.empty());
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> friendshipService.unfriend("thinh", targetUser.getId())
+        );
+
+        assertEquals(ErrorCode.FRIENDSHIP_NOT_FOUND, exception.getErrorCode());
+        verify(friendshipRepository, never()).delete(any(Friendship.class));
+    }
+
+    @Test
+    void unfriendRejectsPendingFriendship() {
+        User requester = user(3L, "sayu");
+        User receiver = user(7L, "thinh");
+        Friendship pendingFriendship = friendship(requester, receiver, FriendshipStatus.PENDING);
+        when(userService.findByUsername("thinh")).thenReturn(receiver);
+        when(userService.findById(requester.getId())).thenReturn(requester);
+        when(friendshipRepository.findByUserLowIdAndUserHighId(3L, 7L))
+                .thenReturn(Optional.of(pendingFriendship));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> friendshipService.unfriend("thinh", requester.getId())
+        );
+
+        assertEquals(ErrorCode.FRIENDSHIP_NOT_ACCEPTED, exception.getErrorCode());
         verify(friendshipRepository, never()).delete(any(Friendship.class));
     }
 

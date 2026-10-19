@@ -243,6 +243,27 @@ public class FriendshipService {
         return response;
     }
 
+    @Transactional
+    public FriendshipResponse unfriend(String currentUsername, Long targetUserId) {
+        User currentUser = userService.findByUsername(currentUsername);
+        User targetUser = userService.findById(targetUserId);
+        if (currentUser.getId().equals(targetUser.getId())) {
+            throw new AppException(ErrorCode.FRIENDSHIP_NOT_FOUND);
+        }
+
+        PairKey pairKey = pairKey(currentUser, targetUser);
+        Friendship friendship = friendshipRepository
+                .findByUserLowIdAndUserHighId(pairKey.userLowId(), pairKey.userHighId())
+                .orElseThrow(() -> new AppException(ErrorCode.FRIENDSHIP_NOT_FOUND));
+        if (friendship.getStatus() != FriendshipStatus.ACCEPTED) {
+            throw new AppException(ErrorCode.FRIENDSHIP_NOT_ACCEPTED);
+        }
+
+        FriendshipResponse response = FriendshipResponse.removed(friendship);
+        friendshipRepository.delete(friendship);
+        return response;
+    }
+
     @Transactional(readOnly = true)
     public boolean areFriends(User firstUser, User secondUser) {
         if (userBlockService.isBlocked(firstUser, secondUser)) {

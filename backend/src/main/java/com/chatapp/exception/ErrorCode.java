@@ -33,6 +33,8 @@ public enum ErrorCode {
         FRIENDSHIP_NOT_PENDING(HttpStatus.CONFLICT, "FRIENDSHIP_006", "Friend request is not pending"),
         FRIENDSHIP_REQUIRED(HttpStatus.FORBIDDEN, "FRIENDSHIP_007",
                         "You must be friends before starting a private chat"),
+        FRIENDSHIP_NOT_ACCEPTED(HttpStatus.CONFLICT, "FRIENDSHIP_008",
+                        "You are not friends with this user"),
 
         SELF_CONVERSATION_NOT_ALLOWED(
                         HttpStatus.BAD_REQUEST,
