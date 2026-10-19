@@ -3,7 +3,7 @@
 > Nguồn: đợt full code review (backend logic, backend security, frontend, tests/config) ngày 2026-10-16/17.
 > Quy tắc: **hoàn tất Phase 1 + Phase 2 (Gate) trước khi bắt đầu feature mới.** Nếu feature gấp không thể chờ, tối thiểu phải xong Phase 1.
 > Phạm vi: toàn bộ fix + hardening từ đợt review — **không bao gồm roadmap feature mới** (chọn sau khi qua Gate).
-> Trạng thái: **Phase 1 + Phase 2 hoàn tất (2026-10-18)** — CI file đã có (⏳ chờ push lần đầu), bỏ email, rotation/replay + media token, filter 401, rate limiting, prod hardening, WS error handler (+fix whitelist message-hides), bump Spring Boot 3.5.16 + jjwt 0.12.7; backend **209/209** xanh. Tiếp theo: push để CI chạy, sau đó có thể bắt đầu feature mới (Phase 3 làm dần).
+> Trạng thái: **Phase 1 + Phase 2 hoàn tất (2026-10-18)** — CI file đã có (⏳ chờ push lần đầu), bỏ email, rotation/replay + media token, filter 401, rate limiting, prod hardening, WS error handler (+fix whitelist message-hides), bump Spring Boot 3.5.16 + jjwt 0.12.7; backend **209/209** xanh. Tiếp theo: push để CI chạy, sau đó có thể bắt đầu feature mới (Phase 3 làm dần). **Cập nhật 2026-10-19:** kế hoạch ổn định `TEST_PLAN.md` đã chạy hết T0–T2, T4, T5 (phần tự động) — tất cả xanh trên code `cea59aa` (chi tiết + bằng chứng ở mục *Nhật ký chạy* của `TEST_PLAN.md` và mục *Kết quả kế hoạch ổn định* cuối file này); phát hiện + fix 1 bug PostgreSQL-only (42P18, `cea59aa`); T3 (UI browser) để người dùng chạy khi rảnh — không chặn feature mới.
 
 ---
 
@@ -163,10 +163,29 @@
 - [x] `editMessage` TOCTOU: kiểm tra lại thì **đã đúng sẵn** — transaction ghi (Tx2, dòng 249-260) re-fetch message + `validateMessageCanBeEdited` (sender/recalled/type) + edit + `saveAndFlush` trong **cùng một** transaction; Tx1 (242-246) chỉ là pre-check fail-fast để không gọi link-preview network cho request không hợp lệ. Thêm test hồi quy `editMessageRevalidatesInsideTheWriteTransaction` (message bị recall giữa pre-check và tx ghi → `MESSAGE_EDIT_NOT_ALLOWED`, không save) — khóa bất biến để refactor sau này không phá.
 - [x] Lọc `cleared` chuyển hẳn vào JPQL: thêm param `clearedAt` + điều kiện `(:clearedAt is null or (m.timestamp is not null and m.timestamp > :clearedAt))` cho **12 query** (conversation/room page, media, link, search, before/after) — page budget & `hasMore` giờ tính trên đúng tập tin nhắn người dùng thấy; xoá hẳn helper post-filter `filterClearedMessages`. Test H2 mới `ClearedConversationQueryTest` (2 — page limit không bị cleared "ăn" slot, around-anchor) + các test H2 hiện có (LocalMediaAuthorization, MessageHydrationQueryCount) chạy thật query mới.
 - [x] Media bị từ chối truy cập (thu hồi/hidden/không phải participant) giờ trả **404 `MEDIA_005` "Media not found"** thay vì 403 gây khó hiểu và lộ sự tồn tại của file (`MediaAccessService.requireAccess`). Cập nhật `MediaAccessServiceTest` + `LocalMediaHttpSecurityTest` theo hành vi mới.
-- [ ] Test với PostgreSQL thật (Testcontainers) cho Flyway + `ddl-auto=validate`; đồng bộ style PK `BIGSERIAL` ở `V4__user_blocks.sql:2` → identity như các bảng khác.
+- [ ] Test với PostgreSQL thật (Testcontainers) cho Flyway + `ddl-auto=validate`; đồng bộ style PK `BIGSERIAL` ở `V4__user_blocks.sql:2` → identity như các bảng khác. → **2026-10-19:** phần "PostgreSQL thật" đã kiểm chứng **không cần Docker**: Flyway V1→V9 + `ddl-auto=validate` chạy sạch trên PostgreSQL 18.6 local (DB `chat_app_migration_test`, nhật ký T1-B/T2 trong `TEST_PLAN.md`). Testcontainers vẫn treo vì máy chưa cài Docker; đổi `V4` sẽ đổi checksum migration (chỉ nên làm khi tạo lại DB) — để lại khi có Docker.
 - [x] WS: bỏ reload `UserDetails` mỗi frame — principal resolve 1 lần lúc CONNECT (Spring propagate cho mọi frame sau; CONNECT kiểm tra account `enabled` và link session vào registry). Force-disconnect: `WebSocketSessionRegistry` theo dõi session theo username qua `WebSocketHandlerDecoratorFactory`; `AdminAccountService.updateStatus` disable → đóng toàn bộ session (CloseStatus 1008) sau commit qua `AfterCommitExecutor`; xoá luôn `WebSocketAccountStatusInterceptor` (check per-message vô nghĩa + bỏ qua broadcast). Test: `WebSocketSessionRegistryTest` +3, `AdminAccountServiceTest` +2, `WebSocketAuthChannelInterceptorTest` cập nhật (CONNECT từ chối account disabled, frame sau không reload DB).
 - [x] Vặt: xoá biến chết `mediaPayload` (`useMessageSending.ts` — media vẫn đi qua `attachment` của queue như trước); validate `fullName` ≤ 100 ký tự khớp cột `full_name` (lỗi `VALIDATION_FAILED`, có test); xoá null-check chết `findSetting` (`Optional` không bao giờ null); vitest: thêm `@testing-library/jest-dom` (dùng `toHaveFocus()` trong test focus trap) + coverage v8 (`npm run test:coverage`; `coverage/` đã vào `.gitignore`) + rule `react/exhaustive-deps: error` (sửa luôn warning cũ ở ChatPage bằng cách hoist `selectedUserId`/`selectedUserMessageRequest` ra ngoài effect); dọn `any`/`!` phía FE: util chung `getApiErrorMessage` (AuthPage, InviteJoinPage, AdminPage, useGroupMemberActions) + bỏ 5 non-null assertion bằng early-return narrowing.
 - [x] Rotate JWT secret + mật khẩu DB trong `backend/.env` nếu thư mục từng bị chia sẻ ngoài git (file đã gitignore, không nằm trong history). → **Không cần rotate**: đã kiểm chứng `backend/.env` chưa từng được commit (`git log --all --full-history -- backend/.env` trống); user xác nhận máy từng cài lại và các giá trị .env cũ mất cùng máy (không từng chia sẻ ra ngoài git). `JWT_SECRET` hiện tại đã sinh mới cục bộ (88 ký tự, không placeholder, không trùng secret cũ); DB creds đầy đủ, profile `dev`. Các biến trống/thiếu còn lại đều là tùy chọn và dùng default trong `application.yml`: `CLOUDINARY_CLOUD_NAME/API_KEY/SECRET` trống (public uploads tắt), `GEMINI_API_KEY` trống (không bật AI), các `RATE_LIMIT_*`/`CLOUDINARY_ALLOWED_FORMATS/DAILY_SIGNATURE_QUOTA` chưa có trong .env — muốn dùng lại Cloudinary/AI chỉ cần điền key mới, không liên quan bảo mật.
+
+---
+
+## Kết quả kế hoạch ổn định `TEST_PLAN.md` (2026-10-19)
+
+Chạy đủ T0–T5 (trừ T3 browser để người dùng), tất cả xanh trên code `cea59aa`:
+
+- **T0**: backend **300/300**, FE **42/42** + coverage ≥ ngưỡng + lint/build sạch.
+- **T1**: Flyway V1→V9 + `ddl-auto=validate` trên **PostgreSQL 18.6 thật** (DB `chat_app_migration_test`, không cần Docker).
+- **T2**: smoke REST **44/44 + 36/36**, WS (sockjs-client chính chủ) **14/14**.
+- **T4**: bảo mật REST **48/48**, WS **13/13**, rate-limit/Cloudinary **7/7 + 8/8**.
+- **T5**: phần tự động (query-count/hydration) xanh; seed live 200 tin là tùy chọn — chưa chạy.
+- **T3**: các kịch bản UI thủ công trong `TEST_PLAN.md §T3` — để người dùng chạy khi rảnh (không chặn feature mới).
+
+Bài học giữ lại:
+
+- **42P18 là bug chỉ tái hiện trên PostgreSQL thật** (H2 chấp nhận `(:param is null or ...)`): query mới có param nullable hãy dùng pattern `coalesce(:param <cột>, true)` như `MessageRepository` và verify ít nhất một lần trên PG thật.
+- `/api/ws/websocket` bare là **raw-STOMP mode** (không frame `o` — đúng thiết kế); SockJS client dùng URL `http://localhost:8080/api/ws` (session-style). CONNECT thiếu/sai auth → ERROR frame + close 1002 là hành vi đúng, không phải bug.
+- Rate-limit login fixed-window 15 phút (10/IP + 10/account) **reset khi restart backend**; admin disable đóng WS session bằng **close 1008** qua `AfterCommitExecutor`. Khi test lại rate-limit nhớ restart trước cho cửa sổ sạch.
 
 ---
 
