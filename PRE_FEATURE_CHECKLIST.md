@@ -186,6 +186,7 @@ Bài học giữ lại:
 - **42P18 là bug chỉ tái hiện trên PostgreSQL thật** (H2 chấp nhận `(:param is null or ...)`): query mới có param nullable hãy dùng pattern `coalesce(:param <cột>, true)` như `MessageRepository` và verify ít nhất một lần trên PG thật.
 - `/api/ws/websocket` bare là **raw-STOMP mode** (không frame `o` — đúng thiết kế); SockJS client dùng URL `http://localhost:8080/api/ws` (session-style). CONNECT thiếu/sai auth → ERROR frame + close 1002 là hành vi đúng, không phải bug.
 - Rate-limit login fixed-window 15 phút (10/IP + 10/account) **reset khi restart backend**; admin disable đóng WS session bằng **close 1008** qua `AfterCommitExecutor`. Khi test lại rate-limit nhớ restart trước cho cửa sổ sạch.
+- **Tách CSS lớn phải audit bằng script class-coverage**: đợt tách `ChatPage.css` (2026-10-20, `d33a418`) làm mất 328 class (211 class vẫn dùng trong JSX) nhưng lint/build/test vẫn xanh vì thiếu CSS không gây lỗi TypeScript. Đã phục hồi 539 rule + 9 keyframes. Bài học: sau mỗi lần move CSS, đối chiếu `className` trong TSX với selector trong toàn bộ file CSS; giữ override responsive cùng file với base; scope selector dùng chung (`.details-close-btn`, `.modal-close-btn`); và test Escape cho modal/menu.
 
 ---
 

@@ -221,6 +221,17 @@ Dùng 3 tài khoản test riêng: `smoke_a`, `smoke_b`, `smoke_c` (prefix `smoke
 | 2026-10-19 | `cea59aa` | T4 — #7, #12 (limits) | ✅ PASS | smoke5a **7/7** (`RATE_LIMIT_ROOM_MEMBER_ADDS_MAX=3`): 10 lần login sai trong cửa sổ OK → lần 11 **429 `AUTH_005`** (tài khoản tồn tại hay không đều trả mã lỗi y hệt — không rò), đúng mật khẩu vẫn bị chặn khi hết cửa sổ; createGroup thứ 2 (trọng số 2, tổng 4>3) → **429**; thiếu creds Cloudinary → 500 `MEDIA_001`. smoke5b **8/8** (creds giả): ký OK, echo cloudName/apiKey, `allowedFormats` 23 mục không có html/svg/js, folder/uploadUrl/publicId/timestamp chuẩn |
 | — | — | T3 (browser UI) | ⏳ để người dùng chạy | Các kịch bản UI thủ công (ErrorBoundary, focus trap, offline cache, virtualization, deep-link, WS reconnect, banner lỗi…) |
 | 2026-10-19 | `cea59aa` | T5 | ✅ phần tự động | Query-count/hydration tests xanh trong T0; phần seed 200 tin live là tùy chọn — chưa chạy |
+| 2026-10-20 | `d33a418` | UI audit (FE) | ✅ PASS (static) | Phục hồi 539 rule block + 9 keyframes bị mất khi tách `ChatPage.css`; FE **54/54**, lint/build sạch; chờ kiểm tra hình ảnh T3 |
+
+## Frontend UI refactor audit (2026-10-20)
+
+Sau khi tách `ChatPage.css` thành CSS theo component (commit `d33a418`):
+
+- **P0 đã fix**: bản tách CSS làm mất **328 class** (trong đó **211 class** vẫn được JSX dùng) — call UI, media lightbox/viewer, details sidebar (member/invite), forward picker, blocked users, group seen, skeleton/typing, attachment, wallpaper… Đã phục hồi 1:1 **539 rule block** + **9 `@keyframes`**, phân bổ về đúng file component.
+- **Cascade**: chuyển các override `@media (max-width: 480px)` về cùng file với rule base để không bị file load sau đè.
+- **Kiểm tra tĩnh**: đối chiếu toàn bộ `className` trong TSX với selector định nghĩa trong 22 file CSS → **0 class còn thiếu style** (các tên còn lại là token động hoặc dead class có từ trước, không có rule ở HEAD).
+- **Fix kèm**: scope `.details-close-btn` (SearchSidebar) và `.modal-close-btn` (ProfileViewer) theo modal; `AddMembersModal` dùng `send-btn`; Escape đóng ProfileEditor/CreateGroup/BlockedUsers (hook `useModalEscape`); MessageActions đóng bằng Escape + `aria-haspopup` + giới hạn chiều cao menu theo vùng nhìn thấy.
+- **Kiểm chứng**: FE **54/54** (14 file), lint sạch, build OK. Chưa chạy kiểm tra hình ảnh trên browser (T3) — người dùng xác nhận khi backend bật.
 
 ## Việc còn treo (ngoài phạm vi plan)
 
