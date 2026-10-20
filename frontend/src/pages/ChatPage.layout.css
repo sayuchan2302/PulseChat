@@ -1,0 +1,120 @@
+/* ==========================================================================
+   ChatPage Layout - Shell, Container, Responsive Grid/Flex
+   ========================================================================== */
+
+.chat-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--bg-secondary);
+  color-scheme: light;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  overflow: hidden;
+}
+
+[data-theme='dark'] .chat-page {
+  color-scheme: dark;
+}
+
+.chat-container {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  background: var(--bg-primary);
+}
+
+.sidebar {
+  width: 320px;
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-height: 0;
+  position: relative;
+  z-index: 5;
+}
+
+.chat-area {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  position: relative;
+  overflow: hidden;
+}
+
+.chat-area.main-view-open {
+  background: var(--bg-primary);
+  height: 100%;
+}
+
+.details-backdrop {
+  display: none;
+}
+
+/* --------------------------------------------------------------------------
+   Mobile & Tablet Responsive Adaptations (max-width: 768px)
+   -------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .chat-container {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    height: 100%;
+    border-right: none;
+  }
+
+  .chat-container.conversation-open .sidebar {
+    display: none;
+  }
+
+  .chat-container.conversation-open .chat-area {
+    display: flex;
+    width: 100%;
+    height: 100%;
+  }
+
+  .chat-container:not(.conversation-open) .chat-area:not(.main-view-open) {
+    display: none;
+  }
+
+  .details-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    display: block;
+    background: var(--bg-overlay);
+    border: none;
+    cursor: pointer;
+  }
+}
+
+/* Tablet / Medium viewport adaptation (769px to 1199px) */
+@media (min-width: 769px) and (max-width: 1199px) {
+  .chat-container.conversation-open.details-open .sidebar {
+    display: none;
+  }
+
+  .chat-container.conversation-open.details-open .chat-area {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  .details-sidebar {
+    position: static;
+    z-index: auto;
+    width: clamp(264px, 35vw, 312px);
+    max-width: 40%;
+    flex: 0 0 clamp(264px, 35vw, 312px);
+  }
+}

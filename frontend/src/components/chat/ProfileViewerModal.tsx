@@ -3,6 +3,7 @@ import { PhoneIcon, VideoCallIcon } from '../../icons/ChatIcons';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { renderUserAvatar } from '../../utils/renderUtils';
 import { getPresenceLabel, getRelationshipLabel, getUserDisplayName } from '../../utils/userUtils';
+import './ProfileViewerModal.css';
 
 export interface ProfileViewerModalProps {
   user: User | null;
@@ -119,8 +120,17 @@ export function ProfileViewerModal({
           {loading ? <div className="profile-loading">Refreshing profile...</div> : null}
           {error ? <div className="profile-action-error">{error}</div> : null}
           <div className="profile-info-grid">
-            <div className="profile-info-item"><span>Status</span><strong className={user.online ? 'online' : 'offline'}>{getPresenceLabel(user)}</strong></div>
-            <div className="profile-info-item"><span>Relationship</span><strong>{getRelationshipLabel(user)}</strong></div>
+            <div className="profile-info-item">
+              <span>Status</span>
+              <strong className={user.online ? 'online' : 'offline'}>
+                <span className={`profile-status-dot ${user.online ? 'online' : 'offline'}`} aria-hidden="true" />
+                {getPresenceLabel(user)}
+              </strong>
+            </div>
+            <div className="profile-info-item">
+              <span>Relationship</span>
+              <strong>{getRelationshipLabel(user)}</strong>
+            </div>
           </div>
           <div className="profile-action-row">
             {blockedByCurrentUser ? <span className="profile-blocked-status">You blocked this user.</span> : (

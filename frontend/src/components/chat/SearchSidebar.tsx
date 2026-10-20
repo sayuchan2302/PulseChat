@@ -7,6 +7,7 @@ import {
 } from '../../utils/messageUtils';
 import { formatMessageTime } from '../../utils/formatUtils';
 import { renderHighlightedSearchText, renderUserAvatar } from '../../utils/renderUtils';
+import './SearchSidebar.css';
 
 export interface SearchSidebarProps {
     conversationName: string;

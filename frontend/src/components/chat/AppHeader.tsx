@@ -11,6 +11,7 @@ import {
   SunIcon,
 } from '../../icons/ChatIcons';
 import { renderUserAvatar } from '../../utils/renderUtils';
+import './AppHeader.css';
 
 export interface AppHeaderProps {
   isDark: boolean;

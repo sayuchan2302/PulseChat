@@ -3,6 +3,7 @@
  */
 import type { User, ChatRoom, Friendship, ConversationSetting, PresenceEvent } from '../types';
 import { API_BASE_URL } from '../config/constants';
+import { formatRelativeTime } from './formatUtils';
 
 // ─── Display names ────────────────────────────────────────────────────────────
 
@@ -157,8 +158,11 @@ export function getRelationshipLabel(user: User) {
 export function getPresenceLabel(user: User | null) {
     if (!user) return 'Offline';
     if (user.online) return 'Online';
-    // formatRelativeTime is imported at call site to avoid circular dep
-    return '';
+    if (user.lastSeenAt) {
+        const rel = formatRelativeTime(user.lastSeenAt);
+        if (rel) return `Last seen ${rel}`;
+    }
+    return 'Offline';
 }
 
 // ─── Typing ───────────────────────────────────────────────────────────────────

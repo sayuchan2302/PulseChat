@@ -5,6 +5,7 @@ import { isCallMessage, getMessageSenderUser, getMessageSenderName, getDeliveryS
 import { formatMessageTime } from '../../utils/formatUtils';
 import { getUserDisplayName } from '../../utils/userUtils';
 import { renderUserAvatar } from '../../utils/renderUtils';
+import './MessageItem.css';
 
 export interface MessageItemProps {
     item: MessageListItem;

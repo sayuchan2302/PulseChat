@@ -2,6 +2,7 @@ import type { ChangeEvent, ReactNode, RefObject } from 'react';
 import { MicIcon, MicOffIcon, VideoCallIcon, VideoOffIcon } from '../../icons/ChatIcons';
 import type { CallType, PreCallSetup, User } from '../../types/chat.types';
 import { getUserDisplayName } from '../../utils/userUtils';
+import './ActiveCallOverlay.css';
 
 export interface PreCallSetupModalProps {
   preCallSetup: PreCallSetup;

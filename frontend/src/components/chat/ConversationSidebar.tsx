@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { ConversationFilter } from '../../types/chat.types';
 import { GroupPlusIcon } from '../../icons/ChatIcons';
+import './ConversationSidebar.css';
 
 export interface ConversationSidebarProps {
   userSearchQuery: string;

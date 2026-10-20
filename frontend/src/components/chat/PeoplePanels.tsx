@@ -2,6 +2,7 @@ import type { Friendship, User } from '../../types';
 import { FriendRequestIcon, FriendsIcon, RefreshIcon } from '../../icons/ChatIcons';
 import { renderUserAvatar } from '../../utils/renderUtils';
 import { getUserDisplayName, shouldShowUsername } from '../../utils/userUtils';
+import './PeoplePanels.css';
 
 const SKELETON_KEYS = ['friend-panel-1', 'friend-panel-2', 'friend-panel-3'];
 

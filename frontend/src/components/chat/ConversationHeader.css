@@ -1,0 +1,152 @@
+/* ==========================================================================
+   ConversationHeader Component Styles - Crisp Ghost Action Bar
+   ========================================================================== */
+
+.chat-area-header {
+  padding: 0 var(--space-xl);
+  height: 54px;
+  min-height: 54px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-shrink: 0;
+  z-index: 5;
+}
+
+.mobile-chat-list-btn {
+  display: none;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.mobile-chat-list-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.mobile-chat-list-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.selected-user {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.selected-user-profile-btn {
+  padding: 2px 6px 2px 2px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.selected-user-profile-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.selected-user-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.selected-user-copy .user-name {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semi);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selected-user-copy .user-meta {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.selected-user-copy .user-status.online {
+  color: var(--signal-online);
+}
+
+.selected-user-copy .user-status.offline {
+  color: var(--text-tertiary);
+}
+
+/* --------------------------------------------------------------------------
+   Header Action Buttons (Calls, Search, Details)
+   -------------------------------------------------------------------------- */
+.conversation-header-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.conversation-call-btn,
+.conversation-search-toggle,
+.conversation-details-toggle {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.conversation-call-btn:hover:not(:disabled),
+.conversation-search-toggle:hover:not(:disabled),
+.conversation-details-toggle:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.conversation-search-toggle.active,
+.conversation-details-toggle.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.conversation-call-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.conversation-call-icon,
+.conversation-search-icon,
+.conversation-details-icon {
+  width: 18px;
+  height: 18px;
+}
+
+@media (max-width: 768px) {
+  .chat-area-header {
+    padding: 0 var(--space-sm);
+  }
+
+  .mobile-chat-list-btn {
+    display: inline-flex;
+  }
+}

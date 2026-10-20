@@ -13,6 +13,7 @@ import {
 } from '../../icons/ChatIcons';
 import type { ActiveCall, CallConnectionState, CallType, User } from '../../types/chat.types';
 import { getUserDisplayName } from '../../utils/userUtils';
+import './ActiveCallOverlay.css';
 
 export interface ActiveCallOverlayProps {
   activeCall: ActiveCall | null;

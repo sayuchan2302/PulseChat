@@ -34,4 +34,23 @@ describe('BlockedUsersModal', () => {
 
     expect(onUnblock).toHaveBeenCalledWith(blockedUser);
   });
+
+  it('closes when Escape is pressed', () => {
+    const onClose = vi.fn();
+    render(
+      <BlockedUsersModal
+        open
+        users={[]}
+        loading={false}
+        error=""
+        pendingUserId={null}
+        onClose={onClose}
+        onUnblock={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

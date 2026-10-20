@@ -3,6 +3,8 @@ import type { User } from '../../types';
 import { MIN_GROUP_MEMBERS } from '../../constants/chatConstants';
 import { renderUserAvatar } from '../../utils/renderUtils';
 import { getUserDisplayName, shouldShowUsername } from '../../utils/userUtils';
+import { useModalEscape } from '../../hooks/useModalEscape';
+import './GroupModals.css';
 
 export interface CreateGroupModalProps {
   open: boolean;
@@ -33,6 +35,8 @@ export function CreateGroupModal({
   onGroupNameChange,
   onToggleMember,
 }: CreateGroupModalProps) {
+  useModalEscape(open, onClose, creating);
+
   if (!open) return null;
 
   return (

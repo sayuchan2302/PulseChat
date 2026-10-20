@@ -352,6 +352,16 @@ export function MoreIcon({ className }: HeaderIconProps) {
     );
 }
 
+export function MoreVerticalIcon({ className }: HeaderIconProps) {
+    return (
+        <svg className={className} {...SVG_BASE}>
+            <circle cx="12" cy="5" r="1.5" />
+            <circle cx="12" cy="12" r="1.5" />
+            <circle cx="12" cy="19" r="1.5" />
+        </svg>
+    );
+}
+
 export function PinIcon({ className }: HeaderIconProps) {
     return (
         <svg className={className} {...SVG_BASE}>

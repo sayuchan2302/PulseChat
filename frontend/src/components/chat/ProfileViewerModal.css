@@ -1,0 +1,263 @@
+/* ==========================================================================
+   ProfileViewerModal Styles - Sharp Profile Card with Visual Hierarchy
+   ========================================================================== */
+
+.user-profile-modal {
+  width: min(380px, 100%);
+  max-height: min(640px, calc(100dvh - 40px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-xl);
+}
+
+.user-profile-header {
+  flex-shrink: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-primary);
+}
+
+.user-profile-header span {
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semi);
+}
+
+.user-profile-header .modal-close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.user-profile-header .modal-close-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.user-profile-body {
+  min-height: 0;
+  padding: var(--space-xl) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  overflow-y: auto;
+}
+
+.user-avatar.profile-view-avatar {
+  width: 96px !important;
+  height: 96px !important;
+  font-size: 38px !important;
+  border: 3px solid var(--border);
+  box-shadow: var(--shadow-md);
+  margin: 0 auto;
+  flex-shrink: 0;
+}
+
+.user-profile-copy {
+  text-align: center;
+  width: 100%;
+}
+
+.user-profile-copy h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semi);
+}
+
+.user-profile-copy span {
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  display: block;
+  font-size: var(--text-sm);
+}
+
+.profile-bio {
+  width: 100%;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  text-align: center;
+  word-break: break-word;
+}
+
+.profile-loading {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.profile-info-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-sm);
+}
+
+.profile-info-item {
+  padding: 12px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 4px;
+}
+
+.profile-info-item span {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: var(--weight-semi);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.profile-info-item strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semi);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.profile-info-item strong.online {
+  color: var(--signal-online);
+}
+
+.profile-info-item strong.offline {
+  color: var(--text-secondary);
+}
+
+.profile-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.profile-status-dot.online {
+  background-color: var(--signal-online);
+}
+
+.profile-status-dot.offline {
+  background-color: var(--signal-offline);
+}
+
+.profile-action-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.profile-message-btn {
+  height: 36px;
+  padding: 0 18px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  border: none;
+}
+
+.profile-message-btn:hover {
+  background: var(--accent-hover);
+}
+
+.profile-call-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.profile-call-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--accent);
+}
+
+.profile-call-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.profile-call-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.profile-action-error {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--signal-error-bg);
+  color: var(--signal-error);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.profile-danger-zone {
+  width: 100%;
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.profile-unfriend-btn,
+.profile-block-btn {
+  padding: 6px 12px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
+}
+
+.profile-unfriend-btn:hover:not(:disabled),
+.profile-block-btn:hover:not(:disabled) {
+  border-color: var(--signal-error);
+  color: var(--signal-error);
+  background: var(--signal-error-bg);
+}
+
+.profile-blocked-status {
+  font-size: var(--text-xs);
+  color: var(--signal-error);
+}

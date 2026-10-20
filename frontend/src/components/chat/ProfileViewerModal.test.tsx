@@ -114,4 +114,17 @@ describe('ProfileViewerModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
     expect(props.onAcceptFriendRequest).toHaveBeenCalledWith(9, 'accept-profile-43');
   });
+
+  it('shows a relative last seen label for offline users', () => {
+    renderProfileModal({
+      user: {
+        ...friend,
+        online: false,
+        lastSeenAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      },
+    });
+
+    expect(screen.getByText(/^Last seen /)).toBeTruthy();
+    expect(screen.queryByText('Offline')).toBeNull();
+  });
 });

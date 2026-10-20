@@ -1,0 +1,326 @@
+/* ==========================================================================
+   GroupModals & ProfileEditorModal Styles
+   ========================================================================== */
+
+.group-modal,
+.profile-modal {
+  width: min(440px, calc(100vw - 32px));
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+  max-height: min(680px, calc(100dvh - 40px));
+  display: flex;
+  flex-direction: column;
+}
+
+.group-form,
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+  overflow-y: auto;
+}
+
+.group-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.group-modal-header h3 {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semi);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.group-modal-header p {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin: 2px 0 0 0;
+}
+
+/* --------------------------------------------------------------------------
+   Avatar Upload in Profile Editor
+   -------------------------------------------------------------------------- */
+.profile-avatar-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: var(--space-xs) 0 var(--space-sm);
+  text-align: center;
+}
+
+.profile-avatar-upload {
+  position: relative;
+  display: inline-block;
+  width: 96px;
+  height: 96px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  margin: 0 auto;
+}
+
+.profile-avatar-upload:hover .user-avatar.profile-avatar-preview {
+  filter: brightness(0.92);
+}
+
+.profile-avatar-upload input[type='file'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+
+.profile-avatar-upload input[type='file']:disabled {
+  cursor: not-allowed;
+}
+
+.user-avatar.profile-avatar-preview {
+  width: 96px !important;
+  height: 96px !important;
+  font-size: 36px !important;
+  font-weight: var(--weight-semi);
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--border);
+  box-shadow: 0 0 0 4px var(--accent-subtle);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin: 0 auto;
+  user-select: none;
+  transition: filter 0.15s ease;
+}
+
+.user-avatar.profile-avatar-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.profile-avatar-edit-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 3px var(--bg-primary);
+  border: none;
+  pointer-events: none;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.profile-avatar-upload:hover .profile-avatar-edit-badge {
+  background: var(--accent-hover);
+  transform: scale(1.06);
+}
+
+.profile-avatar-edit-icon {
+  width: 15px;
+  height: 15px;
+  color: #FFFFFF;
+  display: block;
+}
+
+.profile-avatar-help {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  text-align: center;
+  max-width: 300px;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
+/* --------------------------------------------------------------------------
+   Form Fields
+   -------------------------------------------------------------------------- */
+.group-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group-field span {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+}
+
+.group-field-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.group-field-heading small {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.group-field input[type='text'],
+.group-field textarea {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  font-family: inherit;
+}
+
+.group-field input[type='text']:focus,
+.group-field textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg-primary);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.group-field textarea {
+  resize: none;
+  min-height: 80px;
+  line-height: 1.45;
+}
+
+.profile-bio-count {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: right;
+  margin-top: 2px;
+  align-self: flex-end;
+}
+
+.group-error {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--signal-error-bg);
+  color: var(--signal-error);
+  font-size: var(--text-xs);
+}
+
+/* --------------------------------------------------------------------------
+   Group Member Checkbox List
+   -------------------------------------------------------------------------- */
+.group-member-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.group-member-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.group-member-option:hover {
+  background: var(--bg-tertiary);
+}
+
+.group-member-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.group-member-copy span {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.group-member-copy small {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+/* --------------------------------------------------------------------------
+   Modal Actions
+   -------------------------------------------------------------------------- */
+.group-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+  padding-top: var(--space-xs);
+}
+
+.group-modal-actions .secondary-btn {
+  height: 36px;
+  padding: 0 16px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.group-modal-actions .secondary-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.group-modal-actions .send-btn {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 18px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-text);
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.group-modal-actions .send-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.group-modal-actions .send-btn:disabled,
+.group-modal-actions .secondary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+

@@ -1,6 +1,7 @@
 import type { User } from '../../types';
 import { renderUserAvatar } from '../../utils/renderUtils';
 import { getUserDisplayName } from '../../utils/userUtils';
+import { useModalEscape } from '../../hooks/useModalEscape';
 
 export interface BlockedUsersModalProps {
   open: boolean;
@@ -21,6 +22,8 @@ export function BlockedUsersModal({
   onClose,
   onUnblock,
 }: BlockedUsersModalProps) {
+  useModalEscape(open, onClose);
+
   if (!open) return null;
 
   return (

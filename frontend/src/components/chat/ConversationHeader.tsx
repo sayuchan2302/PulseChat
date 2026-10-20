@@ -9,6 +9,7 @@ import {
 } from '../../icons/ChatIcons';
 import { getUserDisplayName, getPresenceLabel, getRoomInitial } from '../../utils/userUtils';
 import { renderUserAvatar } from '../../utils/renderUtils';
+import './ConversationHeader.css';
 
 export interface ConversationHeaderProps {
   selectedUser: User | null;

@@ -83,7 +83,7 @@ export function AddMembersModal({
           </button>
           <button
             type="button"
-            className="primary-btn"
+            className="send-btn"
             disabled={!canAddMembers}
             onClick={() => void onAddMembers()}
           >

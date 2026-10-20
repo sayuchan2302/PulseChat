@@ -9,6 +9,7 @@ import ForwardPickerBody from './ForwardPickerBody';
 import EditMessageModal from './EditMessageModal';
 import DeleteMessageForMeModal from './DeleteMessageForMeModal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import './ChatDialogs.css';
 
 const MediaLightbox = lazy(() => import('./MediaLightbox'));
 const GroupSeenByModal = lazy(() => import('./GroupSeenByModal'));

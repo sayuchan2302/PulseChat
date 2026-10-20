@@ -11,6 +11,7 @@ import {
     sortParticipantsForDetails,
 } from '../../utils/userUtils';
 import { renderUserAvatar, renderRoomAvatar } from '../../utils/renderUtils';
+import './DetailsSidebar.css';
 
 export interface DetailsSidebarProps {
     selectedUser: User | null;

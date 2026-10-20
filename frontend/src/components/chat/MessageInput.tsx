@@ -5,6 +5,7 @@ import { EMOJI_CATEGORIES } from '../../constants/chatConstants';
 import { CloseIcon, DocumentIcon, EmojiIcon, MediaIcon, PaperclipIcon } from '../../icons/ChatIcons';
 import VoiceRecorderButton from '../VoiceRecorderButton';
 import { formatFileSize, getFileBadgeColor, getFileExtension } from '../../utils/mediaUtils';
+import './MessageInput.css';
 
 export interface MessageInputProps {
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;

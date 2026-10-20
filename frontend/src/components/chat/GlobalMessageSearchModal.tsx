@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GlobalMessageSearchItem, GlobalMessageSearchPage } from '../../types';
 import { apiClient } from '../../services/api';
 import { CloseIcon, SearchIcon } from '../../icons/ChatIcons';
+import './ChatDialogs.css';
 
 interface Props {
   onClose: () => void;

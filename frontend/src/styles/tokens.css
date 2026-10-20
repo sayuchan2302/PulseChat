@@ -1,0 +1,181 @@
+:root {
+  /* Surface / Backgrounds */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #F7F7F8;
+  --bg-tertiary: #EDEDF0;
+  --bg-active: #E8E8EC;
+  --bg-hover: #F0F0F3;
+  --bg-overlay: rgba(18, 18, 20, 0.45);
+
+  /* Typography / Text colors */
+  --text-primary: #1A1A1E;
+  --text-secondary: #6E6E78;
+  --text-tertiary: #9E9EA8;
+  --text-inverse: #FFFFFF;
+
+  /* Accent - Indigo Steel */
+  --accent: #5B5FC7;
+  --accent-hover: #4B4FB7;
+  --accent-active: #3E42A5;
+  --accent-subtle: rgba(91, 95, 199, 0.08);
+  --accent-surface: rgba(91, 95, 199, 0.12);
+  --accent-text: #FFFFFF;
+
+  /* Borders & Dividers */
+  --border: #E5E5EA;
+  --border-subtle: #F0F0F2;
+  --border-focus: #5B5FC7;
+
+  /* Semantic status colors */
+  --signal-online: #34C759;
+  --signal-offline: #8E8E93;
+  --signal-error: #FF3B30;
+  --signal-error-bg: rgba(255, 59, 48, 0.08);
+  --signal-warning: #FF9500;
+  --signal-warning-bg: rgba(255, 149, 0, 0.08);
+  --signal-success: #30D158;
+
+  /* Sharp with Purpose - Radius Tokens */
+  --radius-none: 0px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-pill: 999px;
+
+  /* Typography Scale */
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 15px;
+  --text-xl: 17px;
+  --text-2xl: 20px;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semi: 600;
+  --weight-bold: 700;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 20px;
+  --space-2xl: 24px;
+
+  /* Shadows - Crisp Grayscale */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.06);
+
+  /* Legacy Aliases for Seamless Migration */
+  --purple-50: var(--accent-subtle);
+  --purple-100: var(--accent-surface);
+  --purple-200: rgba(91, 95, 199, 0.22);
+  --purple-300: #8E92E8;
+  --purple-400: #7478DB;
+  --purple-500: var(--accent);
+  --purple-600: var(--accent);
+  --purple-700: var(--accent-hover);
+  --purple-800: #3B3F97;
+
+  --white: var(--bg-primary);
+  --gray-50: var(--bg-secondary);
+  --gray-100: var(--bg-tertiary);
+  --gray-200: var(--border);
+  --gray-300: #D1D1D6;
+  --gray-400: var(--text-tertiary);
+  --gray-500: var(--text-secondary);
+  --gray-600: #48484A;
+  --gray-700: #2C2C2E;
+  --gray-800: var(--text-primary);
+
+  --bg-app: var(--bg-secondary);
+  --bg-surface: var(--bg-primary);
+  --bg-surface-elevated: var(--bg-primary);
+  --bg-chat: var(--bg-secondary);
+  --bg-bubble-received: var(--bg-primary);
+  --text-main: var(--text-primary);
+  --text-muted: var(--text-secondary);
+
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  /* Surface / Backgrounds */
+  --bg-primary: #1C1C1E;
+  --bg-secondary: #2C2C2E;
+  --bg-tertiary: #3A3A3C;
+  --bg-active: #48484A;
+  --bg-hover: #323236;
+  --bg-overlay: rgba(0, 0, 0, 0.65);
+
+  /* Typography / Text colors */
+  --text-primary: #F5F5F7;
+  --text-secondary: #A1A1A6;
+  --text-tertiary: #6C6C70;
+  --text-inverse: #1C1C1E;
+
+  /* Accent - Muted Indigo */
+  --accent: #7B7FE0;
+  --accent-hover: #8B8FEA;
+  --accent-active: #9B9FF2;
+  --accent-subtle: rgba(123, 127, 224, 0.12);
+  --accent-surface: rgba(123, 127, 224, 0.18);
+  --accent-text: #FFFFFF;
+
+  /* Borders & Dividers */
+  --border: #38383A;
+  --border-subtle: #2C2C2E;
+  --border-focus: #7B7FE0;
+
+  /* Semantic status colors */
+  --signal-online: #34C759;
+  --signal-offline: #636366;
+  --signal-error: #FF453A;
+  --signal-error-bg: rgba(255, 69, 58, 0.12);
+  --signal-warning: #FF9F0A;
+  --signal-warning-bg: rgba(255, 159, 10, 0.12);
+  --signal-success: #30D158;
+
+  /* Shadows - Dark Mode */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.8), 0 4px 12px rgba(0, 0, 0, 0.4);
+
+  /* Legacy Aliases for Seamless Migration */
+  --purple-50: var(--accent-subtle);
+  --purple-100: var(--accent-surface);
+  --purple-200: rgba(123, 127, 224, 0.25);
+  --purple-300: #8B8FEA;
+  --purple-400: #9CA0F0;
+  --purple-500: var(--accent);
+  --purple-600: var(--accent);
+  --purple-700: var(--accent-hover);
+  --purple-800: #B4B7F7;
+
+  --white: var(--bg-primary);
+  --gray-50: #141416;
+  --gray-100: var(--bg-primary);
+  --gray-200: var(--border);
+  --gray-300: #48484A;
+  --gray-400: var(--text-tertiary);
+  --gray-500: var(--text-secondary);
+  --gray-600: #AEAEB2;
+  --gray-700: #D1D1D6;
+  --gray-800: var(--text-primary);
+
+  --bg-app: #141416;
+  --bg-surface: var(--bg-primary);
+  --bg-surface-elevated: var(--bg-secondary);
+  --bg-chat: #141416;
+  --bg-bubble-received: var(--bg-secondary);
+  --text-main: var(--text-primary);
+  --text-muted: var(--text-secondary);
+
+  color-scheme: dark;
+}

@@ -3,6 +3,8 @@ import type { User } from '../../types';
 import { BIO_MAX_LENGTH, AVATAR_ACCEPT, MAX_AVATAR_SIZE_MB } from '../../constants/chatConstants';
 import { MediaIcon } from '../../icons/ChatIcons';
 import { getUserInitial } from '../../utils/userUtils';
+import { useModalEscape } from '../../hooks/useModalEscape';
+import './GroupModals.css';
 
 export interface ProfileEditorModalProps {
   open: boolean;
@@ -33,10 +35,14 @@ export function ProfileEditorModal({
   onFullNameChange,
   onBioChange,
 }: ProfileEditorModalProps) {
+  useModalEscape(open, onClose, saving);
+
   if (!open) return null;
 
   return (
-    <div className="modal-backdrop">
+    <div className="modal-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && !saving) onClose();
+    }}>
       <div className="group-modal profile-modal" role="dialog" aria-modal="true" aria-labelledby="edit-profile-title">
         <form onSubmit={onSubmit} className="group-form profile-form">
           <div className="group-modal-header">

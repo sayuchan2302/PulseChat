@@ -133,6 +133,7 @@ import { buildLatestRoomSeenByMessageId, buildMessageListItems } from '../utils/
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { useEmojiPicker } from '../hooks/useEmojiPicker';
 import { useOfflineCache } from '../hooks/useOfflineCache';
+import './ChatPage.layout.css';
 import './ChatPage.css';
 
 export default function ChatPage() {
