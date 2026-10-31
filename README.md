@@ -122,7 +122,20 @@ cd backend
 cd frontend
 npm run lint
 npm run build
+
+# Browser quality gate (Playwright + axe + style contracts + CSS coverage)
+cd frontend
+npm run test:e2e
+npm run check:css
 ```
+
+Browser E2E starts an isolated backend on port `8081` using the PostgreSQL
+credentials from `backend/.env` (or the `DB_*` environment variables) and Vite
+on port `4173`. It creates throwaway `e2e_*` accounts on every run; point
+`DB_NAME` at a disposable database if you do not want those accounts in your
+development database. Visual image snapshots are generated locally with
+`npm run test:e2e:visual -- --update-snapshots` and are skipped in CI because
+the baselines are platform-specific.
 
 ## 🔒 Notes
 
