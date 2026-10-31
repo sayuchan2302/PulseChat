@@ -1,7 +1,7 @@
 import type { ChangeEvent, FormEvent } from 'react';
 import type { User } from '../../types';
 import { BIO_MAX_LENGTH, AVATAR_ACCEPT, MAX_AVATAR_SIZE_MB } from '../../constants/chatConstants';
-import { MediaIcon } from '../../icons/ChatIcons';
+import { CloseIcon, MediaIcon } from '../../icons/ChatIcons';
 import { getUserInitial } from '../../utils/userUtils';
 import { useModalEscape } from '../../hooks/useModalEscape';
 import './GroupModals.css';
@@ -44,12 +44,19 @@ export function ProfileEditorModal({
       if (event.target === event.currentTarget && !saving) onClose();
     }}>
       <div className="group-modal profile-modal" role="dialog" aria-modal="true" aria-labelledby="edit-profile-title">
+        <div className="user-profile-header">
+          <span id="edit-profile-title">Edit profile</span>
+          <button
+            type="button"
+            className="modal-close-btn"
+            onClick={onClose}
+            aria-label="Close edit profile"
+            disabled={saving}
+          >
+            <CloseIcon className="modal-close-icon" />
+          </button>
+        </div>
         <form onSubmit={onSubmit} className="group-form profile-form">
-          <div className="group-modal-header">
-            <div><h3 id="edit-profile-title">Edit profile</h3><p>@{currentUser?.username}</p></div>
-            <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Close edit profile" disabled={saving}>×</button>
-          </div>
-
           <div className="profile-avatar-editor">
             <label className="profile-avatar-upload" aria-label="Change avatar">
               <div className="user-avatar profile-avatar-preview">
@@ -58,12 +65,13 @@ export function ProfileEditorModal({
               <span className="profile-avatar-edit-badge" aria-hidden="true"><MediaIcon className="profile-avatar-edit-icon" /></span>
               <input type="file" accept={AVATAR_ACCEPT} onChange={onAvatarChange} disabled={saving} />
             </label>
-            <small className="profile-avatar-help">Click your avatar to change it · JPG, PNG, GIF, or WebP · Max {MAX_AVATAR_SIZE_MB}MB</small>
+            <div className="profile-editor-username">@{currentUser?.username}</div>
+            <small className="profile-avatar-help">Click avatar to change · JPG, PNG, GIF, or WebP · Max {MAX_AVATAR_SIZE_MB}MB</small>
           </div>
 
           <label className="group-field">
             <span>Full name</span>
-            <input type="text" value={fullName} onChange={(event) => onFullNameChange(event.target.value)} placeholder="Ngoc Thinh" maxLength={100} autoFocus disabled={saving} />
+            <input type="text" value={fullName} onChange={(event) => onFullNameChange(event.target.value)} placeholder="Full name" maxLength={100} autoFocus disabled={saving} />
           </label>
           <label className="group-field">
             <span>Bio</span>

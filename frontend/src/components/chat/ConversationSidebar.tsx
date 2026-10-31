@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { ConversationFilter } from '../../types/chat.types';
-import { GroupPlusIcon } from '../../icons/ChatIcons';
+import { CloseIcon, GroupPlusIcon, SearchIcon } from '../../icons/ChatIcons';
 import './ConversationSidebar.css';
 
 export interface ConversationSidebarProps {
@@ -46,6 +46,7 @@ export function ConversationSidebar({
           </button>
         </div>
         <div className="user-search" role="search">
+          <SearchIcon className="user-search-icon" />
           <input
             type="search"
             value={userSearchQuery}
@@ -57,8 +58,14 @@ export function ConversationSidebar({
             spellCheck={false}
           />
           {userSearchQuery ? (
-            <button type="button" className="user-search-clear" onClick={onClearUserSearch} aria-label="Clear user search">
-              ×
+            <button
+              type="button"
+              className="user-search-clear"
+              onClick={onClearUserSearch}
+              aria-label="Clear user search"
+              title="Clear user search"
+            >
+              <CloseIcon className="user-search-clear-icon" />
             </button>
           ) : null}
         </div>

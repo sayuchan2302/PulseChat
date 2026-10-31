@@ -22,6 +22,8 @@ export interface MessageItemProps {
     messageSearchQuery: string;
     messageSearchResultIds: Set<number>;
     highlightedMessageId: number | null;
+    isTimeExpanded?: boolean;
+    onToggleTime?: (id: number | string) => void;
     renderCallMessageBody: (msg: ChatMessage) => React.ReactNode;
     findKnownUserById: (id: number) => User | null;
     handleOpenUserProfile: (user: User) => void;
@@ -47,6 +49,8 @@ function MessageItemComponent({
     messageSearchQuery,
     messageSearchResultIds,
     highlightedMessageId,
+    isTimeExpanded = false,
+    onToggleTime,
     renderCallMessageBody,
     findKnownUserById,
     handleOpenUserProfile,
@@ -78,7 +82,21 @@ function MessageItemComponent({
 
     const { message, groupedWithPrevious, groupedWithNext, showSender } = item;
     const isSentByCurrentUser = message.senderId === currentUser?.id;
-    const hasVisibleMessageTime = !groupedWithNext || message.deliveryStatus === 'failed';
+    const hasVisibleMessageTime = isTimeExpanded || message.deliveryStatus === 'failed';
+    const messageKey = message.id > 0 ? message.id : (message.clientId ?? 0);
+
+    const handleBubbleClick = (event: React.MouseEvent) => {
+        if (message.deliveryStatus === 'failed') return;
+        const target = event.target as HTMLElement | null;
+        if (target?.closest('button, a, input, textarea, video, audio, .reaction-pill, .message-actions, .message-retry-btn, .message-video-preview-wrap')) {
+            return;
+        }
+        const selection = window.getSelection();
+        if (selection && selection.toString().trim().length > 0) {
+            return;
+        }
+        onToggleTime?.(messageKey);
+    };
     const isLatestSeenOutgoingMessage =
         Boolean(selectedUser) &&
         isSentByCurrentUser &&
@@ -174,12 +192,23 @@ function MessageItemComponent({
                     </div>
                 ) : null}
                 {isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
-                <div className="message-bubble-wrap">
+                <div className="message-bubble-wrap" onClick={handleBubbleClick}>
                     {renderMessageBody(message)}
                     {renderMessageReactions(message)}
                 </div>
                 {!isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
             </div>
+            {message.deliveryStatus !== 'failed' && onToggleTime ? (
+                <button
+                    type="button"
+                    className="message-time-toggle"
+                    aria-label={isTimeExpanded ? 'Hide message timestamp' : 'Show message timestamp'}
+                    aria-expanded={isTimeExpanded}
+                    onClick={() => onToggleTime(messageKey)}
+                >
+                    {isTimeExpanded ? 'Hide timestamp' : 'Show timestamp'}
+                </button>
+            ) : null}
             {hasVisibleMessageTime ? (
                 <div className="message-time">
                     {message.editedAt ? <span className="message-edited-label">Edited</span> : null}
@@ -205,7 +234,10 @@ function MessageItemComponent({
                 </div>
             ) : null}
             {isLatestSeenOutgoingMessage ? (
-                <div className="message-seen-avatar-row">
+                <div
+                    className="message-seen-avatar-row"
+                    title={selectedUser ? getUserDisplayName(selectedUser) : undefined}
+                >
                     {renderUserAvatar(selectedUser, 'user-avatar message-seen-avatar')}
                 </div>
             ) : null}

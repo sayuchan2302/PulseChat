@@ -9,7 +9,12 @@ function getInitialTheme(): ThemeMode {
         return 'light';
     }
 
-    const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    let storedTheme: string | null = null;
+    try {
+        storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    } catch {
+        // Use the operating system preference when browser storage is unavailable.
+    }
     if (storedTheme === 'dark' || storedTheme === 'light') {
         return storedTheme;
     }
@@ -47,7 +52,6 @@ export function useTheme() {
     const setTheme = useCallback((newTheme: ThemeMode) => {
         setThemeState(newTheme);
         try {
-            localStorage.getItem(THEME_STORAGE_KEY);
             localStorage.setItem(THEME_STORAGE_KEY, newTheme);
         } catch {
             // ignore storage errors

@@ -6,6 +6,7 @@ import { ROUTES } from '../config/constants';
 import { useAuth } from '../context/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { getApiErrorMessage } from '../utils/apiErrorUtils';
+import { getRoomChatRoute } from '../utils/routeUtils';
 import './InviteJoinPage.css';
 
 export default function InviteJoinPage() {
@@ -38,13 +39,10 @@ export default function InviteJoinPage() {
                     setPreview(res.data);
                 }
             })
-            .catch((err) => {
+            .catch((err: unknown) => {
                 if (isMounted) {
                     console.error('Failed to fetch group preview:', err);
-                    setError(
-                        err.response?.data?.message ||
-                        'Invite link is invalid or has expired.'
-                    );
+                    setError(getApiErrorMessage(err, 'Invite link is invalid or has expired.'));
                 }
             })
             .finally(() => {
@@ -73,7 +71,7 @@ export default function InviteJoinPage() {
         try {
             const response = await apiClient.post<ChatRoom>(`/rooms/join/${inviteCode}`);
             const room = response.data;
-            navigate(`${ROUTES.CHAT}/room/${room.id}`, { replace: true });
+            navigate(getRoomChatRoute(room.id), { replace: true });
         } catch (err: unknown) {
             console.error('Failed to join group:', err);
             setJoinError(getApiErrorMessage(err, 'Unable to join group. Please try again.'));

@@ -1,7 +1,3 @@
-@import './styles/tokens.css';
-@import './styles/reset.css';
-@import './styles/shared.css';
-
 .app-auth-loading {
   min-height: 100vh;
   min-height: 100dvh;

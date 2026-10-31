@@ -101,11 +101,11 @@ function ConversationMenu({
   return <div className="conversation-menu-wrap" onClick={(event) => event.stopPropagation()}>
     <button type="button" className="conversation-menu-btn" disabled={pending} onClick={(event) => onToggle(key, event)} aria-haspopup="menu" aria-expanded={openKey === key} aria-label="Conversation actions" title="Conversation actions"><MoreIcon className="conversation-menu-icon" /></button>
     {openKey === key ? <div className="conversation-menu" role="menu">
-      {target.type === 'user' ? <button type="button" role="menuitem" onClick={() => onOpenProfile(target.user)}><ProfileIcon className="conversation-menu-item-icon" />View profile</button> : null}
-      <button type="button" role="menuitem" disabled={pending} onClick={() => onUpdate(target, { pinned: !item.pinned })}><PinIcon className="conversation-menu-item-icon" />{item.pinned ? 'Unpin' : 'Pin'}</button>
-      <button type="button" role="menuitem" disabled={pending} onClick={() => onUpdate(target, { muted: !item.muted })}><MutedIcon className="conversation-menu-item-icon" />{item.muted ? 'Unmute' : 'Mute'}</button>
-      <button type="button" role="menuitem" disabled={pending} onClick={() => onUpdate(target, { archived: !item.archived })}><ArchiveIcon className="conversation-menu-item-icon" />{item.archived ? 'Unarchive' : 'Archive'}</button>
-      <button type="button" role="menuitem" className="danger" disabled={pending} onClick={() => onRequestDelete(target)}><TrashIcon className="conversation-menu-item-icon" />Delete</button>
+      {target.type === 'user' ? <button type="button" className="conversation-menu-item" role="menuitem" onClick={() => onOpenProfile(target.user)}><ProfileIcon className="conversation-menu-item-icon" /><span>View profile</span></button> : null}
+      <button type="button" className="conversation-menu-item" role="menuitem" disabled={pending} onClick={() => onUpdate(target, { pinned: !item.pinned })}><PinIcon className="conversation-menu-item-icon" /><span>{item.pinned ? 'Unpin' : 'Pin'}</span></button>
+      <button type="button" className="conversation-menu-item" role="menuitem" disabled={pending} onClick={() => onUpdate(target, { muted: !item.muted })}><MutedIcon className="conversation-menu-item-icon" /><span>{item.muted ? 'Unmute' : 'Mute'}</span></button>
+      <button type="button" className="conversation-menu-item" role="menuitem" disabled={pending} onClick={() => onUpdate(target, { archived: !item.archived })}><ArchiveIcon className="conversation-menu-item-icon" /><span>{item.archived ? 'Unarchive' : 'Archive'}</span></button>
+      <button type="button" className="conversation-menu-item danger" role="menuitem" disabled={pending} onClick={() => onRequestDelete(target)}><TrashIcon className="conversation-menu-item-icon" /><span>Delete</span></button>
     </div> : null}
   </div>;
 }
@@ -126,7 +126,7 @@ export function SidebarContent(props: SidebarContentProps) {
   const renderUserIdentity = (user: User, preview = false) => <>
     {preview ? <span className="conversation-avatar-presence">{renderUserAvatar(user)}<span className={`conversation-presence-dot ${user.online ? 'online' : 'offline'}`} role="img" aria-label={user.online ? 'Online' : 'Offline'} /></span> : renderUserAvatar(user)}
     <div className="user-info"><div className="user-title-row"><div className="user-name">{getUserDisplayName(user)}</div></div>
-      {preview ? <div className="user-preview-row"><span className="user-preview">{getConversationPreviewText(user, currentUser?.id ?? null)}{formatSidebarTime(user.lastMessageAt) ? ` · ${formatSidebarTime(user.lastMessageAt)}` : ''}</span></div> : <div className="user-meta"><span className={`user-status ${getUserStatusClass(user)}`}>{getFriendshipStatusLabel(user)}</span>{shouldShowUsername(user) ? <span className="user-username">@{user.username}</span> : null}</div>}
+      {preview ? <div className="user-preview-row"><span className="user-preview">{getConversationPreviewText(user, currentUser?.id ?? null)}{formatSidebarTime(user.lastMessageAt) ? ` · ${formatSidebarTime(user.lastMessageAt)}` : ''}</span></div> : <div className="user-meta"><span className={`user-status ${getUserStatusClass(user)}`}>{getFriendshipStatusLabel(user)}</span>{shouldShowUsername(user) ? <> <span className="user-meta-dot" aria-hidden="true">·</span> <span className="user-username">@{user.username}</span></> : null}</div>}
     </div>
   </>;
 

@@ -1508,6 +1508,7 @@ export default function ChatPage() {
     handleEditMessage, saveEditedMessage, handleReactToMessage, handleRecallMessage, handlePinMessage,
     handleRequestDeleteMessageForMe, deleteMessageForMe,
     handleUnpinMessage, handleForwardMessage, sendForwardMessage,
+    messageActionError, clearMessageActionError,
   } = useMessageActions({
     currentUser, selectedUser, selectedRoom, replyingToMessage, forwardingMessage, editingMessage,
     messageToDeleteForMe, messageInputRef, setReplyingToMessage, setForwardingMessage, setEditingMessage,
@@ -2230,6 +2231,8 @@ export default function ChatPage() {
               messages={messages}
               messagesLoading={messagesLoading}
               messagesError={messagesError}
+              messageActionError={forwardingMessage ? '' : messageActionError}
+              onDismissMessageActionError={clearMessageActionError}
               hasMoreMessages={hasMoreMessages}
               olderMessagesLoading={olderMessagesLoading}
               messageListProps={messageListProps}
@@ -2468,6 +2471,8 @@ export default function ChatPage() {
         onCloseConversationDelete={() => setConversationDeleteTarget(null)}
         onDeleteConversation={() => void handleDeleteConversation()}
         forwardingMessage={forwardingMessage}
+        messageActionError={messageActionError}
+        onDismissMessageActionError={clearMessageActionError}
         editingMessage={editingMessage}
         onCloseEditMessage={() => setEditingMessage(null)}
         onSaveEditMessage={saveEditedMessage}

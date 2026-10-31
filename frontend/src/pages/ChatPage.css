@@ -1,23 +1,6 @@
 /* ==========================================================================
    ChatPage - Core Modular Imports & Layout Elements
    ========================================================================== */
-@import '../styles/tokens.css';
-@import '../styles/reset.css';
-@import '../styles/shared.css';
-@import './ChatPage.layout.css';
-@import '../components/chat/AppHeader.css';
-@import '../components/chat/ConversationSidebar.css';
-@import '../components/chat/ConversationHeader.css';
-@import '../components/chat/MessageItem.css';
-@import '../components/chat/MessageInput.css';
-@import '../components/chat/DetailsSidebar.css';
-@import '../components/chat/ProfileViewerModal.css';
-@import '../components/chat/SearchSidebar.css';
-@import '../components/chat/PeoplePanels.css';
-@import '../components/chat/GroupModals.css';
-@import '../components/chat/ActiveCallOverlay.css';
-@import '../components/chat/ChatDialogs.css';
-
 /* Smooth Theme Transition Engine */
 html.theme-transitioning,
 html.theme-transitioning *,
@@ -759,6 +742,39 @@ background: #2c2d40;
 
 [data-theme='dark'] .chat-dropzone-overlay {
 background: rgba(18, 19, 26, 0.88);
+}
+
+.message-action-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  color: var(--signal-error);
+  background: var(--signal-error-bg);
+  font-size: var(--text-sm);
+}
+
+.message-action-error button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.message-action-error button:hover {
+  background: rgba(255, 59, 48, 0.1);
+}
+
+.message-action-error-close-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .messages-sync-notice {

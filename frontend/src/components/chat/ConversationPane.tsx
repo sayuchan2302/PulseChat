@@ -18,6 +18,8 @@ export interface ConversationPaneProps {
   messages: ChatMessage[];
   messagesLoading: boolean;
   messagesError: string;
+  messageActionError: string;
+  onDismissMessageActionError: () => void;
   hasMoreMessages: boolean;
   olderMessagesLoading: boolean;
   messageListProps: MessageListProps;
@@ -50,6 +52,8 @@ export function ConversationPane({
   messages,
   messagesLoading,
   messagesError,
+  messageActionError,
+  onDismissMessageActionError,
   hasMoreMessages,
   olderMessagesLoading,
   messageListProps,
@@ -86,6 +90,12 @@ export function ConversationPane({
         <span className="pinned-banner-icon">📌</span><span className="pinned-banner-content"><span className="pinned-banner-label">Pinned message</span><span className="pinned-banner-text">{pinnedMessage.recalled ? 'Message recalled' : pinnedMessage.content || '📎 Media'}</span></span>
       </button>
       {onUnpinMessage ? <button type="button" className="pinned-banner-close" onClick={onUnpinMessage} aria-label="Unpin message" title="Unpin">×</button> : null}
+    </div> : null}
+    {messageActionError ? <div className="message-action-error" role="alert">
+      <span>{messageActionError}</span>
+      <button type="button" onClick={onDismissMessageActionError} aria-label="Dismiss action error">
+        <CloseIcon className="message-action-error-close-icon" />
+      </button>
     </div> : null}
     <div
       ref={messagesContainerRef}

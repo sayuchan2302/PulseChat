@@ -30,6 +30,8 @@ export interface ChatDialogLayerProps {
   onCloseConversationDelete: () => void;
   onDeleteConversation: () => void;
   forwardingMessage: ChatMessage | null;
+  messageActionError: string;
+  onDismissMessageActionError: () => void;
   friends: User[];
   rooms: ChatRoom[];
   onCloseForward: () => void;
@@ -79,6 +81,8 @@ export function ChatDialogLayer({
   onCloseConversationDelete,
   onDeleteConversation,
   forwardingMessage,
+  messageActionError,
+  onDismissMessageActionError,
   friends,
   rooms,
   onCloseForward,
@@ -144,7 +148,11 @@ export function ChatDialogLayer({
     </div> : null}
 
     {forwardingMessage ? <div className="forward-picker-overlay" role="dialog" aria-modal="true" aria-label="Forward message" onClick={(event) => { if (event.target === event.currentTarget) onCloseForward(); }}>
-      <div className="forward-picker-modal" ref={forwardPickerRef}><div className="forward-picker-header"><span className="forward-picker-title">Forward to…</span><button type="button" className="forward-picker-close" onClick={onCloseForward} aria-label="Close">×</button></div><ForwardPickerBody friends={friends} rooms={rooms} onSelect={onForward} /></div>
+      <div className="forward-picker-modal" ref={forwardPickerRef}>
+        <div className="forward-picker-header"><span className="forward-picker-title">Forward to…</span><button type="button" className="forward-picker-close" onClick={onCloseForward} aria-label="Close">×</button></div>
+        {messageActionError ? <div className="message-action-error" role="alert"><span>{messageActionError}</span><button type="button" onClick={onDismissMessageActionError} aria-label="Dismiss action error"><CloseIcon className="message-action-error-close-icon" /></button></div> : null}
+        <ForwardPickerBody friends={friends} rooms={rooms} onSelect={onForward} />
+      </div>
     </div> : null}
 
     {addMembersModalOpen && selectedRoom ? <Suspense fallback={null}><AddMembersModal roomName={selectedRoom.name} candidates={addMemberCandidates} selectedMemberIds={selectedAddMemberIds} saving={groupSettingsSaving} error={groupSettingsError} onClose={onCloseAddMembers} onToggleMember={onToggleAddMember} onAddMembers={onAddMembers} /></Suspense> : null}

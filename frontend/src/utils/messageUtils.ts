@@ -180,17 +180,17 @@ export function markOptimisticMessageFailed(messages: ChatMessage[], clientId: s
 export function getDeliveryStatusLabel(
     message: ChatMessage,
     selectedUser: User | null,
-    isLatestSeen: boolean,
+    _isLatestSeen: boolean,
     isLatestOutgoing: boolean
 ) {
     if (message.deliveryStatus === 'sending') return 'Sending';
     if (message.deliveryStatus === 'failed') return 'Failed';
-    if (message.read) return isLatestSeen ? 'Seen' : '';
+    if (message.read) return 'Seen';
     if (isLatestOutgoing) {
         if (!message.chatRoomId && selectedUser?.online) return 'Delivered';
         return 'Sent';
     }
-    return '';
+    return 'Sent';
 }
 
 export function getGroupedMessageReactions(message: ChatMessage, currentUserId: number | null) {
