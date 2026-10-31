@@ -81,6 +81,7 @@ Kỳ vọng: Flyway áp đủ migration, Hibernate validate sạch, app start OK
 - Frontend Vite chạy ở cổng **4173** với `VITE_API_BASE_URL`/`VITE_WS_BASE_URL` trỏ backend E2E.
 - `global.setup.ts` tạo 7 tài khoản prefix `e2e_` mỗi lần chạy, kết bạn, seed tin nhắn và đánh dấu đã đọc. Dữ liệu auth lưu ở `e2e/.auth/users.json` (đã gitignore).
 - Không dùng H2 cho E2E: H2 từ chối query `MAX(id) ... GROUP BY CASE ...` của Hibernate trong luồng danh sách hội thoại, trong khi PostgreSQL xử lý đúng. E2E vì vậy kiểm tra đúng database production.
+- Trên CI, backend và Vite được build/start ở các step riêng có timeout; Playwright chạy với `E2E_SERVERS_MANAGED=true` để không tự quản lý server. Log server được ghi vào job summary và artifact, tránh treo job khi shutdown.
 
 ### Phạm vi tự động
 
@@ -118,14 +119,14 @@ npm.cmd run test:e2e:visual -- --update-snapshots
 | CSS coverage | **706** class dùng, **857** định nghĩa, **0 missing**, **16 allowlisted** |
 | Lint / build | pass |
 | Visual baselines | 4 snapshot Windows (`*-chromium-win32.png`) |
-| CI | thêm job `Browser E2E` + bước `check:css`; chờ run sau khi push |
+| CI | ✅ [run 41186673396](https://github.com/sayuchan2302/PulseChat/actions/runs/41186673396) — backend, frontend, Browser E2E xanh |
 
 ### Lưu ý vận hành
 
 - Chạy E2E local sẽ tạo tài khoản `e2e_*` trong database đang cấu hình. Muốn tách dữ liệu, trỏ `DB_NAME` sang database throwaway.
 - Visual snapshots bị skip trên CI (`process.env.CI`) vì font/antialiasing khác platform. Gate CI dựa vào computed-style contracts, responsive overflow và axe.
 - Snapshot được ổn định bằng cách ẩn username/time/unread động trong CSS trước khi chụp; không che toàn bộ component.
-- Nếu backend E2E đã chạy sẵn ở 8081, Playwright dùng lại server local; CI luôn khởi động mới.
+- Nếu backend E2E đã chạy sẵn ở 8081, Playwright dùng lại server local. Trên CI, server được quản lý riêng và Playwright chỉ chạy tests.
 
 ---
 
@@ -180,4 +181,5 @@ Chạy với backend + frontend thật, tốt nhất ở 2 cửa sổ trình duy
 | 2026-10-20 | `d33a418` | UI audit | ✅ PASS (static) | Phục hồi 539 rule CSS + 9 keyframes; FE 54/54 |
 | 2026-10-31 | `c8a9a4e` | T0 | ✅ PASS | Backend **303/303**, FE **55/55**, lint/build/CSS coverage sạch |
 | 2026-10-31 | `c8a9a4e` | T2 | ✅ PASS | Playwright **17/17**, axe 0 serious/critical, 4 visual baselines local |
+| 2026-10-31 | `6c105f5` | CI | ✅ PASS | [Run 41186673396](https://github.com/sayuchan2302/PulseChat/actions/runs/41186673396) — cả 3 job xanh; Browser E2E + CSS coverage chạy trên CI |
 | — | — | T3 | ⏳ chờ người dùng | Call overlay, media viewer, details sidebar, mobile ≤480px |

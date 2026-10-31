@@ -19,7 +19,7 @@
 | Style contracts | ✅ | computed styles cho sidebar, composer, send button |
 | Responsive overflow | ✅ | mobile 390×844 không overflow ngang |
 | Visual snapshots | ✅ local Windows | 4 baseline; CI skip vì platform-specific |
-| CI Browser E2E | ⏳ chờ push | Job mới trong `.github/workflows/ci.yml` |
+| CI Browser E2E | ✅ | [Run 41186673396](https://github.com/sayuchan2302/PulseChat/actions/runs/41186673396) — cả 3 job xanh |
 | T3 manual browser | ⏳ người dùng | call overlay, media viewer, details sidebar, ≤480px |
 
 ---
@@ -29,13 +29,13 @@
 ### Hạ tầng
 
 - [x] Thêm Playwright + `@axe-core/playwright` vào `frontend/package.json`.
-- [x] `playwright.config.ts`: Chromium, 1 worker, trace/screenshot/video khi fail, webServer backend 8081 + Vite 4173.
+- [x] `playwright.config.ts`: Chromium, 1 worker, trace/screenshot/video khi fail, webServer backend 8081 + Vite 4173 khi chạy local; CI dùng `E2E_SERVERS_MANAGED=true`.
 - [x] Backend profile `e2e`: `application-e2e.yml`, rate limit cao, CORS cho 4173, port 8081.
 - [x] `e2e/start-backend.mjs`: build jar và chạy backend E2E với PostgreSQL.
 - [x] `e2e/global.setup.ts`: seed 7 user, friendship, message, read state; ghi `.auth/users.json`.
 - [x] `.gitignore`: bỏ qua `playwright-report/`, `test-results/`, `e2e/.auth/`.
 - [x] `vitest.config.ts`: chỉ chạy unit tests trong `src/`, tránh Playwright specs.
-- [x] CI: job `Browser E2E` dùng PostgreSQL 16 service, cài Chromium, upload report; frontend job thêm `check:css`.
+- [x] CI: job `Browser E2E` dùng PostgreSQL 16 service, cài Chromium, build/start backend + Vite ở step riêng có timeout, upload report + server logs; frontend job thêm `check:css`. Run `41186673396` xanh.
 
 ### Test coverage
 
