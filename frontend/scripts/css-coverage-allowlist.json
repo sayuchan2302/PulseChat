@@ -1,0 +1,18 @@
+{
+  "animating": "Pre-existing state hook on VoiceMessagePlayer; styling is applied by the parent component.",
+  "audio": "Pre-existing class name on media elements; no selector existed at the last known-good revision.",
+  "dark": "Pre-existing legacy theme hook on InviteJoinPage; dark mode is driven by the data-theme attribute.",
+  "details-invite-btn": "Pre-existing unused class name; no rule existed before the stylesheet split.",
+  "emoji-category": "Pre-existing wrapper class; the emoji layout is styled through emoji-category-list and emoji-grid.",
+  "emoji-toggle-btn": "Pre-existing JavaScript hook class; the button is styled through composer-icon-btn.",
+  "has-link-preview": "Pre-existing state class; no selector existed before the stylesheet split.",
+  "image": "Pre-existing media type class; the lightbox styles the media element by tag and its own classes.",
+  "invite-join-content": "Pre-existing wrapper class; the invite card styles its children directly.",
+  "message-file-card-content": "Pre-existing wrapper class; the file card is styled through message-file-card.",
+  "modal-close-icon": "Icon-only class; the SVG inherits styles from modal-close-btn.",
+  "options-trigger": "JavaScript-only selector hook on the MessageActions button.",
+  "react-trigger": "JavaScript-only selector hook on the MessageActions button.",
+  "reaction-summary-trigger": "JavaScript-only selector hook on the reaction summary button.",
+  "room-avatar-image": "Pre-existing class name on generated avatars; room avatars are styled through room-avatar.",
+  "video": "Pre-existing media type class; the lightbox styles the media element by tag and its own classes."
+}

@@ -7,6 +7,11 @@ frontend/.env.production
 frontend/.vite
 frontend/coverage/
 
+# Browser E2E artifacts
+frontend/playwright-report/
+frontend/test-results/
+frontend/e2e/.auth/
+
 # Backend
 backend/target/
 backend/.idea/
