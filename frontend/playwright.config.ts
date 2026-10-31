@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const isCI = Boolean(process.env.CI);
+const managedServers = Boolean(process.env.E2E_SERVERS_MANAGED);
 const appPort = process.env.E2E_APP_PORT ?? '4173';
 const apiPort = process.env.E2E_API_PORT ?? '8081';
 const appUrl = `http://localhost:${appPort}`;
@@ -43,7 +44,7 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: [
+  webServer: managedServers ? undefined : [
     {
       command: 'node e2e/start-backend.mjs',
       url: `http://localhost:${apiPort}/api/users`,
