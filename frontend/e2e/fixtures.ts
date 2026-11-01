@@ -119,10 +119,14 @@ export async function expectNoHorizontalOverflow(page: Page) {
   ).toBeLessThanOrEqual(dimensions.clientWidth + 1);
 }
 
-export async function expectNoSeriousA11yViolations(page: Page, label: string) {
-  const results = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa'])
-    .analyze();
+export async function expectNoSeriousA11yViolations(
+  page: Page,
+  label: string,
+  options: { include?: string } = {}
+) {
+  let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']);
+  if (options.include) builder = builder.include(options.include);
+  const results = await builder.analyze();
   const serious = results.violations.filter(
     (violation) => violation.impact === 'serious' || violation.impact === 'critical'
   );
