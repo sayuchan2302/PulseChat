@@ -2,7 +2,7 @@
 
 > **Mục tiêu**: giữ cho các luồng quan trọng của PulseChat không hồi quy sau mỗi lần refactor UI/backend.
 > **Nguyên tắc**: chạy từ rẻ → đắt. Tầng nào FAIL thì dừng, fix, commit rồi chạy lại từ tầng đó.
-> **Cập nhật gần nhất**: 2026-10-31 — thêm Browser Quality Gate (Phase 1) với Playwright, axe, style contracts và CSS coverage.
+> **Cập nhật gần nhất**: 2026-11-01 — thêm Phase 2 Realtime hardening: STOMP exponential backoff, pause/resume theo trạng thái mạng và E2E offline recovery.
 
 ## Tổng quan các tầng
 
@@ -25,7 +25,7 @@ Docker/Testcontainers vẫn chưa dùng được trên máy hiện tại; T1 dù
 cd backend
 .\mvnw.cmd -B test
 
-# Frontend — kỳ vọng 55/55 test / 14 file
+# Frontend — kỳ vọng 58/58 test / 14 file
 cd frontend
 npm.cmd test
 npm.cmd run test:coverage
@@ -88,7 +88,7 @@ Kỳ vọng: Flyway áp đủ migration, Hibernate validate sạch, app start OK
 | File | Nội dung |
 |---|---|
 | `e2e/auth.spec.ts` | Register qua UI, login/reload/logout, sai mật khẩu |
-| `e2e/chat.spec.ts` | Gửi DM realtime cho 2 browser, react + edit qua action menu |
+| `e2e/chat.spec.ts` | Gửi DM realtime cho 2 browser, phục hồi sau offline/online, react + edit qua action menu |
 | `e2e/social.spec.ts` | Unfriend trong profile danger zone, tạo nhóm với 2 bạn |
 | `e2e/ui.spec.ts` | Escape đóng modal, backdrop đóng profile, mobile không overflow ngang, computed-style contracts, axe smoke |
 | `e2e/visual.spec.ts` | 4 image snapshots local: login, direct conversation, partner profile, mobile list |
@@ -108,13 +108,13 @@ Tạo/cập nhật baseline visual trên Windows:
 npm.cmd run test:e2e:visual -- --update-snapshots
 ```
 
-### Bằng chứng chạy local (2026-10-31)
+### Bằng chứng chạy local (2026-11-01)
 
 | Hạng mục | Kết quả |
 |---|---|
-| Backend tests | **303/303** pass |
-| Frontend unit tests | **55/55** pass, 14 file |
-| Playwright E2E | **17/17** pass (1 setup + 16 scenarios), Chromium |
+| Backend tests | **303/303** pass (không đổi) |
+| Frontend unit tests | **58/58** pass, 14 file |
+| Playwright E2E | **18/18** pass (1 setup + 17 scenarios), Chromium |
 | Accessibility (axe) | 0 serious/critical violation trên login và chat |
 | CSS coverage | **706** class dùng, **857** định nghĩa, **0 missing**, **16 allowlisted** |
 | Lint / build | pass |
@@ -130,6 +130,34 @@ npm.cmd run test:e2e:visual -- --update-snapshots
 
 ---
 
+## Phase 2 — Realtime hardening (2026-11-01)
+
+### Vấn đề
+
+- Backoff cũ tự tính `reconnectDelay`; stompjs snapshot giá trị này nên các lần retry không tăng theo cấu hình mong muốn.
+- Khi trình duyệt mất mạng, WebSocket đang mở có thể không đóng ngay. UI vẫn hiển thị online và client tiếp tục retry dù không có đường mạng.
+- Sau khi mạng trở lại, client có thể phải chờ tới backoff tiếp theo (tối đa 30 giây), trong khi dữ liệu bị lỡ chỉ được đồng bộ khi kết nối lại.
+
+### Thay đổi
+
+- Dùng `ReconnectionTimeMode.EXPONENTIAL` của stompjs: delay khởi đầu 500–1000ms (jitter), nhân đôi mỗi lần lỗi, chặn trên 30 giây.
+- Lắng nghe `offline` để tạm dừng client bằng `deactivate({ force: true })`, cập nhật trạng thái offline ngay và không retry vô ích.
+- Lắng nghe `online` để kích hoạt lại cùng client, refresh token qua `beforeConnect`, rồi resync user/room/conversation khi kết nối thành công.
+- Giữ `connectingPromise` khi socket drop ngoài ý muốn để `connect()` đồng thời không tạo client thứ hai; trạng thái chuyển `reconnecting` và promise chỉ được giải quyết khi `onConnect`.
+- Không đổi API backend hay schema; thay đổi nằm ở `websocket.ts`, hook realtime và E2E.
+
+### Bằng chứng
+
+| Hạng mục | Kết quả |
+|---|---|
+| WebSocket unit tests | **9/9** pass, gồm offline pause/online resume, initial offline và connect trong lúc reconnect |
+| Frontend unit tests | **58/58** pass, 14 file |
+| Playwright offline recovery | **pass** — Alice offline, Bob gửi tin, Alice online lại nhận tin và gửi tiếp cho Bob |
+| Playwright E2E toàn bộ | **18/18** pass (1 setup + 17 scenarios) |
+| Lint / build / check:css | pass (không có thay đổi CSS) |
+
+---
+
 ## T3 — UI manual checklist
 
 Chạy với backend + frontend thật, tốt nhất ở 2 cửa sổ trình duyệt:
@@ -140,7 +168,7 @@ Chạy với backend + frontend thật, tốt nhất ở 2 cửa sổ trình duy
 - **Mobile ≤480px**: sidebar/chat chuyển màn hình, không overflow ngang, composer và action menu dùng được.
 - **ErrorBoundary**: fallback + reload khi render lỗi.
 - **Offline cache**: reload F5 hiển thị hội thoại từ IndexedDB; logout xóa cache.
-- **WS reconnect**: tắt/bật mạng, socket tự kết nối lại; tin nhắn pending được gửi lại.
+- **WS reconnect**: tắt/bật mạng, socket tự kết nối lại; tin nhắn pending được gửi lại. E2E đã phủ reconnect + resync; phần gửi tin khi offline vẫn cần kiểm tra thủ công.
 - **Deep-link invite**: mở link ở tab ẩn danh → login → vào đúng invite page.
 
 ---
@@ -182,4 +210,5 @@ Chạy với backend + frontend thật, tốt nhất ở 2 cửa sổ trình duy
 | 2026-10-31 | `c8a9a4e` | T0 | ✅ PASS | Backend **303/303**, FE **55/55**, lint/build/CSS coverage sạch |
 | 2026-10-31 | `c8a9a4e` | T2 | ✅ PASS | Playwright **17/17**, axe 0 serious/critical, 4 visual baselines local |
 | 2026-10-31 | `6c105f5` | CI | ✅ PASS | [Run 41186673396](https://github.com/sayuchan2302/PulseChat/actions/runs/41186673396) — cả 3 job xanh; Browser E2E + CSS coverage chạy trên CI |
+| 2026-11-01 | `93c5a22` | Phase 2 | ✅ PASS | WS offline pause/resume + exponential backoff; FE **58/58**, E2E **18/18** |
 | — | — | T3 | ⏳ chờ người dùng | Call overlay, media viewer, details sidebar, mobile ≤480px |

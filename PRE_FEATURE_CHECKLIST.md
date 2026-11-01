@@ -1,20 +1,21 @@
 # PulseChat — Checklist trước khi thêm feature mới
 
-> **Trạng thái**: Gate Phase 1 + Phase 2 hoàn tất; Phase 1 Browser Quality Gate bổ sung ngày 2026-10-31.
+> **Trạng thái**: Browser Quality Gate (Phase 1) và Realtime Hardening (Phase 2) hoàn tất ngày 2026-11-01.
 > **Quy tắc**: hoàn tất T0 + T1 + T2 của `TEST_PLAN.md` trước khi bắt đầu feature mới. T3 vẫn cần người dùng chạy khi có backend.
 > **Phạm vi**: hardening, kiểm thử hồi quy và chất lượng UI — không bao gồm roadmap feature mới.
 
 ---
 
-## Trạng thái hiện tại (2026-10-31)
+## Trạng thái hiện tại (2026-11-01)
 
 | Hạng mục | Trạng thái | Bằng chứng |
 |---|---|---|
 | Backend unit/integration | ✅ | **303/303**, BUILD SUCCESS |
-| Frontend unit | ✅ | **55/55**, 14 file |
+| Frontend unit | ✅ | **58/58**, 14 file |
 | Lint / production build | ✅ | `npm run lint`, `npm run build` |
 | CSS coverage guard | ✅ | 706 used / 857 defined / 0 missing / 16 allowlisted |
-| Browser E2E | ✅ local | Playwright **17/17** trên Chromium |
+| Browser E2E | ✅ local | Playwright **18/18** trên Chromium |
+| Realtime recovery | ✅ local | Offline pause / online resume, backoff exponential, E2E nhận lại tin sau offline |
 | Accessibility smoke | ✅ | axe: 0 serious/critical trên login + chat |
 | Style contracts | ✅ | computed styles cho sidebar, composer, send button |
 | Responsive overflow | ✅ | mobile 390×844 không overflow ngang |
@@ -58,6 +59,27 @@
 
 ---
 
+## Phase 2 — Realtime hardening (2026-11-01)
+
+### Thay đổi
+
+- [x] Chuyển reconnect sang `ReconnectionTimeMode.EXPONENTIAL` của stompjs: jitter 500–1000ms, nhân đôi sau mỗi lần lỗi, tối đa 30 giây.
+- [x] `offline`: tạm dừng client bằng `deactivate({ force: true })` và cập nhật trạng thái offline ngay.
+- [x] `online`: kích hoạt lại cùng client; `beforeConnect` refresh access token; `onConnect` resync dữ liệu đang mở.
+- [x] Giữ `connectingPromise` khi socket drop để tránh tạo client thứ hai nếu `connect()` được gọi lại trong lúc reconnect.
+- [x] Thêm E2E: Alice offline, Bob gửi tin, Alice online lại nhận tin và gửi tiếp cho Bob.
+
+### Bằng chứng
+
+| Hạng mục | Kết quả |
+|---|---|
+| WebSocket unit tests | **9/9** pass |
+| Frontend unit tests | **58/58** pass, 14 file |
+| Playwright E2E | **18/18** pass (1 setup + 17 scenarios) |
+| `npm run lint` / `npm run build` / `npm run check:css` | pass |
+
+---
+
 ## Bài học giữ lại
 
 - **CSS tách file vẫn có thể mất style dù test xanh**: `d33a418` từng làm mất 328 class (211 class còn dùng trong JSX). Bắt buộc chạy `npm run check:css` sau khi move/rename CSS.
@@ -66,6 +88,8 @@
 - **Playwright strict mode**: aria-label như "Start audio call with Unfriend Bob" cũng khớp `getByRole('button', { name: 'Unfriend' })`; dùng `exact: true`.
 - **Axe bắt contrast rất tốt**: token xám nhạt cho metadata có thể fail 4.5:1 dù nhìn "ổn"; sửa token thay vì rải style riêng.
 - **Visual snapshot cần dữ liệu tĩnh**: username có runId, thời gian tương đối và unread badge phải được ẩn/mask; nếu không baseline sẽ fail mỗi lần chạy.
+- **`setOffline` không đóng WebSocket đang mở ngay**: trình duyệt có thể giữ socket cũ cho tới heartbeat. Phải lắng nghe sự kiện `offline` và chủ động `deactivate` client, nếu không UI vẫn báo online và tiếp tục retry vô ích.
+- **Reconnect cần đồng bộ lại dữ liệu**: chỉ bật lại socket là chưa đủ; `onConnect` phải reload conversation/room/user để bắt tin nhắn bị lỡ trong thời gian offline.
 
 ---
 
@@ -77,7 +101,7 @@
 - [ ] Mobile ≤480px: chuyển sidebar/chat, không overflow, composer/action menu dùng được.
 - [ ] ErrorBoundary fallback + reload.
 - [ ] Offline cache reload và logout cleanup.
-- [ ] WS reconnect sau mất mạng; pending message gửi lại.
+- [ ] WS reconnect sau mất mạng; pending message gửi lại. (E2E đã phủ reconnect + resync; pending send khi offline vẫn kiểm tra thủ công.)
 - [ ] Deep-link invite sau login.
 
 ---
