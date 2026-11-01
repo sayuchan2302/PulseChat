@@ -1,6 +1,5 @@
 import type { ChangeEvent, ReactNode, RefObject } from 'react';
 import {
-  CloseIcon,
   ExpandIcon,
   JumpIcon,
   MicIcon,
@@ -340,8 +339,12 @@ export function ActiveCallOverlay({
         <div className="call-actions">
           {isIncomingRinging ? (
             <>
-              <button type="button" className="call-action-btn accept" onClick={onAccept}><PhoneIcon className="call-action-icon" /><span>Accept</span></button>
-              <button type="button" className="call-action-btn end" onClick={onReject}><CloseIcon className="call-action-icon" /><span>Decline</span></button>
+              <button type="button" className="call-round-btn accept" onClick={onAccept} aria-label="Accept call" title="Accept call">
+                <PhoneIcon className="call-action-icon" />
+              </button>
+              <button type="button" className="call-round-btn end" onClick={onReject} aria-label="Decline call" title="Decline call">
+                <PhoneIcon className="call-action-icon" />
+              </button>
             </>
           ) : (
             <>

@@ -133,7 +133,6 @@
   gap: var(--space-sm);
 }
 
-.call-action-btn,
 .call-round-btn {
   width: 36px;
   height: 36px;
@@ -148,16 +147,24 @@
   transition: all 0.15s ease;
 }
 
-.call-action-btn:hover,
 .call-round-btn:hover {
   background: var(--bg-tertiary);
 }
 
-.call-action-btn.active,
 .call-round-btn.active {
   background: var(--accent-subtle);
   color: var(--accent);
   border-color: var(--accent);
+}
+
+.call-round-btn.accept {
+  background: #15803D;
+  color: #FFFFFF;
+  border-color: #15803D;
+}
+
+.call-round-btn.accept:hover {
+  background: #166534;
 }
 
 .call-round-btn.end {
@@ -168,6 +175,10 @@
 
 .call-round-btn.end:hover {
   background: #E0352B;
+}
+
+.call-round-btn.end .call-action-icon {
+  transform: rotate(135deg);
 }
 
 .call-action-icon {
@@ -763,47 +774,6 @@ display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-}
-
-.call-actions .call-action-btn {
-  width: auto;
-  min-width: 118px;
-  height: 42px;
-  padding: 0 18px;
-  border-radius: 999px;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.call-actions .call-action-btn .call-action-icon {
-  width: 17px;
-  height: 17px;
-  flex: 0 0 auto;
-}
-
-.call-actions .call-action-btn.end {
-  border-color: #FECACA;
-  background: #FEF2F2;
-  color: #B91C1C;
-}
-
-.call-actions .call-action-btn.end:hover {
-  border-color: #FCA5A5;
-  background: #FEE2E2;
-  color: #991B1B;
-}
-
-.call-action-btn.accept {
-background: var(--purple-600);
-  color: var(--white);
-}
-
-.call-action-btn.accept:hover {
-background: var(--purple-700);
-  box-shadow: 0 12px 24px rgba(147, 51, 234, 0.2);
-  transform: translateY(-1px);
 }
 
 .call-round-btn.sharing.active {
