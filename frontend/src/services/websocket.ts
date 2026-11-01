@@ -1,4 +1,4 @@
-import { Client } from '@stomp/stompjs';
+import { Client, ReconnectionTimeMode } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { WS_BASE_URL } from '../config/constants';
 import { getValidAccessToken } from './api';
@@ -32,8 +32,8 @@ export class WebSocketService {
   private connected = false;
   private connectingPromise: Promise<void> | null = null;
   private manuallyDisconnecting = false;
+  private offlinePaused = false;
   private connectionAttemptId = 0;
-  private reconnectAttempts = 0;
   private static readonly BASE_RECONNECT_DELAY_MS = 1000;
   private static readonly MAX_RECONNECT_DELAY_MS = 30000;
   private status: ConnectionStatus = 'offline';
@@ -130,7 +130,12 @@ export class WebSocketService {
           debug: (str) => {
             if (import.meta.env.DEV) console.log('STOMP: ' + str);
           },
-          reconnectDelay: this.nextReconnectDelay(),
+          // stompjs snapshots reconnectDelay internally, so the backoff must be
+          // configured here. Its own exponential mode doubles this jittered
+          // initial delay on every failed attempt, up to maxReconnectDelay.
+          reconnectDelay: WebSocketService.initialReconnectDelay(),
+          reconnectTimeMode: ReconnectionTimeMode.EXPONENTIAL,
+          maxReconnectDelay: WebSocketService.MAX_RECONNECT_DELAY_MS,
           heartbeatIncoming: 4000,
           heartbeatOutgoing: 4000,
         });
@@ -145,8 +150,8 @@ export class WebSocketService {
 
           if (import.meta.env.DEV) console.log('Connected to WebSocket');
           this.connected = true;
+          this.offlinePaused = false;
           this.connectingPromise = null;
-          this.reconnectAttempts = 0;
 
           client.subscribe('/user/queue/messages', (message) => {
             this.handleIncomingMessage(message.body);
@@ -215,7 +220,11 @@ export class WebSocketService {
           }
 
           this.connected = false;
-          this.updateStatus(this.isBrowserOffline() ? 'offline' : 'reconnecting');
+          if (this.isBrowserOffline()) {
+            this.handleBrowserOffline();
+          } else {
+            this.updateStatus('reconnecting');
+          }
         };
 
         client.onWebSocketClose = () => {
@@ -224,26 +233,28 @@ export class WebSocketService {
           }
 
           this.connected = false;
-          this.connectingPromise = null;
-          const browserOffline = this.isBrowserOffline();
-          if (browserOffline) {
-            // Pause retries while the browser has no network; the next successful
-            // connect resets the schedule.
-            client.reconnectDelay = WebSocketService.MAX_RECONNECT_DELAY_MS;
-          } else {
-            this.reconnectAttempts += 1;
-            client.reconnectDelay = this.nextReconnectDelay();
+
+          if (this.manuallyDisconnecting || this.offlinePaused) {
+            this.updateStatus('offline');
+            return;
           }
-          this.updateStatus(
-            this.manuallyDisconnecting || !client.active
-              ? 'offline'
-              : browserOffline
-                ? 'offline'
-                : 'reconnecting'
-          );
+
+          if (this.isBrowserOffline()) {
+            this.handleBrowserOffline();
+            return;
+          }
+
+          // A close during an online resume is expected; keep the connection
+          // promise alive so a concurrent connect() reuses this client.
+          this.updateStatus('reconnecting');
         };
 
-        client.activate();
+        if (this.offlinePaused || this.isBrowserOffline()) {
+          this.offlinePaused = true;
+          this.updateStatus('offline');
+        } else {
+          client.activate();
+        }
       });
     }).catch((error) => {
       if (this.connectionAttemptId === attemptId) {
@@ -253,6 +264,67 @@ export class WebSocketService {
     });
 
     return this.connectingPromise;
+  }
+
+  /**
+   * Stop reconnect attempts while the browser has no network. The next online
+   * event reactivates the same client so its subscriptions and callbacks stay
+   * intact.
+   */
+  handleBrowserOffline() {
+    if (this.manuallyDisconnecting) {
+      return;
+    }
+
+    this.offlinePaused = true;
+    this.connected = false;
+    this.updateStatus('offline');
+
+    if (this.client) {
+      // The network is unavailable, so do not wait for a STOMP DISCONNECT
+      // handshake that cannot reach the broker.
+      void this.client.deactivate({ force: true }).catch((error) => {
+        if (import.meta.env.DEV) console.error('Failed to pause WebSocket:', error);
+      });
+    }
+  }
+
+  handleBrowserOnline() {
+    if (this.manuallyDisconnecting) {
+      return;
+    }
+
+    const wasPaused = this.offlinePaused;
+    this.offlinePaused = false;
+    const client = this.client;
+    if (!client || this.connected) {
+      return;
+    }
+
+    this.updateStatus('reconnecting');
+
+    if (client.active && !wasPaused) {
+      // The browser missed the offline event but the socket is in backoff.
+      // Restart the client so the next attempt is immediate.
+      void client
+        .deactivate({ force: true })
+        .then(() => {
+          if (
+            this.client === client &&
+            !this.manuallyDisconnecting &&
+            !this.offlinePaused &&
+            !this.connected
+          ) {
+            client.activate();
+          }
+        })
+        .catch((error) => {
+          if (import.meta.env.DEV) console.error('Failed to restart WebSocket:', error);
+        });
+      return;
+    }
+
+    client.activate();
   }
 
   sendMessage(destination: string, body: unknown): boolean {
@@ -282,6 +354,7 @@ export class WebSocketService {
 
     this.client = null;
     this.connected = false;
+    this.offlinePaused = false;
     this.connectingPromise = null;
     this.updateStatus('offline');
     this.onMessageReceived = null;
@@ -327,13 +400,11 @@ export class WebSocketService {
     return typeof navigator !== 'undefined' && !navigator.onLine;
   }
 
-  private nextReconnectDelay() {
-    const exponential = Math.min(
-      WebSocketService.BASE_RECONNECT_DELAY_MS * 2 ** Math.min(this.reconnectAttempts, 5),
-      WebSocketService.MAX_RECONNECT_DELAY_MS,
-    );
+  private static initialReconnectDelay() {
     // Jitter keeps reconnecting clients from stampeding the broker together.
-    return Math.round(exponential * (0.5 + Math.random() * 0.5));
+    return Math.round(
+      WebSocketService.BASE_RECONNECT_DELAY_MS * (0.5 + Math.random() * 0.5),
+    );
   }
 
   private handleIncomingMessage(body: string) {

@@ -1,3 +1,4 @@
+import { ReconnectionTimeMode } from '@stomp/stompjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConnectionStatus } from '../types';
 import { WebSocketService } from './websocket';
@@ -44,7 +45,10 @@ const stomp = vi.hoisted(() => {
   return { FakeClient };
 });
 
-vi.mock('@stomp/stompjs', () => ({ Client: stomp.FakeClient }));
+vi.mock('@stomp/stompjs', () => ({
+  Client: stomp.FakeClient,
+  ReconnectionTimeMode: { LINEAR: 0, EXPONENTIAL: 1 },
+}));
 vi.mock('sockjs-client', () => ({ default: vi.fn() }));
 
 const api = vi.hoisted(() => ({ getValidAccessToken: vi.fn() }));
@@ -141,7 +145,92 @@ describe('WebSocketService', () => {
 
     expect(service.isConnected()).toBe(false);
     expect(statuses.at(-1)).toBe('reconnecting');
-    expect(client.reconnectDelay).toBeGreaterThan(0);
+  });
+
+  it('pauses the client while the browser is offline and resumes it online', async () => {
+    api.getValidAccessToken.mockResolvedValue('jwt-1');
+    const service = new WebSocketService();
+    const statuses: ConnectionStatus[] = [];
+    const { client } = await connectService(service, (status) => statuses.push(status));
+
+    service.handleBrowserOffline();
+
+    expect(service.isConnected()).toBe(false);
+    expect(statuses.at(-1)).toBe('offline');
+    await vi.waitFor(() => expect(client.active).toBe(false));
+
+    service.handleBrowserOnline();
+
+    expect(service.getConnectionStatus()).toBe('reconnecting');
+    await vi.waitFor(() => expect(client.active).toBe(true));
+    client.onConnect?.();
+
+    expect(service.isConnected()).toBe(true);
+    expect(statuses.at(-1)).toBe('connected');
+  });
+
+  it('does not activate a new client while the browser starts offline', async () => {
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    api.getValidAccessToken.mockResolvedValue('jwt-1');
+    const service = new WebSocketService();
+    const onStatus = vi.fn();
+    const connecting = service.connect(
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      onStatus,
+    );
+
+    await vi.waitFor(() => expect(stomp.FakeClient.instances).toHaveLength(1));
+    const client = stomp.FakeClient.instances[0];
+    if (!client) {
+      throw new Error('STOMP client was not created');
+    }
+
+    expect(client.active).toBe(false);
+    expect(service.getConnectionStatus()).toBe('offline');
+
+    onLine.mockReturnValue(true);
+    service.handleBrowserOnline();
+    expect(client.active).toBe(true);
+    client.onConnect?.();
+    await connecting;
+
+    expect(service.isConnected()).toBe(true);
+  });
+
+  it('reuses the in-flight client when connect is called during reconnect', async () => {
+    api.getValidAccessToken.mockResolvedValue('jwt-1');
+    const service = new WebSocketService();
+    const first = service.connect(vi.fn());
+
+    await vi.waitFor(() => expect(stomp.FakeClient.instances).toHaveLength(1));
+    const client = stomp.FakeClient.instances[0];
+    if (!client) {
+      throw new Error('STOMP client was not created');
+    }
+
+    client.onWebSocketClose?.();
+    expect(service.getConnectionStatus()).toBe('reconnecting');
+
+    const second = service.connect(vi.fn());
+    expect(stomp.FakeClient.instances).toHaveLength(1);
+
+    client.onConnect?.();
+    await Promise.all([first, second]);
+    expect(service.isConnected()).toBe(true);
+  });
+
+  it('uses stompjs exponential backoff so failed attempts do not hammer the server', async () => {
+    api.getValidAccessToken.mockResolvedValue('jwt-1');
+    const service = new WebSocketService();
+    const { client } = await connectService(service);
+
+    expect(client.config.reconnectTimeMode).toBe(ReconnectionTimeMode.EXPONENTIAL);
+    expect(client.config.maxReconnectDelay).toBe(30_000);
+    expect(client.config.reconnectDelay).toBeGreaterThanOrEqual(500);
+    expect(client.config.reconnectDelay).toBeLessThanOrEqual(1000);
   });
 
   it('rejects the connection attempt when no access token is available', async () => {

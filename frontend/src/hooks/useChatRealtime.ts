@@ -49,6 +49,10 @@ export function useChatRealtime(
     }
 
     let active = true;
+    const handleBrowserOnline = () => wsService.handleBrowserOnline();
+    const handleBrowserOffline = () => wsService.handleBrowserOffline();
+    window.addEventListener('online', handleBrowserOnline);
+    window.addEventListener('offline', handleBrowserOffline);
     handlersRef.current.onConnect();
 
     wsService.connect(
@@ -93,6 +97,8 @@ export function useChatRealtime(
 
     return () => {
       active = false;
+      window.removeEventListener('online', handleBrowserOnline);
+      window.removeEventListener('offline', handleBrowserOffline);
       handlersRef.current.onDisconnect();
       wsService.disconnect();
     };
