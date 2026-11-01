@@ -145,7 +145,8 @@ export function ActiveCallOverlay({
               ? 'Ending call'
               : 'Connecting...';
   const canMinimize = !isIncomingRinging && activeCall.status !== 'ending';
-  const className = `call-overlay ${callMinimized ? 'minimized' : ''}`;
+  const isExpanded = !callMinimized && activeCall.status !== 'ringing';
+  const className = `call-overlay ${callMinimized ? 'minimized' : ''} ${isExpanded ? 'expanded' : ''}`.trim();
   const cameraButtonTitle = screenSharing
     ? 'Stop sharing screen before changing camera'
     : cameraOff
