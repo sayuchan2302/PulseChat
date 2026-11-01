@@ -116,9 +116,9 @@ npm.cmd run test:e2e:visual -- --update-snapshots
 | Backend tests | **303/303** pass |
 | Frontend unit tests | **58/58** pass, 14 file |
 | Playwright E2E | **19/19** pass (1 setup + 18 scenarios), Chromium |
-| Incoming call popup | **pass** — nút không tràn chữ, tên/trạng thái xuống dòng, card nằm trong viewport ở 1440×900 và 390×844 |
+| Incoming call popup | **pass** — nút hành động dùng chung kiểu 36×36 với caller, icon-only; tên/trạng thái xuống dòng; card nằm trong viewport ở 1440×900 và 390×844 |
 | Accessibility (axe) | 0 serious/critical trên login, chat và call popup |
-| CSS coverage | **706** class dùng, **857** định nghĩa, **0 missing**, **16 allowlisted** |
+| CSS coverage | **705** class dùng, **856** định nghĩa, **0 missing**, **16 allowlisted** |
 | Lint / build | pass |
 | Visual baselines | 4 snapshot Windows (`*-chromium-win32.png`) |
 | CI | ✅ [run 41301443914](https://github.com/sayuchan2302/PulseChat/actions/runs/41301443914) — backend, frontend, Browser E2E xanh sau Phase 2 |
@@ -155,9 +155,9 @@ npm.cmd run test:e2e:visual -- --update-snapshots
 
 ### Incoming call popup fix (2026-11-01)
 
-- Nguyên nhân: `.call-action-btn` dùng chung kích thước icon 36×36, trong khi nút Accept/Decline có thêm chữ; chữ tràn khỏi nút. Tên, trạng thái và chip loại cuộc gọi cũng dồn trên một dòng.
-- Sửa CSS thuần: nút dạng pill tối thiểu 118×42, chữ không xuống dòng, Decline dùng màu đỏ; phần identity tách tên và metadata thành hai dòng.
-- Thêm `e2e/call.spec.ts` kiểm tra kích thước nút, không tràn chữ, thứ tự dòng và vị trí card trong viewport ở desktop lẫn mobile.
+- Nguyên nhân: bản fix đầu dùng nút pill 118×42 cho người nhận, lệch hẳn với cụm nút 36×36 của người gọi. Tên, trạng thái và chip loại cuộc gọi cũng từng dồn trên một dòng.
+- Sửa: người nhận dùng chung class `.call-round-btn` 36×36 với caller, icon-only + `aria-label`; Accept nền xanh `#15803D`, Decline nền đỏ và icon phone-down. Bỏ class `.call-action-btn` không còn dùng.
+- Thêm `e2e/call.spec.ts` so sánh trực tiếp width/height/border-radius nút receiver với caller, kiểm tra aria-label, màu, bố cục card và viewport desktop/mobile.
 
 ---
 
@@ -216,3 +216,4 @@ Chạy với backend + frontend thật, tốt nhất ở 2 cửa sổ trình duy
 | 2026-11-01 | `93c5a22` | Phase 2 | ✅ PASS | WS offline pause/resume + exponential backoff; FE **58/58**, E2E **18/18** |
 | 2026-11-01 | `e8277f1` | CI | ✅ PASS | [Run 41301443914](https://github.com/sayuchan2302/PulseChat/actions/runs/41301443914) — backend, frontend, Browser E2E xanh |
 | 2026-11-01 | `fef753a` | UI fix | ✅ PASS local | Popup cuộc gọi phía người nhận; E2E **19/19**; T3 vẫn chờ chạy tay |
+| 2026-11-01 | `99a7c8a` | UI fix | ✅ PASS local | Đồng bộ nút receiver với caller 36×36; E2E **19/19** |

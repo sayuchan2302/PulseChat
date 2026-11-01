@@ -13,10 +13,10 @@
 | Backend unit/integration | ✅ | **303/303**, BUILD SUCCESS |
 | Frontend unit | ✅ | **58/58**, 14 file |
 | Lint / production build | ✅ | `npm run lint`, `npm run build` |
-| CSS coverage guard | ✅ | 706 used / 857 defined / 0 missing / 16 allowlisted |
+| CSS coverage guard | ✅ | 705 used / 856 defined / 0 missing / 16 allowlisted |
 | Browser E2E | ✅ local | Playwright **19/19** trên Chromium |
 | Realtime recovery | ✅ local | Offline pause / online resume, exponential backoff, E2E nhận lại tin sau offline |
-| Incoming call popup | ✅ local | Nút Accept/Decline không tràn chữ; bố cục đúng ở desktop và mobile 390×844 |
+| Incoming call popup | ✅ local | Nút 36×36 đồng bộ với caller; icon-only, không tràn chữ; bố cục đúng ở desktop và mobile 390×844 |
 | Accessibility smoke | ✅ | axe: 0 serious/critical trên login, chat và call popup |
 | Style contracts | ✅ | Computed styles cho sidebar, composer, send button |
 | Responsive overflow | ✅ | Mobile 390×844 không overflow ngang |
@@ -32,7 +32,7 @@ Chi tiết kiến trúc, phạm vi test và bằng chứng nằm trong [`TEST_PL
 
 - **Phase 1 — Browser Quality Gate**: Playwright + axe + computed-style contracts + CSS coverage; backend 303/303, frontend 58/58, E2E 19/19, 4 visual baselines local.
 - **Phase 2 — Realtime Hardening**: STOMP exponential backoff (jitter 500–1000ms, cap 30s), pause/resume theo `online`/`offline`, giữ `connectingPromise`, resync sau reconnect.
-- **Incoming call popup fix**: nút Accept/Decline chuyển sang pill 118×42, Decline màu đỏ; tên và metadata tách dòng; E2E kiểm tra desktop + mobile.
+- **Incoming call popup fix**: nút Accept/Decline dùng chung kiểu `.call-round-btn` 36×36 với caller; Accept xanh, Decline đỏ, icon-only + `aria-label`; tên và metadata tách dòng; E2E so sánh trực tiếp với popup người gọi.
 
 ---
 
@@ -46,7 +46,7 @@ Chi tiết kiến trúc, phạm vi test và bằng chứng nằm trong [`TEST_PL
 - **Visual snapshot cần dữ liệu tĩnh**: username có runId, thời gian tương đối và unread badge phải được ẩn/mask.
 - **`setOffline` không đóng WebSocket đang mở ngay**: phải nghe sự kiện `offline` và chủ động `deactivate` client.
 - **Reconnect cần đồng bộ lại dữ liệu**: chỉ bật lại socket là chưa đủ; `onConnect` phải reload conversation/room/user.
-- **Nút có icon + chữ không dùng chung width cố định với nút icon**: kiểm tra `scrollWidth` so với `clientWidth` trong E2E.
+- **Nút hành động trong cùng overlay nên dùng chung class/kích thước**: ưu tiên icon-only + `aria-label` thay vì nhồi chữ vào nút nhỏ; E2E nên so sánh trực tiếp hai phía caller/receiver.
 
 ---
 
