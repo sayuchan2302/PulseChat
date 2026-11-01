@@ -2,7 +2,7 @@
 
 > **Mục tiêu**: giữ các luồng quan trọng của PulseChat không hồi quy sau mỗi lần refactor UI/backend.
 > **Nguyên tắc**: chạy từ rẻ → đắt. Tầng nào FAIL thì dừng, fix, commit rồi chạy lại từ tầng đó.
-> **Cập nhật gần nhất**: 2026-11-01 — dọn tài liệu, bổ sung E2E cho popup cuộc gọi phía người nhận.
+> **Cập nhật gần nhất**: 2026-11-01 — popup cuộc gọi mở rộng khi vào call, bổ sung E2E audio/video và axe cho trạng thái expanded.
 
 ## Tổng quan các tầng
 
@@ -90,7 +90,7 @@ Kỳ vọng: Flyway áp đủ migration, Hibernate validate sạch, app start OK
 | `e2e/auth.spec.ts` | Register qua UI, login/reload/logout, sai mật khẩu |
 | `e2e/chat.spec.ts` | Gửi DM realtime cho 2 browser, phục hồi sau offline/online, react + edit qua action menu |
 | `e2e/social.spec.ts` | Unfriend trong profile danger zone, tạo nhóm với 2 bạn |
-| `e2e/call.spec.ts` | Popup cuộc gọi phía người nhận: nút Accept/Decline, bố cục tên/trạng thái, desktop + mobile |
+| `e2e/call.spec.ts` | Popup cuộc gọi: đồng bộ nút caller/receiver lúc ringing; cửa sổ lớn sau khi accept cho audio/video; minimize/restore; desktop + mobile |
 | `e2e/ui.spec.ts` | Escape đóng modal, backdrop đóng profile, mobile không overflow, computed-style contracts, axe smoke |
 | `e2e/visual.spec.ts` | 4 image snapshots local: login, direct conversation, partner profile, mobile list |
 
@@ -115,9 +115,10 @@ npm.cmd run test:e2e:visual -- --update-snapshots
 |---|---|
 | Backend tests | **303/303** pass |
 | Frontend unit tests | **58/58** pass, 14 file |
-| Playwright E2E | **19/19** pass (1 setup + 18 scenarios), Chromium |
+| Playwright E2E | **20/20** pass (1 setup + 19 scenarios), Chromium |
 | Incoming call popup | **pass** — nút hành động dùng chung kiểu 36×36 với caller, icon-only; tên/trạng thái xuống dòng; card nằm trong viewport ở 1440×900 và 390×844 |
-| Accessibility (axe) | 0 serious/critical trên login, chat và call popup |
+| Expanded call window | **pass** — audio/video mở rộng 880px sau accept, full-screen ở ≤640px; audio stage 420px, video stage 52vh; self-view PiP 180px; minimize/restore giữ trạng thái |
+| Accessibility (axe) | 0 serious/critical trên login, chat, call ringing và call expanded audio/video |
 | CSS coverage | **705** class dùng, **856** định nghĩa, **0 missing**, **16 allowlisted** |
 | Lint / build | pass |
 | Visual baselines | 4 snapshot Windows (`*-chromium-win32.png`) |
@@ -159,13 +160,23 @@ npm.cmd run test:e2e:visual -- --update-snapshots
 - Sửa: người nhận dùng chung class `.call-round-btn` 36×36 với caller, icon-only + `aria-label`; Accept nền xanh `#15803D`, Decline nền đỏ và icon phone-down. Bỏ class `.call-action-btn` không còn dùng.
 - Thêm `e2e/call.spec.ts` so sánh trực tiếp width/height/border-radius nút receiver với caller, kiểm tra aria-label, màu, bố cục card và viewport desktop/mobile.
 
+### Expanded call window (2026-11-01)
+
+- **Hành vi**: khi call còn ringing, popup giữ kích thước nhỏ để không che chat. Sau khi accept (status `connecting`, `connected`, `reconnecting`, `ending`), popup mở thành cửa sổ lớn giống Messenger.
+- **Desktop**: card rộng tối đa **880px**, đặt giữa viewport; audio stage cao tới **420px**, video stage cao tới **52vh**; action buttons tăng lên **46×46**.
+- **Mobile ≤640px**: cửa sổ chiếm toàn bộ viewport, stage co giãn theo chiều cao, device controls xếp một cột.
+- **Video**: remote stream là stage chính; self-view là PiP **180px** ở góc dưới phải (104px trên mobile), không còn bị clip khỏi stage. Screen share vẫn dùng toàn stage.
+- **Minimize/restore**: minimized bar giữ nguyên; restore quay lại đúng cửa sổ lớn.
+- **Kiểm thử**: E2E audio kiểm tra card 760–900px, audio stage ≥240px, nút 46×46, minimize/restore và full-screen mobile; E2E video kiểm tra stage ≥700px, self-view PiP nằm trong stage và full-screen mobile. Axe chạy trên cả call expanded audio/video.
+- **Sửa a11y**: placeholder “Waiting for video...” dùng nền tối cố định và chữ sáng để đạt contrast 4.5:1.
+
 ---
 
 ## T3 — UI manual checklist
 
 Chạy với backend + frontend thật, tốt nhất ở 2 cửa sổ trình duyệt:
 
-- **Call overlay**: gọi audio/video 1-1, mute, camera, screen share, minimize/restore, kết thúc sạch; kiểm tra cả popup người nhận.
+- **Call overlay**: gọi audio/video 1-1, popup mở rộng sau accept, mute, camera, screen share, minimize/restore, kết thúc sạch; kiểm tra cả popup người nhận.
 - **Media lightbox/viewer**: ảnh, video, voice note; đóng bằng Escape/backdrop; focus trả về nút mở.
 - **Details sidebar**: mở/đóng, member list, invite link, nickname, group avatar, pinned message.
 - **Mobile ≤480px**: sidebar/chat chuyển màn hình, không overflow ngang, composer và action menu dùng được.
@@ -217,3 +228,4 @@ Chạy với backend + frontend thật, tốt nhất ở 2 cửa sổ trình duy
 | 2026-11-01 | `e8277f1` | CI | ✅ PASS | [Run 41301443914](https://github.com/sayuchan2302/PulseChat/actions/runs/41301443914) — backend, frontend, Browser E2E xanh |
 | 2026-11-01 | `fef753a` | UI fix | ✅ PASS local | Popup cuộc gọi phía người nhận; E2E **19/19**; T3 vẫn chờ chạy tay |
 | 2026-11-01 | `99a7c8a` | UI fix | ✅ PASS local | Đồng bộ nút receiver với caller 36×36; E2E **19/19** |
+| 2026-11-01 | `13f2d0b` | Call UI | ✅ PASS local | Popup mở rộng 880px sau accept, full-screen mobile; audio/video + PiP; E2E **20/20**, axe 0 serious |

@@ -5,7 +5,7 @@ Frontend client for PulseChat, built with **React 19**, **TypeScript**, and **Vi
 ## 🚀 Features
 
 - ⚡ **Realtime Messaging**: private and group chat over STOMP/SockJS.
-- 📞 **WebRTC Calling**: 1-1 audio/video calls, pre-call device check, and a minimized call bar.
+- 📞 **WebRTC Calling**: 1-1 audio/video calls, pre-call device check, expanded in-call window with minimize.
 - 🎙️ **Voice Notes**: in-chat recorder and waveform player.
 - 🖼️ **Media & Link Previews**: image/video lightbox and OpenGraph link cards.
 - 💾 **Offline Cache**: IndexedDB cache for conversations and unsent messages.
@@ -80,10 +80,10 @@ credentials from `backend/.env` (or `DB_*` variables). The run creates
 throwaway `e2e_*` accounts; use a disposable `DB_NAME` if you do not want them
 in your development database.
 
-The suite covers auth, realtime chat and offline recovery, incoming-call popup
-layout, responsive overflow, axe smoke checks, computed-style contracts, and
-local visual snapshots. Visual baselines are Windows-specific and skipped in
-CI.
+The suite covers auth, realtime chat and offline recovery, incoming-call and
+expanded audio/video call layout, responsive overflow, axe smoke checks,
+computed-style contracts, and local visual snapshots. Visual baselines are
+Windows-specific and skipped in CI.
 
 See the root [`TEST_PLAN.md`](../TEST_PLAN.md) for the full test layers and
 evidence.

@@ -1,6 +1,6 @@
 # PulseChat — Checklist trước khi thêm feature mới
 
-> **Trạng thái**: Browser Quality Gate (Phase 1), Realtime Hardening (Phase 2) và fix popup cuộc gọi hoàn tất ngày 2026-11-01.
+> **Trạng thái**: Browser Quality Gate (Phase 1), Realtime Hardening (Phase 2), fix popup và mở rộng cửa sổ call hoàn tất ngày 2026-11-01.
 > **Quy tắc**: hoàn tất T0 + T1 + T2 của [`TEST_PLAN.md`](TEST_PLAN.md) trước khi bắt đầu feature mới. T3 vẫn cần chạy tay khi có backend.
 > **Phạm vi**: hardening, kiểm thử hồi quy và chất lượng UI — chưa bao gồm roadmap feature mới.
 
@@ -14,10 +14,11 @@
 | Frontend unit | ✅ | **58/58**, 14 file |
 | Lint / production build | ✅ | `npm run lint`, `npm run build` |
 | CSS coverage guard | ✅ | 705 used / 856 defined / 0 missing / 16 allowlisted |
-| Browser E2E | ✅ local | Playwright **19/19** trên Chromium |
+| Browser E2E | ✅ local | Playwright **20/20** trên Chromium |
 | Realtime recovery | ✅ local | Offline pause / online resume, exponential backoff, E2E nhận lại tin sau offline |
 | Incoming call popup | ✅ local | Nút 36×36 đồng bộ với caller; icon-only, không tràn chữ; bố cục đúng ở desktop và mobile 390×844 |
-| Accessibility smoke | ✅ | axe: 0 serious/critical trên login, chat và call popup |
+| Expanded call window | ✅ local | Audio/video mở rộng 880px sau accept, full-screen ≤640px, self-view PiP, minimize/restore |
+| Accessibility smoke | ✅ | axe: 0 serious/critical trên login, chat, call ringing và call expanded audio/video |
 | Style contracts | ✅ | Computed styles cho sidebar, composer, send button |
 | Responsive overflow | ✅ | Mobile 390×844 không overflow ngang |
 | Visual snapshots | ✅ local Windows | 4 baseline; CI skip vì platform-specific |
@@ -30,9 +31,10 @@ Chi tiết kiến trúc, phạm vi test và bằng chứng nằm trong [`TEST_PL
 
 ## Đã hoàn tất
 
-- **Phase 1 — Browser Quality Gate**: Playwright + axe + computed-style contracts + CSS coverage; backend 303/303, frontend 58/58, E2E 19/19, 4 visual baselines local.
+- **Phase 1 — Browser Quality Gate**: Playwright + axe + computed-style contracts + CSS coverage; backend 303/303, frontend 58/58, E2E 20/20, 4 visual baselines local.
 - **Phase 2 — Realtime Hardening**: STOMP exponential backoff (jitter 500–1000ms, cap 30s), pause/resume theo `online`/`offline`, giữ `connectingPromise`, resync sau reconnect.
 - **Incoming call popup fix**: nút Accept/Decline dùng chung kiểu `.call-round-btn` 36×36 với caller; Accept xanh, Decline đỏ, icon-only + `aria-label`; tên và metadata tách dòng; E2E so sánh trực tiếp với popup người gọi.
+- **Expanded call window**: sau accept, audio/video mở thành cửa sổ 880px (full-screen ≤640px), action buttons 46×46, video self-view PiP; minimize/restore giữ đúng trạng thái.
 
 ---
 
@@ -47,12 +49,14 @@ Chi tiết kiến trúc, phạm vi test và bằng chứng nằm trong [`TEST_PL
 - **`setOffline` không đóng WebSocket đang mở ngay**: phải nghe sự kiện `offline` và chủ động `deactivate` client.
 - **Reconnect cần đồng bộ lại dữ liệu**: chỉ bật lại socket là chưa đủ; `onConnect` phải reload conversation/room/user.
 - **Nút hành động trong cùng overlay nên dùng chung class/kích thước**: ưu tiên icon-only + `aria-label` thay vì nhồi chữ vào nút nhỏ; E2E nên so sánh trực tiếp hai phía caller/receiver.
+- **Popup call nên tách trạng thái ringing và in-call**: ringing giữ card nhỏ để không che chat; sau accept mới mở rộng. Mobile cần full-screen và stage co giãn, desktop cần giới hạn chiều cao để device controls không tràn viewport.
+- **Video self-view phải là PiP**: nếu để local video trong flow của stage, nó bị clip và mất self-view; dùng `position: absolute` + `object-fit: cover`, còn screen share mới chiếm toàn stage.
 
 ---
 
 ## T3 — Manual checklist trước khi release
 
-- [ ] Call overlay: audio/video, mute, camera, screen share, minimize/restore, kết thúc sạch; kiểm tra cả popup người nhận.
+- [ ] Call overlay: audio/video, popup mở rộng sau accept, mute, camera, screen share, minimize/restore, kết thúc sạch; kiểm tra cả popup người nhận.
 - [ ] Media lightbox/viewer: ảnh/video/voice, Escape/backdrop, focus trả về.
 - [ ] Details sidebar: member list, invite link, nickname, group avatar, pinned message.
 - [ ] Mobile ≤480px: chuyển sidebar/chat, không overflow, composer/action menu dùng được.

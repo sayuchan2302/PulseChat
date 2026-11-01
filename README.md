@@ -10,7 +10,7 @@ Media uploads use authenticated local storage: every file is served with per-fil
 - 💬 **Real-time Messaging**: Private 1-1 and group chats via WebSocket (STOMP / SockJS).
 - 🎙️ **Voice Messages**: Record and play in-chat voice notes with waveform visualization.
 - 🤖 **AI Group Summary**: Catch up quickly on unread group chats using Google Gemini API.
-- 📞 **1-1 Audio/Video Calls**: WebRTC P2P calls with pre-call device setup and minimized floating call bar.
+- 📞 **1-1 Audio/Video Calls**: WebRTC P2P calls with pre-call device setup, an expanded in-call window, and a minimized floating call bar.
 - 📎 **Rich Media & Links**: Image/video upload (Local / Cloudinary), automatic OpenGraph link previews.
 - 😀 **Message Interactions**: Emoji reactions, quote reply, message recall (unsend), and pinned messages.
 - 👥 **Social & Community**: Friend requests, unfriend, user search, profile viewer/editor, and invite-by-link for groups.
