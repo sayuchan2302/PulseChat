@@ -122,7 +122,7 @@ npm.cmd run test:e2e:visual -- --update-snapshots
 | CSS coverage | **705** class dùng, **856** định nghĩa, **0 missing**, **16 allowlisted** |
 | Lint / build | pass |
 | Visual baselines | 4 snapshot Windows (`*-chromium-win32.png`) |
-| CI | ✅ [run 41301443914](https://github.com/sayuchan2302/PulseChat/actions/runs/41301443914) — backend, frontend, Browser E2E xanh sau Phase 2 |
+| CI | ✅ [run 41319463613](https://github.com/sayuchan2302/PulseChat/actions/runs/41319463613) — backend, frontend, Browser E2E xanh sau expanded call window |
 
 ### Lưu ý vận hành
 
@@ -229,3 +229,4 @@ Chạy với backend + frontend thật, tốt nhất ở 2 cửa sổ trình duy
 | 2026-11-01 | `fef753a` | UI fix | ✅ PASS local | Popup cuộc gọi phía người nhận; E2E **19/19**; T3 vẫn chờ chạy tay |
 | 2026-11-01 | `99a7c8a` | UI fix | ✅ PASS local | Đồng bộ nút receiver với caller 36×36; E2E **19/19** |
 | 2026-11-01 | `13f2d0b` | Call UI | ✅ PASS local | Popup mở rộng 880px sau accept, full-screen mobile; audio/video + PiP; E2E **20/20**, axe 0 serious |
+| 2026-11-01 | `7326122` | CI | ✅ PASS | [Run 41319463613](https://github.com/sayuchan2302/PulseChat/actions/runs/41319463613) — backend, frontend, Browser E2E xanh |
