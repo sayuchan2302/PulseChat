@@ -1,8 +1,8 @@
 # PulseChat — Kế hoạch kiểm thử ổn định (Stability Test Plan)
 
-> **Mục tiêu**: giữ cho các luồng quan trọng của PulseChat không hồi quy sau mỗi lần refactor UI/backend.
+> **Mục tiêu**: giữ các luồng quan trọng của PulseChat không hồi quy sau mỗi lần refactor UI/backend.
 > **Nguyên tắc**: chạy từ rẻ → đắt. Tầng nào FAIL thì dừng, fix, commit rồi chạy lại từ tầng đó.
-> **Cập nhật gần nhất**: 2026-11-01 — thêm Phase 2 Realtime hardening: STOMP exponential backoff, pause/resume theo trạng thái mạng và E2E offline recovery.
+> **Cập nhật gần nhất**: 2026-11-01 — dọn tài liệu, bổ sung E2E cho popup cuộc gọi phía người nhận.
 
 ## Tổng quan các tầng
 
@@ -72,7 +72,7 @@ Kỳ vọng: Flyway áp đủ migration, Hibernate validate sạch, app start OK
 
 ---
 
-## T2 — Browser Quality Gate (Phase 1)
+## T2 — Browser Quality Gate
 
 ### Kiến trúc
 
@@ -90,7 +90,8 @@ Kỳ vọng: Flyway áp đủ migration, Hibernate validate sạch, app start OK
 | `e2e/auth.spec.ts` | Register qua UI, login/reload/logout, sai mật khẩu |
 | `e2e/chat.spec.ts` | Gửi DM realtime cho 2 browser, phục hồi sau offline/online, react + edit qua action menu |
 | `e2e/social.spec.ts` | Unfriend trong profile danger zone, tạo nhóm với 2 bạn |
-| `e2e/ui.spec.ts` | Escape đóng modal, backdrop đóng profile, mobile không overflow ngang, computed-style contracts, axe smoke |
+| `e2e/call.spec.ts` | Popup cuộc gọi phía người nhận: nút Accept/Decline, bố cục tên/trạng thái, desktop + mobile |
+| `e2e/ui.spec.ts` | Escape đóng modal, backdrop đóng profile, mobile không overflow, computed-style contracts, axe smoke |
 | `e2e/visual.spec.ts` | 4 image snapshots local: login, direct conversation, partner profile, mobile list |
 
 ### Lệnh chạy
@@ -112,10 +113,11 @@ npm.cmd run test:e2e:visual -- --update-snapshots
 
 | Hạng mục | Kết quả |
 |---|---|
-| Backend tests | **303/303** pass (không đổi) |
+| Backend tests | **303/303** pass |
 | Frontend unit tests | **58/58** pass, 14 file |
-| Playwright E2E | **18/18** pass (1 setup + 17 scenarios), Chromium |
-| Accessibility (axe) | 0 serious/critical violation trên login và chat |
+| Playwright E2E | **19/19** pass (1 setup + 18 scenarios), Chromium |
+| Incoming call popup | **pass** — nút không tràn chữ, tên/trạng thái xuống dòng, card nằm trong viewport ở 1440×900 và 390×844 |
+| Accessibility (axe) | 0 serious/critical trên login, chat và call popup |
 | CSS coverage | **706** class dùng, **857** định nghĩa, **0 missing**, **16 allowlisted** |
 | Lint / build | pass |
 | Visual baselines | 4 snapshot Windows (`*-chromium-win32.png`) |
@@ -128,17 +130,15 @@ npm.cmd run test:e2e:visual -- --update-snapshots
 - Snapshot được ổn định bằng cách ẩn username/time/unread động trong CSS trước khi chụp; không che toàn bộ component.
 - Nếu backend E2E đã chạy sẵn ở 8081, Playwright dùng lại server local. Trên CI, server được quản lý riêng và Playwright chỉ chạy tests.
 
----
+### Realtime hardening (Phase 2)
 
-## Phase 2 — Realtime hardening (2026-11-01)
-
-### Vấn đề
+**Vấn đề**
 
 - Backoff cũ tự tính `reconnectDelay`; stompjs snapshot giá trị này nên các lần retry không tăng theo cấu hình mong muốn.
 - Khi trình duyệt mất mạng, WebSocket đang mở có thể không đóng ngay. UI vẫn hiển thị online và client tiếp tục retry dù không có đường mạng.
 - Sau khi mạng trở lại, client có thể phải chờ tới backoff tiếp theo (tối đa 30 giây), trong khi dữ liệu bị lỡ chỉ được đồng bộ khi kết nối lại.
 
-### Thay đổi
+**Thay đổi**
 
 - Dùng `ReconnectionTimeMode.EXPONENTIAL` của stompjs: delay khởi đầu 500–1000ms (jitter), nhân đôi mỗi lần lỗi, chặn trên 30 giây.
 - Lắng nghe `offline` để tạm dừng client bằng `deactivate({ force: true })`, cập nhật trạng thái offline ngay và không retry vô ích.
@@ -146,15 +146,18 @@ npm.cmd run test:e2e:visual -- --update-snapshots
 - Giữ `connectingPromise` khi socket drop ngoài ý muốn để `connect()` đồng thời không tạo client thứ hai; trạng thái chuyển `reconnecting` và promise chỉ được giải quyết khi `onConnect`.
 - Không đổi API backend hay schema; thay đổi nằm ở `websocket.ts`, hook realtime và E2E.
 
-### Bằng chứng
+**Bằng chứng**
 
 | Hạng mục | Kết quả |
 |---|---|
 | WebSocket unit tests | **9/9** pass, gồm offline pause/online resume, initial offline và connect trong lúc reconnect |
-| Frontend unit tests | **58/58** pass, 14 file |
 | Playwright offline recovery | **pass** — Alice offline, Bob gửi tin, Alice online lại nhận tin và gửi tiếp cho Bob |
-| Playwright E2E toàn bộ | **18/18** pass (1 setup + 17 scenarios) |
-| Lint / build / check:css | pass (không có thay đổi CSS) |
+
+### Incoming call popup fix (2026-11-01)
+
+- Nguyên nhân: `.call-action-btn` dùng chung kích thước icon 36×36, trong khi nút Accept/Decline có thêm chữ; chữ tràn khỏi nút. Tên, trạng thái và chip loại cuộc gọi cũng dồn trên một dòng.
+- Sửa CSS thuần: nút dạng pill tối thiểu 118×42, chữ không xuống dòng, Decline dùng màu đỏ; phần identity tách tên và metadata thành hai dòng.
+- Thêm `e2e/call.spec.ts` kiểm tra kích thước nút, không tràn chữ, thứ tự dòng và vị trí card trong viewport ở desktop lẫn mobile.
 
 ---
 
@@ -162,7 +165,7 @@ npm.cmd run test:e2e:visual -- --update-snapshots
 
 Chạy với backend + frontend thật, tốt nhất ở 2 cửa sổ trình duyệt:
 
-- **Call overlay**: gọi audio/video 1-1, mute, camera, screen share, minimize/restore, kết thúc sạch.
+- **Call overlay**: gọi audio/video 1-1, mute, camera, screen share, minimize/restore, kết thúc sạch; kiểm tra cả popup người nhận.
 - **Media lightbox/viewer**: ảnh, video, voice note; đóng bằng Escape/backdrop; focus trả về nút mở.
 - **Details sidebar**: mở/đóng, member list, invite link, nickname, group avatar, pinned message.
 - **Mobile ≤480px**: sidebar/chat chuyển màn hình, không overflow ngang, composer và action menu dùng được.
@@ -212,4 +215,4 @@ Chạy với backend + frontend thật, tốt nhất ở 2 cửa sổ trình duy
 | 2026-10-31 | `6c105f5` | CI | ✅ PASS | [Run 41186673396](https://github.com/sayuchan2302/PulseChat/actions/runs/41186673396) — cả 3 job xanh; Browser E2E + CSS coverage chạy trên CI |
 | 2026-11-01 | `93c5a22` | Phase 2 | ✅ PASS | WS offline pause/resume + exponential backoff; FE **58/58**, E2E **18/18** |
 | 2026-11-01 | `e8277f1` | CI | ✅ PASS | [Run 41301443914](https://github.com/sayuchan2302/PulseChat/actions/runs/41301443914) — backend, frontend, Browser E2E xanh |
-| — | — | T3 | ⏳ chờ người dùng | Call overlay, media viewer, details sidebar, mobile ≤480px |
+| 2026-11-01 | `fef753a` | UI fix | ✅ PASS local | Popup cuộc gọi phía người nhận; E2E **19/19**; T3 vẫn chờ chạy tay |

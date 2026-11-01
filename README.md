@@ -23,7 +23,7 @@ Media uploads use authenticated local storage: every file is served with per-fil
 | Layer | Technologies |
 | --- | --- |
 | **Frontend** | React 19, TypeScript, Vite, Axios, STOMP/SockJS, React Router v7 |
-| **Backend** | Spring Boot 3.2, Java 17, Spring Security, Spring WebSocket, Spring Data JPA |
+| **Backend** | Spring Boot 3.5, Java 17, Spring Security, Spring WebSocket, Spring Data JPA |
 | **Database** | PostgreSQL 14+ |
 | **Realtime & Calls** | STOMP WebSocket, WebRTC (P2P Mesh) |
 | **AI Integration** | Google Gemini API (`gemini-3.1-flash-lite`) |
@@ -129,6 +129,8 @@ npm run test:e2e
 npm run check:css
 ```
 
+On Windows, use `npm.cmd` if PowerShell blocks `npm.ps1`.
+
 Browser E2E starts an isolated backend on port `8081` using the PostgreSQL
 credentials from `backend/.env` (or the `DB_*` environment variables) and Vite
 on port `4173`. It creates throwaway `e2e_*` accounts on every run; point
@@ -136,6 +138,12 @@ on port `4173`. It creates throwaway `e2e_*` accounts on every run; point
 development database. Visual image snapshots are generated locally with
 `npm run test:e2e:visual -- --update-snapshots` and are skipped in CI because
 the baselines are platform-specific.
+
+### Test documentation
+
+- [`TEST_PLAN.md`](TEST_PLAN.md) — test layers, commands, evidence, and T3 manual checklist.
+- [`PRE_FEATURE_CHECKLIST.md`](PRE_FEATURE_CHECKLIST.md) — release gate and feature-start checklist.
+- [`frontend/README.md`](frontend/README.md) — frontend scripts and E2E notes.
 
 ## 🔒 Notes
 
