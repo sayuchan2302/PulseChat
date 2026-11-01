@@ -119,7 +119,7 @@ npm.cmd run test:e2e:visual -- --update-snapshots
 | CSS coverage | **706** class dùng, **857** định nghĩa, **0 missing**, **16 allowlisted** |
 | Lint / build | pass |
 | Visual baselines | 4 snapshot Windows (`*-chromium-win32.png`) |
-| CI | ✅ [run 41186673396](https://github.com/sayuchan2302/PulseChat/actions/runs/41186673396) — backend, frontend, Browser E2E xanh |
+| CI | ✅ [run 41301443914](https://github.com/sayuchan2302/PulseChat/actions/runs/41301443914) — backend, frontend, Browser E2E xanh sau Phase 2 |
 
 ### Lưu ý vận hành
 
@@ -211,4 +211,5 @@ Chạy với backend + frontend thật, tốt nhất ở 2 cửa sổ trình duy
 | 2026-10-31 | `c8a9a4e` | T2 | ✅ PASS | Playwright **17/17**, axe 0 serious/critical, 4 visual baselines local |
 | 2026-10-31 | `6c105f5` | CI | ✅ PASS | [Run 41186673396](https://github.com/sayuchan2302/PulseChat/actions/runs/41186673396) — cả 3 job xanh; Browser E2E + CSS coverage chạy trên CI |
 | 2026-11-01 | `93c5a22` | Phase 2 | ✅ PASS | WS offline pause/resume + exponential backoff; FE **58/58**, E2E **18/18** |
+| 2026-11-01 | `e8277f1` | CI | ✅ PASS | [Run 41301443914](https://github.com/sayuchan2302/PulseChat/actions/runs/41301443914) — backend, frontend, Browser E2E xanh |
 | — | — | T3 | ⏳ chờ người dùng | Call overlay, media viewer, details sidebar, mobile ≤480px |

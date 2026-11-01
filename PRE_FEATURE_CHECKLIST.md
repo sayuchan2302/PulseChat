@@ -20,7 +20,7 @@
 | Style contracts | ✅ | computed styles cho sidebar, composer, send button |
 | Responsive overflow | ✅ | mobile 390×844 không overflow ngang |
 | Visual snapshots | ✅ local Windows | 4 baseline; CI skip vì platform-specific |
-| CI Browser E2E | ✅ | [Run 41186673396](https://github.com/sayuchan2302/PulseChat/actions/runs/41186673396) — cả 3 job xanh |
+| CI Browser E2E | ✅ | [Run 41301443914](https://github.com/sayuchan2302/PulseChat/actions/runs/41301443914) — cả 3 job xanh sau Phase 2 |
 | T3 manual browser | ⏳ người dùng | call overlay, media viewer, details sidebar, ≤480px |
 
 ---
