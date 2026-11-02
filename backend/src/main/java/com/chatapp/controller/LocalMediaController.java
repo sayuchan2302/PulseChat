@@ -5,7 +5,7 @@ import com.chatapp.service.MediaAccessService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
-import org.springframework.http.MediaType;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaTypeFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -25,7 +25,8 @@ public class LocalMediaController {
         Resource resource = storage.loadMedia(filename);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .contentType(MediaTypeFactory.getMediaType(filename).orElse(MediaType.APPLICATION_OCTET_STREAM))
+                .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                .contentType(MediaTypeFactory.getMediaType(filename).orElse(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM))
                 .body(resource);
     }
 }

@@ -1,6 +1,7 @@
 import type { MainView } from '../../types/chat.types';
 import type { User } from '../../types';
 import {
+  BellIcon,
   FriendRequestIcon,
   FriendsIcon,
   MoonIcon,
@@ -31,6 +32,8 @@ export interface AppHeaderProps {
   onOpenProfileEditor: () => void;
   onOpenBlockedUsers: () => void;
   onOpenAdmin: () => void;
+  pushSubscribed?: boolean;
+  onTogglePush?: () => void;
   onLogout: () => void;
 }
 
@@ -53,6 +56,8 @@ export function AppHeader({
   onOpenBlockedUsers,
   onOpenAdmin,
   onLogout,
+  pushSubscribed = false,
+  onTogglePush,
 }: AppHeaderProps) {
   return (
     <header className="chat-header">
@@ -92,6 +97,19 @@ export function AppHeader({
         </button>
 
         <div className="friend-request-menu">
+          {onTogglePush ? (
+            <button
+              type="button"
+              className={`header-icon-btn ${pushSubscribed ? 'active' : ''}`}
+              onClick={onTogglePush}
+              aria-pressed={pushSubscribed}
+              aria-label={pushSubscribed ? 'Disable push notifications' : 'Enable push notifications'}
+              title={pushSubscribed ? 'Push notifications active (click to disable)' : 'Push notifications disabled (click to enable)'}
+            >
+              <BellIcon className="header-icon" />
+            </button>
+          ) : null}
+
           <button
             type="button"
             className={`header-icon-btn ${soundMuted ? 'muted' : ''}`}

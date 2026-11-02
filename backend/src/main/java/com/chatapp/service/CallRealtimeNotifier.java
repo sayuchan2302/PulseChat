@@ -14,6 +14,7 @@ public class CallRealtimeNotifier {
     private static final String PRIVATE_MESSAGE_QUEUE = "/queue/messages";
 
     private final SimpMessagingTemplate messagingTemplate;
+    private final WebPushService webPushService;
 
     public void notifyParticipants(CallSignalResponse response) {
         notifyCaller(response);
@@ -40,6 +41,18 @@ public class CallRealtimeNotifier {
                 CALL_QUEUE,
                 response.forRecipient(CallRecipientRole.RECEIVER)
         );
+        if (response.eventType() == com.chatapp.dto.request.CallSignalRequest.CallSignalType.CALL_INVITE) {
+            String callerName = response.caller().fullName() != null && !response.caller().fullName().isBlank()
+                    ? response.caller().fullName()
+                    : response.caller().username();
+            webPushService.sendPush(
+                    response.receiver().username(),
+                    "📞 Incoming " + response.callType() + " Call",
+                    callerName + " is calling you",
+                    "/chat/u/" + response.caller().username(),
+                    "call-" + response.caller().username()
+            );
+        }
     }
 
     private void notifyHistoryMessage(CallSignalResponse response) {

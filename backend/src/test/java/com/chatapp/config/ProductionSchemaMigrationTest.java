@@ -48,6 +48,10 @@ class ProductionSchemaMigrationTest {
                     null, "PUBLIC", "USER_BLOCKS", new String[]{"TABLE"})) {
                 assertTrue(userBlocks.next());
             }
+            try (ResultSet pushSubs = connection.getMetaData().getTables(
+                    null, "PUBLIC", "WEB_PUSH_SUBSCRIPTIONS", new String[]{"TABLE"})) {
+                assertTrue(pushSubs.next());
+            }
         }
     }
 

@@ -59,6 +59,7 @@ class LocalMediaHttpSecurityTest {
                 .andExpect(content().string("private"))
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(header().string("Content-Disposition", "attachment"))
+                .andExpect(header().string("Accept-Ranges", "bytes"))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"));
         verify(access).requireAccess("alice", FILE);
     }

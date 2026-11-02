@@ -62,6 +62,20 @@ public class WebSocketSessionRegistry implements WebSocketHandlerDecoratorFactor
         sessionIdsByUsername.values().forEach(sessionIds -> sessionIds.remove(sessionId));
     }
 
+    public boolean hasActiveSessions(String username) {
+        if (username == null) {
+            return false;
+        }
+        Set<String> sessionIds = sessionIdsByUsername.get(username);
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return false;
+        }
+        return sessionIds.stream().anyMatch(sessionId -> {
+            WebSocketSession session = sessionsById.get(sessionId);
+            return session != null && session.isOpen();
+        });
+    }
+
     /**
      * Closes every open session of the user and returns how many were closed. Safe to call for
      * users without sessions.

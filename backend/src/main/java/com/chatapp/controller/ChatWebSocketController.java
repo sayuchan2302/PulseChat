@@ -51,6 +51,7 @@ public class ChatWebSocketController {
     private final ChatRoomService chatRoomService;
     private final FriendshipService friendshipService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final com.chatapp.service.WebPushService webPushService;
 
     @MessageMapping("/chat.send")
     public void sendMessage(@Valid @Payload SendMessageRequest request, Principal principal) {
@@ -69,6 +70,20 @@ public class ChatWebSocketController {
                 PRIVATE_MESSAGE_QUEUE,
                 savedMessage
         );
+
+        String senderDisplayName = org.springframework.util.StringUtils.hasText(savedMessage.senderFullName())
+                ? savedMessage.senderFullName()
+                : savedMessage.senderUsername();
+        String preview = org.springframework.util.StringUtils.hasText(savedMessage.content())
+                ? savedMessage.content()
+                : "Sent an attachment";
+        webPushService.sendPushIfInactive(
+                receiver.getUsername(),
+                senderDisplayName,
+                preview,
+                "/chat/u/" + authenticatedPrincipal.getName(),
+                "dm-" + authenticatedPrincipal.getName()
+        );
     }
 
     @MessageMapping("/rooms/{roomId}/send")
@@ -86,13 +101,28 @@ public class ChatWebSocketController {
         );
 
         chatRoomService.getGroupParticipantUsernames(authenticatedPrincipal.getName(), roomId)
-                .forEach(username ->
-                        messagingTemplate.convertAndSendToUser(
+                .forEach(username -> {
+                    messagingTemplate.convertAndSendToUser(
+                            username,
+                            PRIVATE_MESSAGE_QUEUE,
+                            savedMessage
+                    );
+                    if (!username.equals(authenticatedPrincipal.getName())) {
+                        String senderDisplayName = org.springframework.util.StringUtils.hasText(savedMessage.senderFullName())
+                                ? savedMessage.senderFullName()
+                                : savedMessage.senderUsername();
+                        String preview = org.springframework.util.StringUtils.hasText(savedMessage.content())
+                                ? savedMessage.content()
+                                : "Sent an attachment";
+                        webPushService.sendPushIfInactive(
                                 username,
-                                PRIVATE_MESSAGE_QUEUE,
-                                savedMessage
-                        )
-                );
+                                "Group Message",
+                                senderDisplayName + ": " + preview,
+                                "/chat/r/" + roomId,
+                                "room-" + roomId
+                        );
+                    }
+                });
     }
 
     @MessageMapping("/chat.typing")

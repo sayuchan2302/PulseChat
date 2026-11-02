@@ -22,6 +22,7 @@ import { apiClient } from '../services/api';
 import { useAuth } from '../context/useAuth';
 import { wsService } from '../services/websocket';
 import { soundService } from '../services/soundService';
+import { getPushSubscription, isPushSupported, subscribeToPush, unsubscribeFromPush } from '../services/pushService';
 import { dbService } from '../services/dbService';
 import { useChatRealtime, type ChatRealtimeHandlers } from '../hooks/useChatRealtime';
 import { useConversationDirectory } from '../hooks/useConversationDirectory';
@@ -156,6 +157,7 @@ export default function ChatPage() {
   const [mentionActiveIndex, setMentionActiveIndex] = useState<number>(0);
   const [slashCommandQuery, setSlashCommandQuery] = useState<string | null>(null);
   const [soundMuted, setSoundMuted] = useState(() => soundService.isMuted());
+  const [pushSubscribed, setPushSubscribed] = useState(false);
 
   useEffect(() => {
     return soundService.onMuteChange((muted) => setSoundMuted(muted));
@@ -166,6 +168,22 @@ export default function ChatPage() {
   const [mediaError, setMediaError] = useState('');
   const [mediaViewerMessage, setMediaViewerMessage] = useState<ChatMessage | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    if (currentUser && isPushSupported()) {
+      void getPushSubscription().then((sub) => setPushSubscribed(Boolean(sub)));
+    }
+  }, [currentUser]);
+
+  const handleTogglePush = useCallback(async () => {
+    if (pushSubscribed) {
+      const ok = await unsubscribeFromPush();
+      if (ok) setPushSubscribed(false);
+    } else {
+      const ok = await subscribeToPush();
+      if (ok) setPushSubscribed(true);
+    }
+  }, [pushSubscribed]);
   const [remoteTypingUserIds, setRemoteTypingUserIds] = useState<number[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
@@ -2103,6 +2121,8 @@ export default function ChatPage() {
         onOpenFriends={handleOpenFriendsPanel}
         onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
         onToggleSound={() => soundService.toggleMuted()}
+        pushSubscribed={pushSubscribed}
+        onTogglePush={handleTogglePush}
         onOpenRequests={handleOpenRequestsPanel}
         onToggleProfileMenu={handleToggleProfileMenu}
         onOpenProfileEditor={handleOpenProfileEditor}

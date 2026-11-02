@@ -59,6 +59,9 @@ class ChatWebSocketControllerTest {
     @Mock
     private SimpMessagingTemplate messagingTemplate;
 
+    @Mock
+    private com.chatapp.service.WebPushService webPushService;
+
     @InjectMocks
     private ChatWebSocketController controller;
 
