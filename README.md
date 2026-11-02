@@ -141,8 +141,8 @@ the baselines are platform-specific.
 
 ### Test documentation
 
-- [`TEST_PLAN.md`](TEST_PLAN.md) — test layers, commands, evidence, and T3 manual checklist.
-- [`PRE_FEATURE_CHECKLIST.md`](PRE_FEATURE_CHECKLIST.md) — release gate and feature-start checklist.
+- [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) — test layers, commands, evidence, and T3 manual checklist.
+- [`docs/PRE_FEATURE_CHECKLIST.md`](docs/PRE_FEATURE_CHECKLIST.md) — release gate and feature-start checklist.
 - [`frontend/README.md`](frontend/README.md) — frontend scripts and E2E notes.
 
 ## 🔒 Notes

@@ -85,5 +85,5 @@ expanded audio/video call layout, responsive overflow, axe smoke checks,
 computed-style contracts, and local visual snapshots. Visual baselines are
 Windows-specific and skipped in CI.
 
-See the root [`TEST_PLAN.md`](../TEST_PLAN.md) for the full test layers and
+See the root [`docs/TEST_PLAN.md`](../docs/TEST_PLAN.md) for the full test layers and
 evidence.
