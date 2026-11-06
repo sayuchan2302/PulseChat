@@ -10,19 +10,15 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ROUTES } from '../config/constants';
 import type {
   ChatRoom,
-  ConversationSetting,
   Friendship,
   FriendshipSummary,
   GlobalMessageSearchItem,
-  GroupMemberRole,
   Message,
   User,
 } from '../types';
 import { apiClient } from '../services/api';
 import { useAuth } from '../context/useAuth';
 import { wsService } from '../services/websocket';
-import { soundService } from '../services/soundService';
-import { getPushSubscription, isPushSupported, subscribeToPush, unsubscribeFromPush } from '../services/pushService';
 import { dbService } from '../services/dbService';
 import { useChatRealtime, type ChatRealtimeHandlers } from '../hooks/useChatRealtime';
 import { useConversationDirectory } from '../hooks/useConversationDirectory';
@@ -36,15 +32,10 @@ import { useMessageSending } from '../hooks/useMessageSending';
 import { useMessageHistory } from '../hooks/useMessageHistory';
 import { useMessageTransport } from '../hooks/useMessageTransport';
 import { useProfileEditor } from '../hooks/useProfileEditor';
-import { useGroupInvite } from '../hooks/useGroupInvite';
 import { useRealtimeEventHandlers } from '../hooks/useRealtimeEventHandlers';
 import { useIncomingMessageRecovery } from '../hooks/useIncomingMessageRecovery';
 import { useIncomingMessageHandler } from '../hooks/useIncomingMessageHandler';
 import { useFriendshipActions } from '../hooks/useFriendshipActions';
-import { useGroupMemberActions } from '../hooks/useGroupMemberActions';
-import { useGroupAvatar } from '../hooks/useGroupAvatar';
-import { useGroupSettingsActions } from '../hooks/useGroupSettingsActions';
-import { useGroupCreation } from '../hooks/useGroupCreation';
 import { useCallFeature } from '../hooks/useCallFeature';
 import { useRoomSummary } from '../hooks/useRoomSummary';
 import { useChatNotifications } from '../hooks/useChatNotifications';
@@ -58,19 +49,19 @@ import { useMessageViewport } from '../hooks/useMessageViewport';
 import { useConversationNavigation } from '../hooks/useConversationNavigation';
 import { useProfileViewer } from '../hooks/useProfileViewer';
 import { useTheme } from '../hooks/useTheme';
+import { useHeaderPreferences } from '../hooks/useHeaderPreferences';
+import { useConversationSettings } from '../hooks/useConversationSettings';
+import { useGroupWorkspace } from '../hooks/useGroupWorkspace';
 import {
   USER_SEARCH_DEBOUNCE_MS,
   LOAD_OLDER_SCROLL_THRESHOLD, READ_BOTTOM_THRESHOLD, AUTO_SCROLL_BOTTOM_THRESHOLD,
-  MIN_GROUP_MEMBERS, MIN_GROUP_INVITED_MEMBERS,
-  MAX_AVATAR_SIZE_BYTES, MAX_AVATAR_SIZE_MB,
-  ACCEPTED_AVATAR_TYPES, MEDIA_ACCEPT,
+  MEDIA_ACCEPT,
   CONVERSATION_FILTERS,
 } from '../constants/chatConstants';
 import type {
   ChatMessage,
   PendingMedia,
   MainView, ConversationFilter,
-  ConversationTarget,
 } from '../types/chat.types';
 import {
   toDeliveredMessage,
@@ -85,7 +76,6 @@ import {
   getUserDisplayName,
   getAvatarUrl, getMediaUrl,
   applyProfileToUser, applyProfileToRoom,
-  applyConversationSettingToUser, applyConversationSettingToRoom,
   canChatWithUser,
   getTypingIndicatorLabel,
 
@@ -94,7 +84,7 @@ import {
 import {
   hasPrivateConversation,
   sortRoomsByChatActivity, buildSidebarConversationItems,
-  isRoomParticipant, appendOrUpdateRoom, compareUsersByChatActivity,
+  isRoomParticipant, appendOrUpdateRoom,
   applyRoomPreviewToRoom,
   applyConversationPreviewToUser, applyConversationPreviewToUsers,
 } from '../utils/conversationUtils';
@@ -156,34 +146,20 @@ export default function ChatPage() {
   const [mentionStartIndex, setMentionStartIndex] = useState<number>(-1);
   const [mentionActiveIndex, setMentionActiveIndex] = useState<number>(0);
   const [slashCommandQuery, setSlashCommandQuery] = useState<string | null>(null);
-  const [soundMuted, setSoundMuted] = useState(() => soundService.isMuted());
-  const [pushSubscribed, setPushSubscribed] = useState(false);
-
-  useEffect(() => {
-    return soundService.onMuteChange((muted) => setSoundMuted(muted));
-  }, []);
-
   const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null);
   const [mediaUploading, setMediaUploading] = useState(false);
   const [mediaError, setMediaError] = useState('');
   const [mediaViewerMessage, setMediaViewerMessage] = useState<ChatMessage | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-
-  useEffect(() => {
-    if (currentUser && isPushSupported()) {
-      void getPushSubscription().then((sub) => setPushSubscribed(Boolean(sub)));
-    }
-  }, [currentUser]);
-
-  const handleTogglePush = useCallback(async () => {
-    if (pushSubscribed) {
-      const ok = await unsubscribeFromPush();
-      if (ok) setPushSubscribed(false);
-    } else {
-      const ok = await subscribeToPush();
-      if (ok) setPushSubscribed(true);
-    }
-  }, [pushSubscribed]);
+  const {
+    soundMuted,
+    pushSubscribed,
+    profileMenuOpen,
+    setProfileMenuOpen,
+    handleTogglePush,
+    handleToggleSound,
+    handleToggleProfileMenu,
+  } = useHeaderPreferences(currentUser);
   const [remoteTypingUserIds, setRemoteTypingUserIds] = useState<number[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
@@ -197,12 +173,6 @@ export default function ChatPage() {
   const [friendRequestsLoading, setFriendRequestsLoading] = useState(true);
   const [mainView, setMainView] = useState<MainView>('chat');
   const [conversationFilter, setConversationFilter] = useState<ConversationFilter>('all');
-  const [openConversationMenuKey, setOpenConversationMenuKey] = useState<string | null>(null);
-  const [conversationSettingPendingKey, setConversationSettingPendingKey] = useState<string | null>(null);
-  const [conversationSettingsError, setConversationSettingsError] = useState('');
-  const [conversationDeleteTarget, setConversationDeleteTarget] = useState<ConversationTarget | null>(null);
-  const [createGroupOpen, setCreateGroupOpen] = useState(false);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [incomingFriendRequests, setIncomingFriendRequests] = useState<Friendship[]>([]);
@@ -211,23 +181,6 @@ export default function ChatPage() {
     outgoingCount: 0,
   });
   const [friendActionKeys, setFriendActionKeys] = useState<string[]>([]);
-  const [groupName, setGroupName] = useState('');
-  const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<number[]>([]);
-  const [groupCreating, setGroupCreating] = useState(false);
-  const [groupError, setGroupError] = useState('');
-  const [groupSettingsName, setGroupSettingsName] = useState('');
-  const [isEditingGroupName, setIsEditingGroupName] = useState(false);
-  const [selectedAddMemberIds, setSelectedAddMemberIds] = useState<number[]>([]);
-  const [addMembersModalOpen, setAddMembersModalOpen] = useState(false);
-  const [groupMemberNicknames, setGroupMemberNicknames] = useState<Record<number, string>>({});
-  const [openGroupMemberMenuId, setOpenGroupMemberMenuId] = useState<number | null>(null);
-  const [editingGroupMemberNicknameId, setEditingGroupMemberNicknameId] = useState<number | null>(
-    null
-  );
-  const [groupSettingsPendingAction, setGroupSettingsPendingAction] = useState<string | null>(null);
-  const [groupSettingsError, setGroupSettingsError] = useState('');
-  const [groupAvatarUploading, setGroupAvatarUploading] = useState(false);
-  const [groupMembersExpanded, setGroupMembersExpanded] = useState(false);
   const [rightSidebarTab, setRightSidebarTab] = useState<'details' | 'search'>('details');
   const {
     messageSearchQuery, setMessageSearchQuery,
@@ -524,23 +477,6 @@ export default function ChatPage() {
     }
   }, [selectedRoom?.id, selectedUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    setGroupSettingsName(selectedRoom?.name ?? '');
-    setIsEditingGroupName(false);
-    setSelectedAddMemberIds([]);
-    setGroupMemberNicknames(
-      Object.fromEntries(
-        selectedRoom?.participants.map((participant) => [
-          participant.id,
-          participant.nickname ?? '',
-        ]) ?? []
-      )
-    );
-    setOpenGroupMemberMenuId(null);
-    setEditingGroupMemberNicknameId(null);
-    setGroupSettingsError('');
-  }, [selectedRoom?.id, selectedRoom?.name, selectedRoom?.participants]);
-
   useOfflineCache({
     currentUserId: currentUser?.id ?? null,
     rooms,
@@ -758,31 +694,6 @@ export default function ChatPage() {
     setMediaViewerMessage(null);
   }, [selectedRoomId, selectedUserId, setEmojiPickerOpen]);
 
-  useEffect(() => {
-    if (!openConversationMenuKey) {
-      return undefined;
-    }
-
-    const closeConversationMenu = () => setOpenConversationMenuKey(null);
-    const handleConversationMenuKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setOpenConversationMenuKey(null);
-      }
-    };
-
-    document.addEventListener('click', closeConversationMenu);
-    document.addEventListener('keydown', handleConversationMenuKeyDown);
-
-    return () => {
-      document.removeEventListener('click', closeConversationMenu);
-      document.removeEventListener('keydown', handleConversationMenuKeyDown);
-    };
-  }, [openConversationMenuKey]);
-
-  useEffect(() => {
-    setOpenConversationMenuKey(null);
-  }, [conversationFilter, selectedRoomId, selectedUserId, userSearchQuery]);
-
   const selectedUserMessageRequest = selectedUser?.messageRequest;
 
   useEffect(() => {
@@ -968,38 +879,6 @@ export default function ChatPage() {
     if (ownerId !== null) void dbService.removeMessageFromCaches(ownerId, messageId);
     void Promise.all([loadUsers({ silent: true }), loadRooms({ silent: true })]);
   }, [loadRooms, loadUsers, removeSharedContentMessage]);
-
-  const applyConversationSetting = useCallback((setting: ConversationSetting) => {
-    if (setting.targetUserId) {
-      setUsers((currentUsers) =>
-        [...currentUsers.map((user) => applyConversationSettingToUser(user, setting))]
-          .sort(compareUsersByChatActivity)
-      );
-      setFriends((currentFriends) =>
-        [...currentFriends.map((friend) => applyConversationSettingToUser(friend, setting))]
-          .sort(compareUsersByChatActivity)
-      );
-      setSelectedUser((currentSelectedUser) =>
-        currentSelectedUser
-          ? applyConversationSettingToUser(currentSelectedUser, setting)
-          : currentSelectedUser
-      );
-      return;
-    }
-
-    if (setting.chatRoomId) {
-      setRooms((currentRooms) =>
-        sortRoomsByChatActivity(
-          currentRooms.map((room) => applyConversationSettingToRoom(room, setting))
-        )
-      );
-      setSelectedRoom((currentSelectedRoom) =>
-        currentSelectedRoom
-          ? applyConversationSettingToRoom(currentSelectedRoom, setting)
-          : currentSelectedRoom
-      );
-    }
-  }, []);
 
   const realtimeEventHandlers = useRealtimeEventHandlers({
     realtimeActiveRef, hasConnectedRef, currentUserIdRef, selectedUserIdRef, selectedRoomIdRef,
@@ -1274,10 +1153,6 @@ export default function ChatPage() {
     void loadUsers({ silent: true, search: '' });
   };
 
-  const handleToggleProfileMenu = () => {
-    setProfileMenuOpen((currentOpen) => !currentOpen);
-  };
-
   const handleUserBlocked = useCallback(async (blockedUser: User) => {
     setFriends((current) => current.filter((friend) => friend.id !== blockedUser.id));
     setUsers((current) => current.map((listedUser) => listedUser.id === blockedUser.id
@@ -1350,6 +1225,58 @@ export default function ChatPage() {
   };
 
   const {
+    openConversationMenuKey,
+    setOpenConversationMenuKey,
+    conversationSettingPendingKey,
+    conversationSettingsError,
+    setConversationSettingsError,
+    conversationDeleteTarget,
+    setConversationDeleteTarget,
+    handleToggleConversationMenu,
+    handleUpdateConversationSetting,
+    handleDeleteConversation,
+  } = useConversationSettings({
+    conversationFilter,
+    selectedRoomId,
+    selectedUserId,
+    userSearchQuery,
+    selectedUserIdRef,
+    selectedRoomIdRef,
+    setUsers,
+    setFriends,
+    setSelectedUser,
+    setRooms,
+    setSelectedRoom,
+    clearSelectedConversation,
+    navigateToChatRoot: () => navigateIfNeeded(getChatRoute()),
+  });
+
+  const {
+    createGroupOpen,
+    groupName,
+    setGroupName,
+    selectedGroupMemberIds,
+    groupCreating,
+    groupError,
+    setGroupError,
+    groupSettingsName,
+    setGroupSettingsName,
+    isEditingGroupName,
+    setIsEditingGroupName,
+    selectedAddMemberIds,
+    setSelectedAddMemberIds,
+    addMembersModalOpen,
+    setAddMembersModalOpen,
+    groupMemberNicknames,
+    openGroupMemberMenuId,
+    setOpenGroupMemberMenuId,
+    editingGroupMemberNicknameId,
+    groupSettingsPendingAction,
+    groupSettingsError,
+    setGroupSettingsError,
+    groupAvatarUploading,
+    groupMembersExpanded,
+    setGroupMembersExpanded,
     inviteModalOpen,
     setInviteModalOpen,
     inviteLoading,
@@ -1360,7 +1287,58 @@ export default function ChatPage() {
     handleRevokeInviteLink,
     getGroupInviteUrl,
     handleCopyInviteLink,
-  } = useGroupInvite({ selectedRoom });
+    handleOpenCreateGroup,
+    handleCloseCreateGroup,
+    handleToggleGroupMember,
+    handleCreateGroup,
+    handleToggleAddRoomMember,
+    handleUpdateGroupSettingsName,
+    handleAddRoomMembers,
+    handleGroupMemberNicknameChange,
+    handleToggleGroupMemberMenu,
+    handleStartEditGroupMemberNickname,
+    handleCancelEditGroupMemberNickname,
+    handleUpdateRoomMemberNickname,
+    handleKickRoomMember,
+    handleTransferRoomOwner,
+    handleLeaveSelectedGroup,
+    handleUpdateMemberRole,
+    handleDeleteSelectedGroup,
+    handleGroupAvatarChange,
+    groupMemberRequirementText,
+    canCreateGroup,
+    selectedRoomOwnerId,
+    selectedRoomOwnerName,
+    currentUserMemberRole,
+    isCurrentUserOwner,
+    isCurrentUserModerator,
+    currentUserCanManageSelectedRoom,
+    canManagePinnedMessages,
+    groupSettingsSaving,
+    addMemberCandidates,
+    canSaveGroupSettingsName,
+    canKickMember,
+  } = useGroupWorkspace({
+    currentUser,
+    selectedRoom,
+    friends,
+    selectedUserIdRef,
+    selectedRoomIdRef,
+    stopTyping,
+    stopRoomTyping,
+    navigateIfNeeded,
+    resetMessagePagination,
+    uploadPendingMedia,
+    applyRoomMembershipUpdate,
+    setMainView,
+    setProfileMenuOpen,
+    setRooms,
+    setSelectedUser,
+    setSelectedRoom,
+    setDetailsOpen,
+    setMessages,
+    setMessageInput,
+  });
 
   useEffect(() => {
     const handleEscapeKey = (event: KeyboardEvent) => {
@@ -1409,117 +1387,11 @@ export default function ChatPage() {
     mediaViewerMessage,
     profileMenuOpen,
     reactionModalGroups,
+    setAddMembersModalOpen,
+    setConversationDeleteTarget,
     setInviteModalOpen,
+    setProfileMenuOpen,
   ]);
-
-  const handleOpenCreateGroup = () => {
-    navigateIfNeeded(getChatRoute());
-    setMainView('chat');
-    setProfileMenuOpen(false);
-    setCreateGroupOpen(true);
-    setGroupError('');
-  };
-
-  const handleCloseCreateGroup = () => {
-    if (groupCreating) {
-      return;
-    }
-
-    setCreateGroupOpen(false);
-    setGroupName('');
-    setSelectedGroupMemberIds([]);
-    setGroupError('');
-  };
-
-  const handleToggleGroupMember = (userId: number) => {
-    setGroupError('');
-    setSelectedGroupMemberIds((currentIds) =>
-      currentIds.includes(userId)
-        ? currentIds.filter((currentId) => currentId !== userId)
-        : [...currentIds, userId]
-    );
-  };
-
-  const handleCreateGroup = useGroupCreation({
-    name: groupName, memberIds: selectedGroupMemberIds, minimumInvitedMembers: MIN_GROUP_INVITED_MEMBERS,
-    selectedUserIdRef, selectedRoomIdRef, stopTyping, stopRoomTyping,
-    navigateToRoom: (roomId) => navigateIfNeeded(getRoomChatRoute(roomId)),
-    shouldOpenDetails: shouldOpenConversationDetailsByDefault, resetMessagePagination,
-    setRooms, setSelectedUser, setSelectedRoom, setDetailsOpen, setMessages, setMessageInput,
-    setOpen: setCreateGroupOpen, setName: setGroupName, setMemberIds: setSelectedGroupMemberIds,
-    setCreating: setGroupCreating, setError: setGroupError,
-  });
-
-  const handleToggleAddRoomMember = (userId: number) => {
-    setGroupSettingsError('');
-    setSelectedAddMemberIds((currentIds) =>
-      currentIds.includes(userId)
-        ? currentIds.filter((currentId) => currentId !== userId)
-        : [...currentIds, userId]
-    );
-  };
-
-  const { handleUpdateGroupSettingsName, handleAddRoomMembers } = useGroupSettingsActions({
-    selectedRoom, pendingAction: groupSettingsPendingAction, groupName: groupSettingsName,
-    selectedAddMemberIds, applyRoomMembershipUpdate, setPendingAction: setGroupSettingsPendingAction,
-    setError: setGroupSettingsError, setEditingName: setIsEditingGroupName,
-    setSelectedAddMemberIds, setAddMembersModalOpen,
-  });
-
-  const {
-    handleGroupMemberNicknameChange,
-    handleToggleGroupMemberMenu,
-    handleStartEditGroupMemberNickname,
-    handleCancelEditGroupMemberNickname,
-    handleUpdateRoomMemberNickname,
-    handleKickRoomMember,
-    handleTransferRoomOwner,
-    handleLeaveSelectedGroup,
-    handleUpdateMemberRole,
-    handleDeleteSelectedGroup,
-  } = useGroupMemberActions({
-    selectedRoom, groupSettingsPendingAction, groupMemberNicknames, selectedRoomIdRef,
-    setGroupSettingsError, setGroupSettingsPendingAction, setOpenGroupMemberMenuId,
-    setEditingGroupMemberNicknameId, setGroupMemberNicknames, setRooms, setSelectedRoom,
-    setMessages, applyRoomMembershipUpdate, navigateToChat: () => navigateIfNeeded(getChatRoute()),
-  });
-
-  const handleToggleConversationMenu = (
-    targetKey: string,
-    event: React.MouseEvent<HTMLButtonElement>
-  ) => {
-    event.stopPropagation();
-    setConversationSettingsError('');
-    setOpenConversationMenuKey((currentKey) => (currentKey === targetKey ? null : targetKey));
-  };
-
-  const handleUpdateConversationSetting = async (
-    target: ConversationTarget,
-    patch: Partial<Pick<ConversationSetting, 'pinned' | 'muted' | 'archived'>>
-  ) => {
-    const targetKey =
-      target.type === 'user'
-        ? `user-${target.user.id}`
-        : `room-${target.room.id}`;
-    const endpoint =
-      target.type === 'user'
-        ? `/conversation-settings/private/${target.user.id}`
-        : `/conversation-settings/rooms/${target.room.id}`;
-
-    setConversationSettingPendingKey(targetKey);
-    setConversationSettingsError('');
-
-    try {
-      const response = await apiClient.patch<ConversationSetting>(endpoint, patch);
-      applyConversationSetting(response.data);
-      setOpenConversationMenuKey(null);
-    } catch (error) {
-      console.error('Failed to update conversation setting:', error);
-      setConversationSettingsError('Unable to update conversation settings.');
-    } finally {
-      setConversationSettingPendingKey(null);
-    }
-  };
 
   const {
     handleReplyToMessage, handleCancelReply, handleCopyMessage,
@@ -1546,17 +1418,14 @@ export default function ChatPage() {
   });
 
   const {
-    handleOpenMediaPicker, handleOpenDocPicker, handleFileSelected, handleMediaFileChange,
+    handleOpenMediaPicker,
+    handleOpenDocPicker,
+    handleFileSelected,
+    handleMediaFileChange,
+    handleClipboardPaste,
   } = useMediaPicker({
     mediaFileInputRef, docFileInputRef, setEmojiPickerOpen, setMediaError, setPendingMedia,
     getPendingMediaType, getMediaSizeError,
-  });
-
-
-  const handleGroupAvatarChange = useGroupAvatar({
-    selectedRoom, groupSettingsPendingAction, acceptedTypes: ACCEPTED_AVATAR_TYPES,
-    maxBytes: MAX_AVATAR_SIZE_BYTES, maxSizeMb: MAX_AVATAR_SIZE_MB, uploadPendingMedia,
-    applyRoomMembershipUpdate, setUploading: setGroupAvatarUploading, setError: setGroupSettingsError,
   });
 
   const handleVoiceRecorded = useVoiceMessage(setPendingMedia);
@@ -1728,59 +1597,6 @@ export default function ChatPage() {
       ? getUserDisplayName(selectedUser)
       : '';
   const selectedConversationOpen = Boolean(selectedUser || selectedRoom);
-  const selectedInvitedMemberCount = selectedGroupMemberIds.length;
-  const hasMinimumInvitedMembers = selectedInvitedMemberCount >= MIN_GROUP_INVITED_MEMBERS;
-  const groupMemberRequirementText = hasMinimumInvitedMembers
-    ? `${selectedInvitedMemberCount + 1} members total`
-    : `${selectedInvitedMemberCount} of ${MIN_GROUP_INVITED_MEMBERS} friends selected`;
-  const canCreateGroup = Boolean(groupName.trim()) && hasMinimumInvitedMembers && !groupCreating;
-  const selectedRoomOwnerId = selectedRoom?.ownerId ?? null;
-  const selectedRoomOwner = selectedRoom?.participants.find(
-    (participant) => participant.id === selectedRoomOwnerId
-  );
-  const selectedRoomOwnerName =
-    getUserDisplayName(selectedRoomOwner ?? null) ||
-    selectedRoom?.ownerFullName?.trim() ||
-    selectedRoom?.ownerUsername ||
-    '';
-  const currentUserMemberRole = useMemo<GroupMemberRole | null>(() => {
-    if (!selectedRoom || !currentUser) return null;
-    if (selectedRoom.ownerId === currentUser.id) return 'OWNER';
-    const member = selectedRoom.participants.find((participant) => participant.id === currentUser.id);
-    return member?.role ?? 'MEMBER';
-  }, [selectedRoom, currentUser]);
-
-  const isCurrentUserOwner = currentUserMemberRole === 'OWNER';
-  const isCurrentUserModerator = currentUserMemberRole === 'MODERATOR';
-  const currentUserCanManageSelectedRoom = isCurrentUserOwner || isCurrentUserModerator;
-  const canManagePinnedMessages = !selectedRoom || currentUserCanManageSelectedRoom;
-  const groupSettingsSaving = groupSettingsPendingAction !== null;
-  const selectedRoomParticipantIds = new Set(
-    selectedRoom?.participants.map((participant) => participant.id) ?? []
-  );
-  const addMemberCandidates = friends.filter(
-    (friend) => !selectedRoomParticipantIds.has(friend.id)
-  );
-  const canSaveGroupSettingsName = Boolean(
-    currentUserCanManageSelectedRoom &&
-    groupSettingsName.trim() &&
-    selectedRoom &&
-    groupSettingsName.trim() !== selectedRoom.name.trim() &&
-    !groupSettingsSaving
-  );
-  const canKickMember = useCallback(
-    (user: User) => {
-      if (!selectedRoom || !currentUser || groupSettingsSaving) return false;
-      if (user.id === currentUser.id) return false;
-      if (selectedRoom.participants.length <= MIN_GROUP_MEMBERS) return false;
-      if (isCurrentUserOwner) return true;
-      if (isCurrentUserModerator) {
-        return user.role !== 'OWNER' && user.role !== 'MODERATOR' && user.id !== selectedRoom.ownerId;
-      }
-      return false;
-    },
-    [selectedRoom, currentUser, groupSettingsSaving, isCurrentUserOwner, isCurrentUserModerator]
-  );
   const sidebarBusy = hasUserSearch ? usersLoading : usersLoading || roomsLoading;
   const messageListItems = useMemo(
     () => buildMessageListItems(
@@ -1900,46 +1716,6 @@ export default function ChatPage() {
       onOpenModal={(target, seenUsers) => setGroupSeenModalMessage({ message: target, seenUsers })}
     />
   ), [seenByPopupMessageId]);
-
-  const handleDeleteConversation = async () => {
-    if (!conversationDeleteTarget) {
-      return;
-    }
-
-    const target = conversationDeleteTarget;
-    const targetKey = target.type === 'user' ? `user-${target.user.id}` : `room-${target.room.id}`;
-    const endpoint = target.type === 'user'
-      ? `/conversation-settings/private/${target.user.id}`
-      : `/conversation-settings/rooms/${target.room.id}`;
-
-    setConversationSettingPendingKey(targetKey);
-    setConversationSettingsError('');
-
-    try {
-      await apiClient.delete(endpoint);
-      setOpenConversationMenuKey(null);
-      setConversationDeleteTarget(null);
-
-      if (target.type === 'user') {
-        setUsers((currentUsers) => currentUsers.filter((user) => user.id !== target.user.id));
-        if (selectedUserIdRef.current === target.user.id) {
-          clearSelectedConversation();
-          navigateIfNeeded(getChatRoute());
-        }
-      } else {
-        setRooms((currentRooms) => currentRooms.filter((room) => room.id !== target.room.id));
-        if (selectedRoomIdRef.current === target.room.id) {
-          clearSelectedConversation();
-          navigateIfNeeded(getChatRoute());
-        }
-      }
-    } catch (error) {
-      console.error('Failed to delete conversation:', error);
-      setConversationSettingsError('Unable to delete this conversation.');
-    } finally {
-      setConversationSettingPendingKey(null);
-    }
-  };
 
   const renderDetailsMemberItem = (user: User) => (
     <GroupMemberListItem
@@ -2121,7 +1897,7 @@ export default function ChatPage() {
         onToggleTheme={toggleTheme}
         onOpenFriends={handleOpenFriendsPanel}
         onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
-        onToggleSound={() => soundService.toggleMuted()}
+        onToggleSound={handleToggleSound}
         pushSubscribed={pushSubscribed}
         onTogglePush={handleTogglePush}
         onOpenRequests={handleOpenRequestsPanel}
@@ -2282,6 +2058,8 @@ export default function ChatPage() {
                 onMessageInputChange: handleMessageInputChange,
                 onMessageInputKeyDown: handleMessageInputKeyDown,
                 onUpdateMessageInputSelection: updateMessageInputSelection,
+                onPaste: handleClipboardPaste,
+                onFileDrop: handleFileSelected,
                 selectedConversationName,
                 mentionQuery,
                 mentionCandidates,

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import type React from 'react';
 import type { MessageReply } from '../../types';
 import type { MentionCandidate, PendingMedia } from '../../types/chat.types';
@@ -32,6 +33,8 @@ export interface MessageInputProps {
   onMessageInputChange: (value: string) => void;
   onMessageInputKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onUpdateMessageInputSelection: () => void;
+  onPaste?: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
+  onFileDrop?: (file: File) => void;
   selectedConversationName: string;
   mentionQuery: string | null;
   mentionCandidates: MentionCandidate[];
@@ -50,13 +53,60 @@ export function MessageInput(props: MessageInputProps) {
     onClearPendingMedia, onOpenMediaPicker, onOpenDocumentPicker, onVoiceRecorded,
     emojiButtonRef, emojiPickerOpen, onToggleEmojiPicker, messageInputRef,
     messageInput, onMessageInputChange, onMessageInputKeyDown,
-    onUpdateMessageInputSelection, selectedConversationName, mentionQuery,
+    onUpdateMessageInputSelection, onPaste, onFileDrop, selectedConversationName, mentionQuery,
     mentionCandidates, mentionActiveIndex, onInsertMention, slashCommandQuery,
     onInsertSummaryCommand, emojiPickerRef, onInsertEmoji,
   } = props;
 
+  // Auto-resize composer textarea height based on content
+  useEffect(() => {
+    const el = messageInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [messageInput, messageInputRef]);
+
+  const handleComposerClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest('button, .mention-autocomplete-dropdown, .emoji-picker-panel')) {
+      return;
+    }
+    messageInputRef.current?.focus();
+  };
+
+  const handleTextareaPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!canAttachMedia || mediaUploading || blocked || !onPaste) {
+      return;
+    }
+    onPaste(event);
+  };
+
+  const handleFormDragOver = (event: React.DragEvent<HTMLFormElement>) => {
+    if (!canAttachMedia || mediaUploading || blocked || !onFileDrop) {
+      return;
+    }
+    if (event.dataTransfer?.types?.includes('Files')) {
+      event.preventDefault();
+    }
+  };
+
+  const handleFormDrop = (event: React.DragEvent<HTMLFormElement>) => {
+    if (!canAttachMedia || mediaUploading || blocked || !onFileDrop) {
+      return;
+    }
+    const file = event.dataTransfer?.files?.[0];
+    if (file) {
+      event.preventDefault();
+      onFileDrop(file);
+    }
+  };
+
   return (
-    <form onSubmit={onSubmit} className="message-input-form">
+    <form
+      onSubmit={onSubmit}
+      onDragOver={handleFormDragOver}
+      onDrop={handleFormDrop}
+      className="message-input-form"
+    >
       {blocked ? <div className="blocked-message-notice" role="status">You blocked this user. Unblock them from their profile to send a private message.</div> : null}
       <input ref={mediaFileInputRef} type="file" className="media-file-input" accept={mediaAccept} onChange={onFileChange} disabled={!canAttachMedia} />
       <input ref={docFileInputRef} type="file" className="media-file-input" accept="*/*" onChange={onFileChange} disabled={!canAttachMedia} />
@@ -99,7 +149,7 @@ export function MessageInput(props: MessageInputProps) {
       ) : null}
 
       <div className="message-input-row">
-        <div className="message-composer">
+        <div className="message-composer" onClick={handleComposerClick}>
           <button type="button" className="composer-icon-btn" onClick={onOpenMediaPicker} disabled={mediaUploading || !canAttachMedia} aria-label="Attach image or video" title={canAttachMedia ? 'Attach photo/video' : 'Media is available after becoming friends'}>
             <MediaIcon className="composer-icon" />
           </button>
@@ -130,6 +180,7 @@ export function MessageInput(props: MessageInputProps) {
             onKeyUp={onUpdateMessageInputSelection}
             onClick={onUpdateMessageInputSelection}
             onSelect={onUpdateMessageInputSelection}
+            onPaste={handleTextareaPaste}
             placeholder={`Message ${selectedConversationName}`}
             className="message-input"
             rows={1}

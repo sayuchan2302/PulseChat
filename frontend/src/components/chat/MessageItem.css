@@ -1491,13 +1491,13 @@ background: rgba(147, 51, 234, 0.25);
 
 /* Sent vs Received border radiuses with subtle speech bubble tails */
 .message.sent .call-message-card {
-  border-radius: 18px 18px 4px 18px;
+  border-radius: var(--radius-md) var(--radius-md) 2px var(--radius-md);
   background: var(--bg-primary);
   border-color: rgba(91, 95, 199, 0.25);
 }
 
 .message.received .call-message-card {
-  border-radius: 18px 18px 18px 4px;
+  border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 2px;
   background: var(--bg-primary);
 }
 
@@ -1546,9 +1546,9 @@ background: rgba(147, 51, 234, 0.25);
 }
 
 .call-card-icon-wrap {
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
   background: var(--purple-50);
   color: var(--purple-700);
   display: flex;
@@ -1590,7 +1590,7 @@ background: rgba(147, 51, 234, 0.25);
 .call-card-delete-btn {
   width: 28px;
   height: 28px;
-  border-radius: 50%;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   color: var(--text-tertiary);
@@ -1635,7 +1635,7 @@ background: rgba(147, 51, 234, 0.25);
   gap: 7px;
   width: 100%;
   padding: 7px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--bg-secondary);
   color: var(--text-primary);

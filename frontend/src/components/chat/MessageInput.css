@@ -1,5 +1,5 @@
 /* ==========================================================================
-   MessageInput Component Styles - Minimalist Flat Composer
+   MessageInput Component Styles - Synchronized Sharp-with-Purpose Composer
    ========================================================================== */
 
 .message-input-form {
@@ -70,6 +70,8 @@
   align-items: center;
   justify-content: center;
   color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .replying-composer-close:hover {
@@ -162,6 +164,8 @@
   align-items: center;
   justify-content: center;
   color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .pending-media-remove:hover {
@@ -180,11 +184,11 @@
 }
 
 /* --------------------------------------------------------------------------
-   Composer Input Row
+   Composer Input Row - Synchronized with Message Bubble Radius
    -------------------------------------------------------------------------- */
 .message-input-row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: flex-end;
 }
 
@@ -194,18 +198,24 @@
   min-width: 0;
   display: flex;
   align-items: flex-end;
-  gap: 4px;
+  gap: 3px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   padding: 5px 8px;
   min-height: 42px;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  cursor: text;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.message-composer:hover:not(:focus-within) {
+  border-color: rgba(91, 95, 199, 0.35);
 }
 
 .message-composer:focus-within {
   border-color: var(--accent);
   background: var(--bg-primary);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
 }
 
 .composer-icon-btn {
@@ -219,16 +229,17 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.composer-icon-btn:hover:not(:disabled),
-.composer-icon-btn.active {
+.composer-icon-btn:hover:not(:disabled) {
   background: var(--bg-tertiary);
   color: var(--text-primary);
 }
 
 .composer-icon-btn.active {
+  background: var(--accent-subtle);
   color: var(--accent);
 }
 
@@ -242,37 +253,49 @@
   height: 18px !important;
 }
 
+/* Pure clean textarea - NO inner border, NO focus ring, NO nested box */
 .message-input {
   flex: 1;
   min-width: 0;
-  min-height: 32px;
-  max-height: 120px;
+  min-height: 24px;
+  max-height: 140px;
   padding: 6px 8px;
-  border: none;
+  border: none !important;
   background: transparent;
   color: var(--text-primary);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   line-height: 1.45;
   resize: none;
-  outline: none;
+  outline: none !important;
+  box-shadow: none !important;
   font-family: inherit;
+  caret-color: var(--accent);
+}
+
+.message-input:focus,
+.message-input:focus-visible,
+.message-input:active {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .message-input::placeholder {
   color: var(--text-tertiary);
+  font-size: var(--text-sm);
 }
 
 /* --------------------------------------------------------------------------
-   Send Button
+   Send Button - Synchronized with Message Bubble Radius
    -------------------------------------------------------------------------- */
 .send-btn {
   height: 42px;
   min-height: 42px;
-  padding: 0 20px;
+  padding: 0 18px;
   background: var(--accent);
   color: var(--accent-text);
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--text-sm);
   font-weight: var(--weight-semi);
   cursor: pointer;
@@ -280,11 +303,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.15s ease, opacity 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
 }
 
 .send-btn:hover:not(:disabled) {
   background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .send-btn:disabled {
@@ -293,6 +317,7 @@
   background: var(--bg-tertiary);
   color: var(--text-tertiary);
   border: 1px solid var(--border);
+  box-shadow: none;
 }
 
 /* --------------------------------------------------------------------------
@@ -499,12 +524,42 @@
    Restored section: styles lost during the ChatPage.css split (behaviour 1:1)
    ========================================================================== */
 .voice-record-btn {
-color: var(--color-primary, #7c3aed);
+  color: var(--color-primary, #7c3aed);
 }
 
 .voice-recorder-active {
-display: flex;
+  display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 8px;
+}
+
+/* --------------------------------------------------------------------------
+   Dark Mode Refinements
+   -------------------------------------------------------------------------- */
+[data-theme='dark'] .message-composer {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+}
+
+[data-theme='dark'] .message-composer:hover:not(:focus-within) {
+  border-color: rgba(123, 127, 224, 0.4);
+}
+
+[data-theme='dark'] .message-composer:focus-within {
+  background: var(--bg-primary);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
+}
+
+[data-theme='dark'] .send-btn:disabled {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+  color: var(--text-tertiary);
+  opacity: 0.4;
+}
+
+[data-theme='dark'] .send-btn:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
 }
