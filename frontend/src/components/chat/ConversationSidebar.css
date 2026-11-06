@@ -279,6 +279,11 @@
   text-overflow: ellipsis;
 }
 
+.conversation-draft-prefix {
+  color: var(--signal-error);
+  font-weight: var(--weight-semi);
+}
+
 .user-meta {
   display: flex;
   align-items: center;

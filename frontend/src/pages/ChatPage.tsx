@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,7 +18,6 @@ import type {
 import { apiClient } from '../services/api';
 import { useAuth } from '../context/useAuth';
 import { wsService } from '../services/websocket';
-import { dbService } from '../services/dbService';
 import { useChatRealtime, type ChatRealtimeHandlers } from '../hooks/useChatRealtime';
 import { useConversationDirectory } from '../hooks/useConversationDirectory';
 import { useMessageLoaders } from '../hooks/useMessageLoaders';
@@ -52,9 +50,14 @@ import { useTheme } from '../hooks/useTheme';
 import { useHeaderPreferences } from '../hooks/useHeaderPreferences';
 import { useConversationSettings } from '../hooks/useConversationSettings';
 import { useGroupWorkspace } from '../hooks/useGroupWorkspace';
+import { useMessageStateSync } from '../hooks/useMessageStateSync';
+import { useMessageScrollLifecycle } from '../hooks/useMessageScrollLifecycle';
+import { useMessageItemRenderers } from '../hooks/useMessageItemRenderers';
+import { useWorkspaceEscapeKey } from '../hooks/useWorkspaceEscapeKey';
+import { useConversationDrafts } from '../hooks/useConversationDrafts';
 import {
   USER_SEARCH_DEBOUNCE_MS,
-  LOAD_OLDER_SCROLL_THRESHOLD, READ_BOTTOM_THRESHOLD, AUTO_SCROLL_BOTTOM_THRESHOLD,
+  READ_BOTTOM_THRESHOLD, AUTO_SCROLL_BOTTOM_THRESHOLD,
   MEDIA_ACCEPT,
   CONVERSATION_FILTERS,
 } from '../constants/chatConstants';
@@ -64,8 +67,6 @@ import type {
   MainView, ConversationFilter,
 } from '../types/chat.types';
 import {
-  toDeliveredMessage,
-  mergeKnownMessageUpdate,
   getMessageType,
   createReplyFromMessage,
   getPendingMediaType, cloudinaryResultToMedia,
@@ -83,10 +84,7 @@ import {
 } from '../utils/userUtils';
 import {
   hasPrivateConversation,
-  sortRoomsByChatActivity, buildSidebarConversationItems,
-  isRoomParticipant, appendOrUpdateRoom,
-  applyRoomPreviewToRoom,
-  applyConversationPreviewToUser, applyConversationPreviewToUsers,
+  buildSidebarConversationItems,
 } from '../utils/conversationUtils';
 import { getBrowserAwareConnectionStatus } from '../utils/callUtils';
 import {
@@ -99,25 +97,17 @@ import {
 } from '../utils/routeUtils';
 import AppHeader from '../components/chat/AppHeader';
 import ConversationSidebar from '../components/chat/ConversationSidebar';
-import DetailsSidebar from '../components/chat/DetailsSidebar';
+import RightConversationSidebar from '../components/chat/RightConversationSidebar';
 import { FriendsPanel, FriendRequestsPanel } from '../components/chat/PeoplePanels';
 import ProfileViewerModal from '../components/chat/ProfileViewerModal';
 import BlockedUsersModal from '../components/chat/BlockedUsersModal';
 import ProfileEditorModal from '../components/chat/ProfileEditorModal';
 import CreateGroupModal from '../components/chat/CreateGroupModal';
 import SidebarContent from '../components/chat/SidebarContent';
-import GroupMemberListItem from '../components/chat/GroupMemberListItem';
 import ConversationPane from '../components/chat/ConversationPane';
 import CallModalLayer from '../components/chat/CallModalLayer';
 import ChatDialogLayer from '../components/chat/ChatDialogLayer';
-import MessageContent from '../components/chat/MessageContent';
-import SearchSidebar from '../components/chat/SearchSidebar';
 import GlobalMessageSearchModal from '../components/chat/GlobalMessageSearchModal';
-import MessageReactions from '../components/chat/MessageReactions';
-import CallMessageBody from '../components/chat/CallMessageBody';
-import MessageActions from '../components/chat/MessageActions';
-import GroupSeenBy from '../components/chat/GroupSeenBy';
-import SharedContentSections from '../components/chat/SharedContentSections';
 import type { LightboxMediaItem } from '../components/chat/MediaLightbox';
 import type { ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
 import { buildLatestRoomSeenByMessageId, buildMessageListItems } from '../utils/messageListUtils';
@@ -261,7 +251,6 @@ export default function ChatPage() {
     resetMessagePagination,
     applyMessagePagination,
     clearMessageJumpEffects,
-    scrollToMessageById,
     highlightMessageById,
   } = useMessageViewport({ currentUserIdRef });
 
@@ -455,12 +444,50 @@ export default function ChatPage() {
   const [groupSeenModalMessage, setGroupSeenModalMessage] = useState<{ message: Message; seenUsers: User[] } | null>(null);
   const [reactionModalGroups, setReactionModalGroups] = useState<ReactionDetailGroup[] | null>(null);
 
+  const { conversationDrafts } = useConversationDrafts({
+    currentUserId: currentUser?.id ?? null,
+    selectedUserId,
+    selectedRoomId,
+    messageInput,
+    setMessageInput,
+  });
+
+  const conversationMediaGalleryItems = useMemo<LightboxMediaItem[]>(() => {
+    const seenUrls = new Set<string>();
+    const items: LightboxMediaItem[] = [];
+    const candidates = [...messages, ...[...sharedMediaItems].reverse()];
+
+    for (const message of candidates) {
+      if (message.recalled) continue;
+      const msgType = getMessageType(message);
+      if (msgType !== 'IMAGE' && msgType !== 'VIDEO') continue;
+      const url = getMediaUrl(message.mediaUrl);
+      if (!url || seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      items.push({
+        url,
+        type: msgType,
+        fileName: message.content || (msgType === 'VIDEO' ? 'video' : 'image'),
+      });
+    }
+
+    return items;
+  }, [messages, sharedMediaItems]);
+
   const handleOpenLightbox = useCallback((url: string, type: 'IMAGE' | 'VIDEO', fileName?: string) => {
+    const matchedIndex = conversationMediaGalleryItems.findIndex((item) => item.url === url);
+    if (matchedIndex >= 0) {
+      setLightboxState({
+        items: conversationMediaGalleryItems,
+        index: matchedIndex,
+      });
+      return;
+    }
     setLightboxState({
       items: [{ url, type, fileName }],
       index: 0,
     });
-  }, []);
+  }, [conversationMediaGalleryItems]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -610,64 +637,6 @@ export default function ChatPage() {
     }
   }, [activeMessageSearchId, messageSearchItems, setActiveMessageSearchId]);
 
-  const markMessagesScrollIntent = useCallback(() => {
-    hasUserInteractedWithMessagesRef.current = true;
-  }, [hasUserInteractedWithMessagesRef]);
-
-  const handleMessageAssetLoaded = useCallback(() => {
-    if (
-      hasUserInteractedWithMessagesRef.current ||
-      pendingReadConversationRef.current ||
-      (selectedUserIdRef.current === null && selectedRoomIdRef.current === null)
-    ) {
-      return;
-    }
-
-    forceScrollToLatestMessage();
-    if (blockOlderMessagesAutoLoadRef.current) {
-      releaseInitialScrollBlock();
-    }
-  }, [
-    blockOlderMessagesAutoLoadRef,
-    forceScrollToLatestMessage,
-    hasUserInteractedWithMessagesRef,
-    pendingReadConversationRef,
-    releaseInitialScrollBlock,
-  ]);
-
-  const handleMessagesScroll = () => {
-    const container = messagesContainerRef.current;
-    if (container) {
-      completePendingReadIfAtBottom();
-    }
-
-    if (
-      !container ||
-      !hasUserInteractedWithMessagesRef.current ||
-      blockOlderMessagesAutoLoadRef.current ||
-      messagesLoading ||
-      olderMessagesLoading ||
-      container.scrollTop > LOAD_OLDER_SCROLL_THRESHOLD
-    ) {
-      return;
-    }
-
-    void loadOlderMessages();
-  };
-
-  useEffect(() => {
-    if (!('scrollRestoration' in window.history)) {
-      return undefined;
-    }
-
-    const previousScrollRestoration = window.history.scrollRestoration;
-    window.history.scrollRestoration = 'manual';
-
-    return () => {
-      window.history.scrollRestoration = previousScrollRestoration;
-    };
-  }, []);
-
   useEffect(() => {
     if (!authenticatedUser) {
       return;
@@ -779,106 +748,66 @@ export default function ChatPage() {
     findKnownUserById,
   });
 
-  const applyRoomMembershipUpdate = useCallback((room: ChatRoom) => {
-    if (!isRoomParticipant(room, currentUserIdRef.current)) {
-      setRooms((currentRooms) => currentRooms.filter((currentRoom) => currentRoom.id !== room.id));
+  const {
+    applyRoomMembershipUpdate,
+    applyMessageUpdate,
+    applyMessageHidden,
+  } = useMessageStateSync({
+    currentUserIdRef,
+    selectedRoomIdRef,
+    userSearchQueryRef,
+    roomSeenByLoadedMessageIdsRef,
+    navigate,
+    resetMessagePagination,
+    updateSharedContentFromMessage,
+    removeSharedContentMessage,
+    loadUsers,
+    loadRooms,
+    setRooms,
+    setSelectedRoom,
+    setUsers,
+    setFriends,
+    setSelectedUser,
+    setMessages,
+    setMessageInput,
+    setMainView,
+    setPinnedMessage,
+    setRoomSeenByByMessageId,
+    setSeenByPopupMessageId,
+    setReplyingToMessage,
+    setForwardingMessage,
+    setEditingMessage,
+    setMessageToDeleteForMe,
+  });
 
-      if (selectedRoomIdRef.current === room.id) {
-        selectedRoomIdRef.current = null;
-        setSelectedRoom(null);
-        setMessages([]);
-        setMessageInput('');
-        setMainView('chat');
-        resetMessagePagination();
-        navigate(getChatRoute(), { replace: true });
-      }
-
-      return;
-    }
-
-    setRooms((currentRooms) => appendOrUpdateRoom(currentRooms, room));
-    setSelectedRoom((currentSelectedRoom) =>
-      currentSelectedRoom?.id === room.id ? room : currentSelectedRoom
-    );
-  }, [navigate, resetMessagePagination]);
-
-  const applyMessageUpdate = useCallback((updatedMessage: Message) => {
-    setMessages((currentMessages) => mergeKnownMessageUpdate(currentMessages, updatedMessage));
-    setPinnedMessage((currentPinnedMessage) =>
-      currentPinnedMessage?.id === updatedMessage.id
-        ? { ...currentPinnedMessage, ...updatedMessage }
-        : currentPinnedMessage
-    );
-    updateSharedContentFromMessage(updatedMessage);
-    if (updatedMessage.recalled && updatedMessage.chatRoomId) {
-      roomSeenByLoadedMessageIdsRef.current.delete(updatedMessage.id);
-      setRoomSeenByByMessageId((currentSeenBy) => {
-        if (!currentSeenBy[updatedMessage.id]) {
-          return currentSeenBy;
-        }
-
-        const nextSeenBy = { ...currentSeenBy };
-        delete nextSeenBy[updatedMessage.id];
-        return nextSeenBy;
-      });
-      setSeenByPopupMessageId((currentMessageId) =>
-        currentMessageId === updatedMessage.id ? null : currentMessageId
-      );
-    }
-    setReplyingToMessage((currentReplyingMessage) =>
-      currentReplyingMessage?.id === updatedMessage.id
-        ? { ...currentReplyingMessage, ...toDeliveredMessage(updatedMessage) }
-        : currentReplyingMessage
-    );
-
-    if (updatedMessage.chatRoomId) {
-      setRooms((currentRooms) => {
-        let didUpdate = false;
-        const nextRooms = currentRooms.map((room) => {
-          const nextRoom = applyRoomPreviewToRoom(room, updatedMessage);
-          didUpdate ||= nextRoom !== room;
-          return nextRoom;
-        });
-
-        return didUpdate ? sortRoomsByChatActivity(nextRooms) : currentRooms;
-      });
-      setSelectedRoom((currentSelectedRoom) =>
-        currentSelectedRoom ? applyRoomPreviewToRoom(currentSelectedRoom, updatedMessage) : null
-      );
-      return;
-    }
-
-    setUsers((currentUsers) =>
-      applyConversationPreviewToUsers(
-        currentUsers,
-        updatedMessage,
-        currentUserIdRef.current,
-        !userSearchQueryRef.current.trim()
-      )
-    );
-    setFriends((currentFriends) =>
-      applyConversationPreviewToUsers(currentFriends, updatedMessage, currentUserIdRef.current, true)
-    );
-    setSelectedUser((currentSelectedUser) =>
-      currentSelectedUser
-        ? applyConversationPreviewToUser(currentSelectedUser, updatedMessage, currentUserIdRef.current)
-        : null
-    );
-  }, [updateSharedContentFromMessage]);
-
-  const applyMessageHidden = useCallback((event: { messageId: number }) => {
-    const { messageId } = event;
-    setMessages((currentMessages) => currentMessages.filter((message) => message.id !== messageId));
-    setPinnedMessage((currentMessage) => currentMessage?.id === messageId ? null : currentMessage);
-    setReplyingToMessage((currentMessage) => currentMessage?.id === messageId ? null : currentMessage);
-    setForwardingMessage((currentMessage) => currentMessage?.id === messageId ? null : currentMessage);
-    setEditingMessage((currentMessage) => currentMessage?.id === messageId ? null : currentMessage);
-    setMessageToDeleteForMe((currentMessage) => currentMessage?.id === messageId ? null : currentMessage);
-    removeSharedContentMessage(messageId);
-    const ownerId = currentUserIdRef.current;
-    if (ownerId !== null) void dbService.removeMessageFromCaches(ownerId, messageId);
-    void Promise.all([loadUsers({ silent: true }), loadRooms({ silent: true })]);
-  }, [loadRooms, loadUsers, removeSharedContentMessage]);
+  const {
+    markMessagesScrollIntent,
+    handleMessageAssetLoaded,
+    handleMessagesScroll,
+  } = useMessageScrollLifecycle({
+    selectedUserId,
+    selectedRoomId,
+    selectedUserIdRef,
+    selectedRoomIdRef,
+    messagesLength: messages.length,
+    messagesLoading,
+    olderMessagesLoading,
+    remoteTypingCount: remoteTypingUserIds.length,
+    unreadDividerMessageId,
+    unreadDividerMessageIdRef,
+    pendingReadConversationRef,
+    skipNextAutoScrollRef,
+    pendingInitialMessageScrollRef,
+    blockOlderMessagesAutoLoadRef,
+    hasUserInteractedWithMessagesRef,
+    messagesContainerRef,
+    forceScrollToLatestMessage,
+    scrollToLatestMessage,
+    releaseInitialScrollBlock,
+    scrollToUnreadDivider,
+    completePendingReadIfAtBottom,
+    loadOlderMessages,
+  });
 
   const realtimeEventHandlers = useRealtimeEventHandlers({
     realtimeActiveRef, hasConnectedRef, currentUserIdRef, selectedUserIdRef, selectedRoomIdRef,
@@ -921,71 +850,6 @@ export default function ChatPage() {
   ]);
 
   useChatRealtime(currentUser?.id, realtimeHandlers);
-
-  useLayoutEffect(() => {
-    if (
-      (selectedUserId === null && selectedRoomId === null) ||
-      messagesLoading ||
-      olderMessagesLoading
-    ) {
-      return;
-    }
-
-    if (skipNextAutoScrollRef.current) {
-      skipNextAutoScrollRef.current = false;
-      return;
-    }
-
-    const isInitialScroll = pendingInitialMessageScrollRef.current;
-    if (isInitialScroll) {
-      const scrolledToUnread =
-        unreadDividerMessageIdRef.current !== null && scrollToUnreadDivider();
-      if (!scrolledToUnread) {
-        forceScrollToLatestMessage();
-      }
-
-      pendingInitialMessageScrollRef.current = false;
-      releaseInitialScrollBlock();
-      window.requestAnimationFrame(() => {
-        completePendingReadIfAtBottom();
-      });
-      return;
-    }
-
-    const container = messagesContainerRef.current;
-    const shouldAutoScroll =
-      (!hasUserInteractedWithMessagesRef.current && !pendingReadConversationRef.current) ||
-      isMessagesContainerNearBottom(container, AUTO_SCROLL_BOTTOM_THRESHOLD);
-
-    if (!shouldAutoScroll) {
-      completePendingReadIfAtBottom();
-      return;
-    }
-
-    scrollToLatestMessage('smooth');
-    window.requestAnimationFrame(() => {
-      completePendingReadIfAtBottom();
-    });
-  }, [
-    completePendingReadIfAtBottom,
-    forceScrollToLatestMessage,
-    releaseInitialScrollBlock,
-    messages.length,
-    messagesLoading,
-    olderMessagesLoading,
-    scrollToLatestMessage,
-    scrollToUnreadDivider,
-    selectedRoomId,
-    selectedUserId,
-    remoteTypingUserIds.length,
-    unreadDividerMessageId,
-    hasUserInteractedWithMessagesRef,
-    messagesContainerRef,
-    pendingInitialMessageScrollRef,
-    pendingReadConversationRef,
-    skipNextAutoScrollRef,
-    unreadDividerMessageIdRef,
-  ]);
 
   const { uploadPendingMedia } = useMediaUpload(
     getMediaUrl, getFileFormat, cloudinaryResultToMedia,
@@ -1090,36 +954,6 @@ export default function ChatPage() {
     activateUserConversation(peerForChat);
     handleMinimizeActiveCall();
   };
-
-  const getCallMessagePeer = useCallback((message: ChatMessage) => {
-    if (message.chatRoomId) {
-      return null;
-    }
-
-    if (
-      selectedUser &&
-      (message.senderId === selectedUser.id || message.receiverId === selectedUser.id)
-    ) {
-      return selectedUser;
-    }
-
-    const currentAccountId = currentUser?.id ?? null;
-    const peerId =
-      currentAccountId !== null && message.senderId === currentAccountId
-        ? message.receiverId
-        : message.senderId;
-
-    return peerId ? findKnownUserById(peerId) : null;
-  }, [currentUser?.id, findKnownUserById, selectedUser]);
-
-  const handleCallBackFromMessage = useCallback((message: ChatMessage) => {
-    const peer = getCallMessagePeer(message);
-    if (!peer) {
-      return;
-    }
-
-    openPreCallSetupForUser(peer, message.callType ?? 'AUDIO');
-  }, [getCallMessagePeer, openPreCallSetupForUser]);
 
   const handleUserSearchChange = (value: string) => {
     userSearchQueryRef.current = value;
@@ -1340,58 +1174,31 @@ export default function ChatPage() {
     setMessageInput,
   });
 
-  useEffect(() => {
-    const handleEscapeKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) {
-        return;
-      }
-
-      if (lightboxState) {
-        setLightboxState(null);
-      } else if (conversationDeleteTarget && conversationSettingPendingKey === null) {
-        setConversationDeleteTarget(null);
-      } else if (groupSeenModalMessage) {
-        setGroupSeenModalMessage(null);
-      } else if (reactionModalGroups) {
-        setReactionModalGroups(null);
-      } else if (mediaViewerMessage) {
-        setMediaViewerMessage(null);
-      } else if (forwardingMessage) {
-        setForwardingMessage(null);
-      } else if (addMembersModalOpen) {
-        setAddMembersModalOpen(false);
-      } else if (inviteModalOpen) {
-        setInviteModalOpen(false);
-      } else if (activeViewedProfileUser) {
-        handleCloseUserProfile();
-      } else if (detailsOpen) {
-        setDetailsOpen(false);
-      } else if (profileMenuOpen) {
-        setProfileMenuOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleEscapeKey);
-    return () => window.removeEventListener('keydown', handleEscapeKey);
-  }, [
-    activeViewedProfileUser,
-    detailsOpen,
-    addMembersModalOpen,
+  useWorkspaceEscapeKey({
+    lightboxState,
+    setLightboxState,
     conversationDeleteTarget,
     conversationSettingPendingKey,
-    forwardingMessage,
-    groupSeenModalMessage,
-    handleCloseUserProfile,
-    inviteModalOpen,
-    lightboxState,
-    mediaViewerMessage,
-    profileMenuOpen,
-    reactionModalGroups,
-    setAddMembersModalOpen,
     setConversationDeleteTarget,
+    groupSeenModalMessage,
+    setGroupSeenModalMessage,
+    reactionModalGroups,
+    setReactionModalGroups,
+    mediaViewerMessage,
+    setMediaViewerMessage,
+    forwardingMessage,
+    setForwardingMessage,
+    addMembersModalOpen,
+    setAddMembersModalOpen,
+    inviteModalOpen,
     setInviteModalOpen,
+    activeViewedProfileUser,
+    handleCloseUserProfile,
+    detailsOpen,
+    setDetailsOpen,
+    profileMenuOpen,
     setProfileMenuOpen,
-  ]);
+  });
 
   const {
     handleReplyToMessage, handleCancelReply, handleCopyMessage,
@@ -1641,247 +1448,43 @@ export default function ChatPage() {
   const mediaViewerType = mediaViewerMessage ? getMessageType(mediaViewerMessage) : 'IMAGE';
   const activeReplyPreview = createReplyFromMessage(replyingToMessage);
 
-  const handleOpenReactionSummary = useCallback((message: ChatMessage) => {
-    if (!message.reactions || message.reactions.length === 0) return;
-    const map = new Map<string, User[]>();
-    for (const r of message.reactions) {
-      const userObj: User = {
-        id: r.userId,
-        username: r.username,
-        fullName: r.fullName,
-        online: false,
-        createdAt: r.createdAt,
-      };
-      const list = map.get(r.emoji) || [];
-      list.push(userObj);
-      map.set(r.emoji, list);
-    }
-    const groups: ReactionDetailGroup[] = Array.from(map.entries()).map(([emoji, users]) => ({
-      emoji,
-      users,
-    }));
-    setReactionModalGroups(groups);
-  }, []);
-
-  const renderMessageReactions = useCallback((message: ChatMessage) => (
-    <MessageReactions
-      message={message}
-      currentUserId={currentUser?.id ?? null}
-      onReact={(target, emoji) => void handleReactToMessage(target, emoji)}
-      onOpenSummary={handleOpenReactionSummary}
-    />
-  ), [currentUser?.id, handleOpenReactionSummary, handleReactToMessage]);
-
-  const renderMessageActions = useCallback((message: ChatMessage, isSentByCurrentUser: boolean) => (
-    <MessageActions
-      message={message} isSentByCurrentUser={isSentByCurrentUser}
-      currentUserId={currentUser?.id ?? null} pinnedMessage={pinnedMessage}
-      canPin={canManagePinnedMessages}
-      onReact={(target, emoji) => void handleReactToMessage(target, emoji)}
-      onReply={handleReplyToMessage} onCopy={(target) => void handleCopyMessage(target)}
-      onEdit={handleEditMessage}
-      onDeleteForMe={handleRequestDeleteMessageForMe}
-      onRecall={(target) => void handleRecallMessage(target)} onPin={(target) => void handlePinMessage(target)}
-      onForward={handleForwardMessage}
-    />
-  ), [canManagePinnedMessages, currentUser?.id, handleCopyMessage, handleEditMessage, handleForwardMessage, handlePinMessage, handleReactToMessage, handleRecallMessage, handleReplyToMessage, handleRequestDeleteMessageForMe, pinnedMessage]);
-
-  const renderCallMessageBody = useCallback((message: ChatMessage) => {
-    const peer = getCallMessagePeer(message);
-    return (
-      <CallMessageBody
-        message={message}
-        peer={peer}
-        isSentByCurrentUser={Boolean(currentUser?.id && (message.callerId ?? message.senderId) === currentUser.id)}
-        canCallBack={Boolean(peer && canChatWithUser(peer) && !activeCall)}
-        onCallBack={handleCallBackFromMessage}
-        onDeleteForMe={handleRequestDeleteMessageForMe}
-      />
-    );
-  }, [activeCall, currentUser?.id, getCallMessagePeer, handleCallBackFromMessage, handleRequestDeleteMessageForMe]);
-
-  const renderMessageBody = useCallback((message: ChatMessage) => (
-    <MessageContent
-      message={message}
-      onOpenLightbox={handleOpenLightbox}
-      onAssetLoaded={handleMessageAssetLoaded}
-    />
-  ), [handleMessageAssetLoaded, handleOpenLightbox]);
-
-  const renderGroupSeenBy = useCallback((message: ChatMessage, users: User[]) => (
-    <GroupSeenBy
-      message={message}
-      users={users}
-      open={seenByPopupMessageId === message.id}
-      onOpenModal={(target, seenUsers) => setGroupSeenModalMessage({ message: target, seenUsers })}
-    />
-  ), [seenByPopupMessageId]);
-
-  const renderDetailsMemberItem = (user: User) => (
-    <GroupMemberListItem
-      key={user.id}
-      user={user}
-      currentUserId={currentUser?.id ?? null}
-      ownerId={selectedRoomOwnerId}
-      currentUserIsOwner={isCurrentUserOwner}
-      saving={groupSettingsSaving}
-      pendingAction={groupSettingsPendingAction}
-      nicknameValue={groupMemberNicknames[user.id] ?? ''}
-      menuOpen={openGroupMemberMenuId === user.id}
-      editingNickname={editingGroupMemberNicknameId === user.id}
-      canKick={canKickMember(user)}
-      onToggleMenu={handleToggleGroupMemberMenu}
-      onOpenProfile={(member) => {
-        setOpenGroupMemberMenuId(null);
-        void handleOpenUserProfile(member);
-      }}
-      onStartEditNickname={handleStartEditGroupMemberNickname}
-      onUpdateRole={(member, role) => void handleUpdateMemberRole(member, role)}
-      onTransferOwner={(member) => void handleTransferRoomOwner(member)}
-      onKick={(member) => void handleKickRoomMember(member)}
-      onNicknameChange={handleGroupMemberNicknameChange}
-      onSaveNickname={(member) => void handleUpdateRoomMemberNickname(member)}
-      onCancelNicknameEdit={handleCancelEditGroupMemberNickname}
-    />
-  );
-
-  const renderSearchSidebar = () => {
-    const query = messageSearchQuery.trim();
-    const showInitialSearchLoading =
-      messageSearchLoading && messageSearchItems.length === 0;
-    const conversationName = selectedUser
-      ? getUserDisplayName(selectedUser)
-      : selectedRoom?.name || 'conversation';
-
-    return (
-      <SearchSidebar
-        conversationName={conversationName}
-        handleCloseConversationDetails={handleCloseConversationDetails}
-        handleMessageSearchSubmit={handleMessageSearchSubmit}
-        messageSearchInputRef={messageSearchInputRef}
-        messageSearchQuery={messageSearchQuery}
-        handleMessageSearchChange={handleMessageSearchChange}
-        handleMessageSearchInputKeyDown={handleMessageSearchInputKeyDown}
-        handleClearMessageSearch={handleClearMessageSearch}
-        messageSearchSubmitted={messageSearchSubmitted}
-        query={query}
-        showInitialSearchLoading={showInitialSearchLoading}
-        messageSearchError={messageSearchError}
-        messageSearchItems={messageSearchItems}
-        messageSearchHasMore={messageSearchHasMore}
-        messageSearchLoading={messageSearchLoading}
-        loadMessageSearch={loadMessageSearch}
-        selectedRoom={selectedRoom}
-        findKnownUserById={findKnownUserById}
-        activeMessageSearchId={activeMessageSearchId}
-        handleJumpToSearchResult={handleJumpToSearchResult}
-      />
-    );
-  };
-
-  const renderSharedContentSections = () => (
-    <SharedContentSections
-      sharedMediaExpanded={sharedMediaExpanded}
-      setSharedMediaExpanded={setSharedMediaExpanded}
-      sharedFilesExpanded={sharedFilesExpanded}
-      setSharedFilesExpanded={setSharedFilesExpanded}
-      sharedLinksExpanded={sharedLinksExpanded}
-      setSharedLinksExpanded={setSharedLinksExpanded}
-      sharedMediaItems={sharedMediaItems}
-      sharedLinkItems={sharedLinkItems}
-      sharedMediaLoading={sharedMediaLoading}
-      sharedLinksLoading={sharedLinksLoading}
-      sharedMediaError={sharedMediaError}
-      sharedLinksError={sharedLinksError}
-      sharedMediaHasMore={sharedMediaHasMore}
-      sharedLinksHasMore={sharedLinksHasMore}
-      loadSharedContent={loadSharedContent}
-      onOpenMedia={setMediaViewerMessage}
-      onJumpToMessage={(messageId) => handleJumpToMessage(messageId).then(() => undefined)}
-    />
-  );
-
-  const renderConversationDetails = () => {
-    return (
-      <DetailsSidebar
-        selectedUser={selectedUser}
-        selectedRoom={selectedRoom}
-        handleCloseConversationDetails={handleCloseConversationDetails}
-        renderSharedContentSections={renderSharedContentSections}
-        currentUserCanManageSelectedRoom={currentUserCanManageSelectedRoom}
-        groupAvatarUploading={groupAvatarUploading}
-        groupSettingsSaving={groupSettingsSaving}
-        handleGroupAvatarChange={handleGroupAvatarChange}
-        isEditingGroupName={isEditingGroupName}
-        handleUpdateGroupSettingsName={handleUpdateGroupSettingsName}
-        groupSettingsName={groupSettingsName}
-        setGroupSettingsError={setGroupSettingsError}
-        setGroupSettingsName={setGroupSettingsName}
-        canSaveGroupSettingsName={canSaveGroupSettingsName}
-        groupSettingsPendingAction={groupSettingsPendingAction}
-        setIsEditingGroupName={setIsEditingGroupName}
-        currentUserMemberRole={currentUserMemberRole}
-        isCurrentUserOwner={isCurrentUserOwner}
-        isCurrentUserModerator={isCurrentUserModerator}
-        handleOpenInviteModal={handleOpenInviteModal}
-        selectedRoomOwnerName={selectedRoomOwnerName}
-        groupSettingsError={groupSettingsError}
-        groupMembersExpanded={groupMembersExpanded}
-        setGroupMembersExpanded={setGroupMembersExpanded}
-        renderDetailsMemberItem={renderDetailsMemberItem}
-        handleDeleteSelectedGroup={handleDeleteSelectedGroup}
-        handleLeaveSelectedGroup={handleLeaveSelectedGroup}
-      />
-    );
-  };
-
-  const messageListProps = useMemo(() => ({
-    items: messageListItems,
+  const { messageListProps } = useMessageItemRenderers({
     currentUser,
     selectedUser,
     selectedRoom,
-    unreadDividerRef,
-    latestSeenOutgoingMessageId,
-    latestOutgoingMessageId,
-    latestRoomSeenByByMessageId,
-    seenByLoadingMessageIds,
-    detailsOpen,
-    rightSidebarTab,
-    messageSearchQuery,
-    messageSearchResultIds,
-    highlightedMessageId,
-    renderCallMessageBody,
-    findKnownUserById,
-    handleOpenUserProfile,
-    renderMessageActions,
-    renderMessageBody,
-    renderMessageReactions,
-    handleRetryMessage,
-    renderGroupSeenBy,
-  }), [
-    currentUser,
-    detailsOpen,
-    findKnownUserById,
-    handleOpenUserProfile,
-    handleRetryMessage,
-    highlightedMessageId,
-    latestOutgoingMessageId,
-    latestRoomSeenByByMessageId,
-    latestSeenOutgoingMessageId,
+    hasActiveCall: Boolean(activeCall),
+    pinnedMessage,
+    canManagePinnedMessages,
+    seenByPopupMessageId,
     messageListItems,
+    unreadDividerRef,
+    latestSeenOutgoingMessageId,
+    latestOutgoingMessageId,
+    latestRoomSeenByByMessageId,
+    seenByLoadingMessageIds,
+    detailsOpen,
+    rightSidebarTab,
     messageSearchQuery,
     messageSearchResultIds,
-    renderCallMessageBody,
-    renderGroupSeenBy,
-    renderMessageActions,
-    renderMessageBody,
-    renderMessageReactions,
-    rightSidebarTab,
-    seenByLoadingMessageIds,
-    selectedRoom,
-    selectedUser,
-    unreadDividerRef,
-  ]);
+    highlightedMessageId,
+    findKnownUserById,
+    openPreCallSetupForUser,
+    handleOpenUserProfile,
+    handleOpenLightbox,
+    handleMessageAssetLoaded,
+    handleJumpToMessage,
+    handleReactToMessage,
+    handleReplyToMessage,
+    handleCopyMessage,
+    handleEditMessage,
+    handleRequestDeleteMessageForMe,
+    handleRecallMessage,
+    handlePinMessage,
+    handleForwardMessage,
+    handleRetryMessage,
+    setReactionModalGroups,
+    setGroupSeenModalMessage,
+  });
 
   return (
     <div className="chat-page">
@@ -1950,6 +1553,7 @@ export default function ChatPage() {
             blockedUserIds={blockedUserIds}
             openConversationMenuKey={openConversationMenuKey}
             pendingConversationKey={conversationSettingPendingKey}
+            conversationDrafts={conversationDrafts}
             onLoadUsers={(options) => void loadUsers(options)}
             onLoadRooms={() => void loadRooms()}
             onSelectUser={handleUserSelect}
@@ -2086,8 +1690,9 @@ export default function ChatPage() {
               }}
               onLoadOlderMessages={() => void loadOlderMessages()}
               onGoToPinnedMessage={() => {
-                const message = messages.find((item) => item.id === pinnedMessage?.id);
-                if (message) scrollToMessageById(message.id);
+                if (pinnedMessage) {
+                  void handleJumpToMessage(pinnedMessage.id);
+                }
               }}
               onUnpinMessage={canManagePinnedMessages ? () => void handleUnpinMessage() : undefined}
               typingIndicatorLabel={typingIndicatorLabel}
@@ -2105,17 +1710,84 @@ export default function ChatPage() {
           )}
         </main>
 
-        {mainView === 'chat' && selectedConversationOpen && detailsOpen ? (
-          <>
-            <button
-              type="button"
-              className="details-backdrop"
-              onClick={handleCloseConversationDetails}
-              aria-label="Close conversation details"
-            />
-            {rightSidebarTab === 'search' ? renderSearchSidebar() : renderConversationDetails()}
-          </>
-        ) : null}
+        <RightConversationSidebar
+          open={mainView === 'chat' && selectedConversationOpen && detailsOpen}
+          rightSidebarTab={rightSidebarTab}
+          currentUserId={currentUser?.id ?? null}
+          selectedUser={selectedUser}
+          selectedRoom={selectedRoom}
+          handleCloseConversationDetails={handleCloseConversationDetails}
+          handleOpenUserProfile={handleOpenUserProfile}
+          findKnownUserById={findKnownUserById}
+          handleJumpToMessage={handleJumpToMessage}
+          handleOpenLightbox={handleOpenLightbox}
+          setMediaViewerMessage={setMediaViewerMessage}
+          messageSearchInputRef={messageSearchInputRef}
+          messageSearchQuery={messageSearchQuery}
+          messageSearchSubmitted={messageSearchSubmitted}
+          messageSearchLoading={messageSearchLoading}
+          messageSearchError={messageSearchError}
+          messageSearchItems={messageSearchItems}
+          messageSearchHasMore={messageSearchHasMore}
+          activeMessageSearchId={activeMessageSearchId}
+          handleMessageSearchSubmit={handleMessageSearchSubmit}
+          handleMessageSearchChange={handleMessageSearchChange}
+          handleMessageSearchInputKeyDown={handleMessageSearchInputKeyDown}
+          handleClearMessageSearch={handleClearMessageSearch}
+          loadMessageSearch={loadMessageSearch}
+          handleJumpToSearchResult={handleJumpToSearchResult}
+          sharedMediaExpanded={sharedMediaExpanded}
+          setSharedMediaExpanded={setSharedMediaExpanded}
+          sharedFilesExpanded={sharedFilesExpanded}
+          setSharedFilesExpanded={setSharedFilesExpanded}
+          sharedLinksExpanded={sharedLinksExpanded}
+          setSharedLinksExpanded={setSharedLinksExpanded}
+          sharedMediaItems={sharedMediaItems}
+          sharedLinkItems={sharedLinkItems}
+          sharedMediaLoading={sharedMediaLoading}
+          sharedLinksLoading={sharedLinksLoading}
+          sharedMediaError={sharedMediaError}
+          sharedLinksError={sharedLinksError}
+          sharedMediaHasMore={sharedMediaHasMore}
+          sharedLinksHasMore={sharedLinksHasMore}
+          loadSharedContent={loadSharedContent}
+          selectedRoomOwnerId={selectedRoomOwnerId}
+          selectedRoomOwnerName={selectedRoomOwnerName}
+          currentUserMemberRole={currentUserMemberRole}
+          isCurrentUserOwner={isCurrentUserOwner}
+          isCurrentUserModerator={isCurrentUserModerator}
+          currentUserCanManageSelectedRoom={currentUserCanManageSelectedRoom}
+          groupAvatarUploading={groupAvatarUploading}
+          groupSettingsSaving={groupSettingsSaving}
+          groupSettingsPendingAction={groupSettingsPendingAction}
+          groupSettingsName={groupSettingsName}
+          setGroupSettingsName={setGroupSettingsName}
+          isEditingGroupName={isEditingGroupName}
+          setIsEditingGroupName={setIsEditingGroupName}
+          canSaveGroupSettingsName={canSaveGroupSettingsName}
+          groupSettingsError={groupSettingsError}
+          setGroupSettingsError={setGroupSettingsError}
+          groupMembersExpanded={groupMembersExpanded}
+          setGroupMembersExpanded={setGroupMembersExpanded}
+          groupMemberNicknames={groupMemberNicknames}
+          openGroupMemberMenuId={openGroupMemberMenuId}
+          setOpenGroupMemberMenuId={setOpenGroupMemberMenuId}
+          editingGroupMemberNicknameId={editingGroupMemberNicknameId}
+          canKickMember={canKickMember}
+          handleGroupAvatarChange={handleGroupAvatarChange}
+          handleUpdateGroupSettingsName={handleUpdateGroupSettingsName}
+          handleOpenInviteModal={handleOpenInviteModal}
+          handleToggleGroupMemberMenu={handleToggleGroupMemberMenu}
+          handleStartEditGroupMemberNickname={handleStartEditGroupMemberNickname}
+          handleUpdateMemberRole={handleUpdateMemberRole}
+          handleTransferRoomOwner={handleTransferRoomOwner}
+          handleKickRoomMember={handleKickRoomMember}
+          handleGroupMemberNicknameChange={handleGroupMemberNicknameChange}
+          handleUpdateRoomMemberNickname={handleUpdateRoomMemberNickname}
+          handleCancelEditGroupMemberNickname={handleCancelEditGroupMemberNickname}
+          handleDeleteSelectedGroup={handleDeleteSelectedGroup}
+          handleLeaveSelectedGroup={handleLeaveSelectedGroup}
+        />
       </div>
 
       <CallModalLayer

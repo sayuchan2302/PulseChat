@@ -18,13 +18,14 @@ interface MessageContentProps {
   message: ChatMessage;
   onOpenLightbox: (url: string, type: 'IMAGE' | 'VIDEO', fileName?: string) => void;
   onAssetLoaded: () => void;
+  onJumpToMessage?: (messageId: number) => void;
 }
 
-export default function MessageContent({ message, onOpenLightbox, onAssetLoaded }: MessageContentProps) {
+export default function MessageContent({ message, onOpenLightbox, onAssetLoaded, onJumpToMessage }: MessageContentProps) {
   const mediaUrl = getMediaUrl(message.mediaUrl);
   if (message.recalled) return <RecalledMessageContent />;
   if (getMessageType(message) === 'IMAGE' && mediaUrl) {
-    return <div className="message-media-content"><MessageReplyQuote reply={message.replyTo} />
+    return <div className="message-media-content"><MessageReplyQuote reply={message.replyTo} onJumpToMessage={onJumpToMessage} />
       <button type="button" className="message-image-preview-btn"
         onClick={() => onOpenLightbox(mediaUrl, 'IMAGE', message.content || 'image')} aria-label="Open image preview">
         <img src={mediaUrl} alt={message.content || 'Shared image'} onLoad={onAssetLoaded} onError={onAssetLoaded} />
@@ -33,7 +34,7 @@ export default function MessageContent({ message, onOpenLightbox, onAssetLoaded 
     </div>;
   }
   if (getMessageType(message) === 'VIDEO' && mediaUrl) {
-    return <div className="message-media-content"><MessageReplyQuote reply={message.replyTo} />
+    return <div className="message-media-content"><MessageReplyQuote reply={message.replyTo} onJumpToMessage={onJumpToMessage} />
       <div className="message-video-preview-wrap" onClick={() => onOpenLightbox(mediaUrl, 'VIDEO', message.content || 'video')} style={{ cursor: 'pointer' }}>
         <video className="message-video-preview" src={mediaUrl} controls={false} preload="metadata" onLoadedMetadata={onAssetLoaded} onError={onAssetLoaded} />
       </div>
@@ -43,7 +44,7 @@ export default function MessageContent({ message, onOpenLightbox, onAssetLoaded 
   if (getMessageType(message) === 'AUDIO' && mediaUrl) {
     return <div className="message-media-content">
       {message.forwardedFromId ? <ForwardedHeader message={message} /> : null}
-      <MessageReplyQuote reply={message.replyTo} />
+      <MessageReplyQuote reply={message.replyTo} onJumpToMessage={onJumpToMessage} />
       <div className="message-voice"><VoiceMessagePlayer src={mediaUrl} durationSeconds={message.mediaDuration} /></div>
     </div>;
   }
@@ -54,7 +55,7 @@ export default function MessageContent({ message, onOpenLightbox, onAssetLoaded 
     const sizeLabel = formatFileSize(message.mediaBytes);
     return <div className="message-media-content message-file-card-content">
       {message.forwardedFromId ? <ForwardedHeader message={message} /> : null}
-      <MessageReplyQuote reply={message.replyTo} />
+      <MessageReplyQuote reply={message.replyTo} onJumpToMessage={onJumpToMessage} />
       <div className="message-file-card">
         <div className={`file-card-icon-wrap ${badgeClass}`}><DocumentIcon className="file-card-icon" /><span className="file-card-ext">{ext}</span></div>
         <div className="file-card-info"><span className="file-card-name" title={fileName}>{fileName}</span>{sizeLabel ? <span className="file-card-size">{sizeLabel}</span> : null}</div>
@@ -64,7 +65,7 @@ export default function MessageContent({ message, onOpenLightbox, onAssetLoaded 
   }
   return <div className={`message-content ${hasLinkPreview(message.linkPreview) ? 'has-link-preview' : ''}`}>
     {message.forwardedFromId ? <ForwardedHeader message={message} /> : null}
-    <MessageReplyQuote reply={message.replyTo} />
+    <MessageReplyQuote reply={message.replyTo} onJumpToMessage={onJumpToMessage} />
     {message.content ? <div className="message-text">{renderLinkedText(message.content)}</div> : null}
     {renderLinkPreviewCard(message.linkPreview, onAssetLoaded)}
   </div>;

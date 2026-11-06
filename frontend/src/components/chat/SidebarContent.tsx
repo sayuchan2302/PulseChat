@@ -29,6 +29,7 @@ export interface SidebarContentProps {
   blockedUserIds: number[];
   openConversationMenuKey: string | null;
   pendingConversationKey: string | null;
+  conversationDrafts?: Record<string, string>;
   onLoadUsers: (options?: { search?: string; silent?: boolean }) => void;
   onLoadRooms: () => void;
   onSelectUser: (user: User) => void;
@@ -118,17 +119,20 @@ export function SidebarContent(props: SidebarContentProps) {
   const {
     hasUserSearch, users, usersLoading, usersError, userSearchQuery, usersEmptyMessage, rooms, roomsError,
     sidebarBusy, conversationFilter, conversationItems, currentUser, selectedUserId, selectedRoomId,
-    friendActionKeys, blockedUserIds, openConversationMenuKey, pendingConversationKey, onLoadUsers, onLoadRooms,
+    friendActionKeys, blockedUserIds, openConversationMenuKey, pendingConversationKey, conversationDrafts, onLoadUsers, onLoadRooms,
     onSelectUser, onSelectRoom, onOpenProfile, onSendFriendRequest, onAcceptFriendRequest,
     onCancelFriendRequest, onToggleConversationMenu, onUpdateConversationSetting, onRequestDelete,
   } = props;
 
-  const renderUserIdentity = (user: User, preview = false) => <>
-    {preview ? <span className="conversation-avatar-presence">{renderUserAvatar(user)}<span className={`conversation-presence-dot ${user.online ? 'online' : 'offline'}`} role="img" aria-label={user.online ? 'Online' : 'Offline'} /></span> : renderUserAvatar(user)}
-    <div className="user-info"><div className="user-title-row"><div className="user-name">{getUserDisplayName(user)}</div></div>
-      {preview ? <div className="user-preview-row"><span className="user-preview">{getConversationPreviewText(user, currentUser?.id ?? null)}{formatSidebarTime(user.lastMessageAt) ? ` · ${formatSidebarTime(user.lastMessageAt)}` : ''}</span></div> : <div className="user-meta"><span className={`user-status ${getUserStatusClass(user)}`}>{getFriendshipStatusLabel(user)}</span>{shouldShowUsername(user) ? <> <span className="user-meta-dot" aria-hidden="true">·</span> <span className="user-username">@{user.username}</span></> : null}</div>}
-    </div>
-  </>;
+  const renderUserIdentity = (user: User, preview = false) => {
+    const draftText = preview && selectedUserId !== user.id ? conversationDrafts?.[`user-${user.id}`]?.trim() : '';
+    return <>
+      {preview ? <span className="conversation-avatar-presence">{renderUserAvatar(user)}<span className={`conversation-presence-dot ${user.online ? 'online' : 'offline'}`} role="img" aria-label={user.online ? 'Online' : 'Offline'} /></span> : renderUserAvatar(user)}
+      <div className="user-info"><div className="user-title-row"><div className="user-name">{getUserDisplayName(user)}</div></div>
+        {preview ? <div className="user-preview-row"><span className="user-preview">{draftText ? <><span className="conversation-draft-prefix">Draft: </span>{draftText}</> : <>{getConversationPreviewText(user, currentUser?.id ?? null)}{formatSidebarTime(user.lastMessageAt) ? ` · ${formatSidebarTime(user.lastMessageAt)}` : ''}</>}</span></div> : <div className="user-meta"><span className={`user-status ${getUserStatusClass(user)}`}>{getFriendshipStatusLabel(user)}</span>{shouldShowUsername(user) ? <> <span className="user-meta-dot" aria-hidden="true">·</span> <span className="user-username">@{user.username}</span></> : null}</div>}
+      </div>
+    </>;
+  };
 
   const renderUser = (user: User) => {
     const preview = !hasUserSearch && hasPrivateConversation(user);
@@ -152,10 +156,11 @@ export function SidebarContent(props: SidebarContentProps) {
     const unreadCount = room.unreadCount ?? 0;
     const target: ConversationTarget = { type: 'room', room };
     const sidebarTime = formatSidebarTime(room.lastMessageAt);
+    const draftText = selectedRoomId !== room.id ? conversationDrafts?.[`room-${room.id}`]?.trim() : '';
     const mentioned = Boolean(room.lastMessageContent && (/@all\b/i.test(room.lastMessageContent) || (currentUser && room.lastMessageContent.toLowerCase().includes(`@${currentUser.username.toLowerCase()}`))));
     return <div key={`room-${room.id}`} className={`conversation-list-row ${selectedRoomId === room.id ? 'active' : ''}`}>
       <button type="button" className={`user-item room-item conversation-trigger ${selectedRoomId === room.id ? 'active' : ''} ${unreadCount > 0 ? 'unread' : ''}`} onClick={() => onSelectRoom(room)}>
-        <div className="user-avatar room-avatar">{getRoomInitial(room)}</div><div className="user-info"><div className="user-title-row"><div className="user-name">{room.name}</div></div><div className="user-preview-row"><span className="user-preview">{getRoomPreviewText(room, currentUser?.id ?? null)}{sidebarTime ? ` · ${sidebarTime}` : ''}</span></div></div><ConversationStatusIcons target={target} />
+        <div className="user-avatar room-avatar">{getRoomInitial(room)}</div><div className="user-info"><div className="user-title-row"><div className="user-name">{room.name}</div></div><div className="user-preview-row"><span className="user-preview">{draftText ? <><span className="conversation-draft-prefix">Draft: </span>{draftText}</> : <>{getRoomPreviewText(room, currentUser?.id ?? null)}{sidebarTime ? ` · ${sidebarTime}` : ''}</>}</span></div></div><ConversationStatusIcons target={target} />
       </button>
       {unreadCount > 0 ? <div className="unread-badge-wrap">{mentioned ? <span className="mention-unread-indicator" title="You were mentioned">@</span> : null}<div className="unread-badge">{unreadCount}</div></div> : null}
       <ConversationMenu target={target} openKey={openConversationMenuKey} pendingKey={pendingConversationKey} onToggle={onToggleConversationMenu} onUpdate={onUpdateConversationSetting} onOpenProfile={onOpenProfile} onRequestDelete={onRequestDelete} />

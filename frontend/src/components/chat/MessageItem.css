@@ -407,6 +407,15 @@
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   margin-bottom: 4px;
   font-size: var(--text-xs);
+  transition: opacity 0.15s ease;
+}
+
+.message-reply-quote[role='button'] {
+  cursor: pointer;
+}
+
+.message-reply-quote[role='button']:hover {
+  opacity: 0.85;
 }
 
 .reply-quote-sender {
