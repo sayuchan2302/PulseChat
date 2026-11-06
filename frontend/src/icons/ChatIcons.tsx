@@ -168,6 +168,36 @@ export function VideoCallIcon({ className }: HeaderIconProps) {
     );
 }
 
+export function PhoneMissedIcon({ className }: HeaderIconProps) {
+    return (
+        <svg className={className} {...SVG_BASE}>
+            <line x1="23" y1="1" x2="17" y2="7" />
+            <line x1="17" y1="1" x2="23" y2="7" />
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.35 1.9.66 2.8a2 2 0 0 1-.45 2.11L8.09 9.86a16 16 0 0 0 6.05 6.05l1.23-1.23a2 2 0 0 1 2.11-.45c.9.31 1.84.53 2.8.66A2 2 0 0 1 22 16.92z" />
+        </svg>
+    );
+}
+
+export function PhoneIncomingIcon({ className }: HeaderIconProps) {
+    return (
+        <svg className={className} {...SVG_BASE}>
+            <polyline points="16 2 16 8 22 8" />
+            <line x1="23" y1="1" x2="16" y2="8" />
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.35 1.9.66 2.8a2 2 0 0 1-.45 2.11L8.09 9.86a16 16 0 0 0 6.05 6.05l1.23-1.23a2 2 0 0 1 2.11-.45c.9.31 1.84.53 2.8.66A2 2 0 0 1 22 16.92z" />
+        </svg>
+    );
+}
+
+export function PhoneOutgoingIcon({ className }: HeaderIconProps) {
+    return (
+        <svg className={className} {...SVG_BASE}>
+            <polyline points="23 7 23 1 17 1" />
+            <line x1="16" y1="8" x2="23" y2="1" />
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.35 1.9.66 2.8a2 2 0 0 1-.45 2.11L8.09 9.86a16 16 0 0 0 6.05 6.05l1.23-1.23a2 2 0 0 1 2.11-.45c.9.31 1.84.53 2.8.66A2 2 0 0 1 22 16.92z" />
+        </svg>
+    );
+}
+
 export function ScreenShareIcon({ className }: HeaderIconProps) {
     return (
         <svg className={className} {...SVG_BASE}>

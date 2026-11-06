@@ -93,6 +93,7 @@ export interface Message {
   callType?: CallType | null;
   callStatus?: CallStatus | null;
   callDurationSeconds?: number | null;
+  callerId?: number | null;
   recalled?: boolean;
   senderId: number;
   senderUsername?: string;

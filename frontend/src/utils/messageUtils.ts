@@ -535,7 +535,7 @@ export function getCallEventLabel(message: Message) {
     return `${typeLabel} call`;
 }
 
-function formatCallDurationLabel(totalSeconds?: number | null) {
+export function formatCallDurationLabel(totalSeconds?: number | null) {
     if (!totalSeconds || totalSeconds <= 0) return '';
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);

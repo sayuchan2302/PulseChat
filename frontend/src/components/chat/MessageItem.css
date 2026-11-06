@@ -1462,3 +1462,280 @@ background: rgba(147, 51, 234, 0.25);
     height: 14px;
   }
 }
+
+
+/* --------------------------------------------------------------------------
+   Call Message Bubble - Messenger-style Box Design
+   -------------------------------------------------------------------------- */
+.message.call-message-item {
+  max-width: 340px;
+}
+
+.call-bubble-wrap {
+  cursor: default;
+}
+
+.call-message-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 260px;
+  max-width: 320px;
+  padding: 12px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  user-select: none;
+}
+
+/* Sent vs Received border radiuses with subtle speech bubble tails */
+.message.sent .call-message-card {
+  border-radius: 18px 18px 4px 18px;
+  background: var(--bg-primary);
+  border-color: rgba(91, 95, 199, 0.25);
+}
+
+.message.received .call-message-card {
+  border-radius: 18px 18px 18px 4px;
+  background: var(--bg-primary);
+}
+
+/* Missed Call (Receiver perspective) */
+.call-message-card.is-missed {
+  border-color: #fca5a5;
+  background: #fffafa;
+}
+
+.call-message-card.is-missed .call-card-icon-wrap {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.call-message-card.is-missed .call-card-title {
+  color: #dc2626;
+}
+
+/* Completed Call */
+.call-message-card.is-completed .call-card-icon-wrap {
+  background: var(--purple-50);
+  color: var(--purple-700);
+}
+
+/* Outgoing Unanswered / Canceled / Declined / Busy */
+.call-message-card.is-outgoing.is-unanswered .call-card-icon-wrap,
+.call-message-card.is-outgoing.is-canceled .call-card-icon-wrap,
+.call-message-card.is-outgoing.is-declined .call-card-icon-wrap,
+.call-message-card.is-outgoing.is-busy .call-card-icon-wrap {
+  background: var(--gray-100, #f3f4f6);
+  color: var(--gray-600, #4b5563);
+}
+
+/* Incoming Declined */
+.call-message-card.is-incoming.is-declined .call-card-icon-wrap {
+  background: var(--gray-100, #f3f4f6);
+  color: var(--gray-600, #4b5563);
+}
+
+/* Card Main Row: Icon + Info + Delete */
+.call-card-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+}
+
+.call-card-icon-wrap {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--purple-50);
+  color: var(--purple-700);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.call-card-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.call-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.call-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.call-card-meta {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.25;
+}
+
+.call-card-delete-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.6;
+  flex-shrink: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.call-card-delete-btn:hover {
+  opacity: 1;
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.call-card-delete-btn:focus-visible {
+  opacity: 1;
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
+}
+
+.call-card-delete-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Action Button: Call back / Call again */
+.call-card-actions {
+  display: flex;
+  width: 100%;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-light, rgba(0, 0, 0, 0.06));
+}
+
+.call-card-callback-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.call-card-callback-btn:hover {
+  background: var(--accent-surface);
+  color: var(--accent);
+  border-color: rgba(91, 95, 199, 0.35);
+  transform: translateY(-1px);
+}
+
+.call-card-callback-btn:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 2px;
+}
+
+.call-card-callback-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Missed Call Action Button Variant */
+.call-message-card.is-missed .call-card-callback-btn {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #dc2626;
+}
+
+.call-message-card.is-missed .call-card-callback-btn:hover {
+  background: #fecaca;
+  border-color: #f87171;
+  color: #b91c1c;
+}
+
+/* Dark theme overrides */
+[data-theme='dark'] .call-message-card {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme='dark'] .message.sent .call-message-card {
+  background: #252338;
+  border-color: rgba(147, 51, 234, 0.35);
+}
+
+[data-theme='dark'] .call-message-card.is-missed {
+  background: #2a1b24;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+[data-theme='dark'] .call-message-card.is-missed .call-card-icon-wrap {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+[data-theme='dark'] .call-message-card.is-missed .call-card-title {
+  color: #f87171;
+}
+
+[data-theme='dark'] .call-message-card.is-completed .call-card-icon-wrap {
+  background: rgba(147, 51, 234, 0.2);
+  color: #c084fc;
+}
+
+[data-theme='dark'] .call-message-card.is-outgoing.is-unanswered .call-card-icon-wrap,
+[data-theme='dark'] .call-message-card.is-outgoing.is-canceled .call-card-icon-wrap,
+[data-theme='dark'] .call-message-card.is-outgoing.is-declined .call-card-icon-wrap,
+[data-theme='dark'] .call-message-card.is-outgoing.is-busy .call-card-icon-wrap,
+[data-theme='dark'] .call-message-card.is-incoming.is-declined .call-card-icon-wrap {
+  background: #2e3046;
+  color: #94a3b8;
+}
+
+[data-theme='dark'] .call-card-callback-btn {
+  background: #26273b;
+  border-color: #3b3d5c;
+  color: #f1f5f9;
+}
+
+[data-theme='dark'] .call-card-callback-btn:hover {
+  background: rgba(147, 51, 234, 0.25);
+  border-color: rgba(147, 51, 234, 0.5);
+  color: #c084fc;
+}
+
+[data-theme='dark'] .call-message-card.is-missed .call-card-callback-btn {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+[data-theme='dark'] .call-message-card.is-missed .call-card-callback-btn:hover {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #fecaca;
+}

@@ -81,12 +81,14 @@ function MessageItemComponent({
     }
 
     const { message, groupedWithPrevious, groupedWithNext, showSender } = item;
-    const isSentByCurrentUser = message.senderId === currentUser?.id;
-    const hasVisibleMessageTime = isTimeExpanded || message.deliveryStatus === 'failed';
+    const isCallEventMessage = isCallMessage(message);
+    const callSenderId = isCallEventMessage ? (message.callerId ?? message.senderId) : message.senderId;
+    const isSentByCurrentUser = callSenderId === currentUser?.id;
+    const hasVisibleMessageTime = !isCallEventMessage && (isTimeExpanded || message.deliveryStatus === 'failed');
     const messageKey = message.id > 0 ? message.id : (message.clientId ?? 0);
 
     const handleBubbleClick = (event: React.MouseEvent) => {
-        if (message.deliveryStatus === 'failed') return;
+        if (isCallEventMessage || message.deliveryStatus === 'failed') return;
         const target = event.target as HTMLElement | null;
         if (target?.closest('button, a, input, textarea, video, audio, .reaction-pill, .message-actions, .message-retry-btn, .message-video-preview-wrap')) {
             return;
@@ -132,20 +134,6 @@ function MessageItemComponent({
         messageSearchQuery.trim() &&
         messageSearchResultIds.has(message.id)
     );
-    const isCallEventMessage = isCallMessage(message);
-
-    if (isCallEventMessage) {
-        return (
-            <div
-                key={item.key}
-                data-message-id={message.id > 0 ? message.id : undefined}
-                className={`message call-system ${isMessageSearchMatch ? 'message-search-match' : ''
-                    } ${highlightedMessageId === message.id ? 'highlighted' : ''}`}
-            >
-                {renderCallMessageBody(message)}
-            </div>
-        );
-    }
 
     const isMentioned = Boolean(
         !isSentByCurrentUser && (
@@ -155,20 +143,22 @@ function MessageItemComponent({
         )
     );
     const senderUser = !isSentByCurrentUser
-        ? getMessageSenderUser(message, selectedUser, selectedRoom, findKnownUserById)
+        ? (selectedUser && (selectedUser.id === callSenderId || isCallEventMessage)
+            ? selectedUser
+            : getMessageSenderUser(message, selectedUser, selectedRoom, findKnownUserById))
         : null;
 
     return (
         <div
             key={item.key}
             data-message-id={message.id > 0 ? message.id : undefined}
-            className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${message.deliveryStatus ?? ''
+            className={`message ${isSentByCurrentUser ? 'sent' : 'received'} ${isCallEventMessage ? 'call-message-item' : ''} ${message.deliveryStatus ?? ''
                 } ${groupedWithPrevious ? 'grouped-with-previous' : ''} ${groupedWithNext ? 'grouped-with-next' : ''
                 } ${hasVisibleMessageTime ? 'has-visible-time' : ''} ${isMessageSearchMatch ? 'message-search-match' : ''
                 } ${highlightedMessageId === message.id ? 'highlighted' : ''} ${isMentioned ? 'message-mentioned' : ''
                 }`}
         >
-            {showSender ? (
+            {showSender && !isCallEventMessage ? (
                 <div className="message-sender">
                     {getMessageSenderName(message, selectedRoom, findKnownUserById)}
                 </div>
@@ -191,14 +181,14 @@ function MessageItemComponent({
                         )}
                     </div>
                 ) : null}
-                {isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
-                <div className="message-bubble-wrap" onClick={handleBubbleClick}>
-                    {renderMessageBody(message)}
-                    {renderMessageReactions(message)}
+                {isSentByCurrentUser && !isCallEventMessage ? renderMessageActions(message, isSentByCurrentUser) : null}
+                <div className={`message-bubble-wrap ${isCallEventMessage ? 'call-bubble-wrap' : ''}`} onClick={handleBubbleClick}>
+                    {isCallEventMessage ? renderCallMessageBody(message) : renderMessageBody(message)}
+                    {!isCallEventMessage ? renderMessageReactions(message) : null}
                 </div>
-                {!isSentByCurrentUser ? renderMessageActions(message, isSentByCurrentUser) : null}
+                {!isSentByCurrentUser && !isCallEventMessage ? renderMessageActions(message, isSentByCurrentUser) : null}
             </div>
-            {message.deliveryStatus !== 'failed' && onToggleTime ? (
+            {!isCallEventMessage && message.deliveryStatus !== 'failed' && onToggleTime ? (
                 <button
                     type="button"
                     className="message-time-toggle"
@@ -233,7 +223,7 @@ function MessageItemComponent({
                     ) : null}
                 </div>
             ) : null}
-            {isLatestSeenOutgoingMessage ? (
+            {!isCallEventMessage && isLatestSeenOutgoingMessage ? (
                 <div
                     className="message-seen-avatar-row"
                     title={selectedUser ? getUserDisplayName(selectedUser) : undefined}
@@ -241,9 +231,9 @@ function MessageItemComponent({
                     {renderUserAvatar(selectedUser, 'user-avatar message-seen-avatar')}
                 </div>
             ) : null}
-            {groupSeenByUsers.length > 0 ? (
+            {!isCallEventMessage && groupSeenByUsers.length > 0 ? (
                 renderGroupSeenBy(message, groupSeenByUsers)
-            ) : groupSeenByLoading ? (
+            ) : !isCallEventMessage && groupSeenByLoading ? (
                 <div className="message-seen-by-row loading" aria-label="Loading seen by">
                     <span className="message-seen-by-loading-dot" />
                 </div>

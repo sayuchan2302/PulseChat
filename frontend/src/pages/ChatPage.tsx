@@ -1876,12 +1876,13 @@ export default function ChatPage() {
       <CallMessageBody
         message={message}
         peer={peer}
+        isSentByCurrentUser={Boolean(currentUser?.id && (message.callerId ?? message.senderId) === currentUser.id)}
         canCallBack={Boolean(peer && canChatWithUser(peer) && !activeCall)}
         onCallBack={handleCallBackFromMessage}
         onDeleteForMe={handleRequestDeleteMessageForMe}
       />
     );
-  }, [activeCall, getCallMessagePeer, handleCallBackFromMessage, handleRequestDeleteMessageForMe]);
+  }, [activeCall, currentUser?.id, getCallMessagePeer, handleCallBackFromMessage, handleRequestDeleteMessageForMe]);
 
   const renderMessageBody = useCallback((message: ChatMessage) => (
     <MessageContent
