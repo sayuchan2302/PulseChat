@@ -11,11 +11,9 @@ import type {
   ChatRoom,
   Friendship,
   FriendshipSummary,
-  GlobalMessageSearchItem,
   Message,
   User,
 } from '../types';
-import { apiClient } from '../services/api';
 import { useAuth } from '../context/useAuth';
 import { wsService } from '../services/websocket';
 import { useChatRealtime, type ChatRealtimeHandlers } from '../hooks/useChatRealtime';
@@ -38,10 +36,7 @@ import { useCallFeature } from '../hooks/useCallFeature';
 import { useRoomSummary } from '../hooks/useRoomSummary';
 import { useChatNotifications } from '../hooks/useChatNotifications';
 import { useChatInteractionSignals } from '../hooks/useChatInteractionSignals';
-import { useMessageSearchControls } from '../hooks/useMessageSearchControls';
-import { useMessageNavigation } from '../hooks/useMessageNavigation';
-import { useMessageSearchLoader } from '../hooks/useMessageSearchLoader';
-import { useMessageSearch } from '../hooks/useMessageSearch';
+import { useConversationSearchWorkspace } from '../hooks/useConversationSearchWorkspace';
 import { useSharedContentManager } from '../hooks/useSharedContentManager';
 import { useMessageViewport } from '../hooks/useMessageViewport';
 import { useConversationNavigation } from '../hooks/useConversationNavigation';
@@ -54,6 +49,7 @@ import { useMessageStateSync } from '../hooks/useMessageStateSync';
 import { useMessageScrollLifecycle } from '../hooks/useMessageScrollLifecycle';
 import { useMessageItemRenderers } from '../hooks/useMessageItemRenderers';
 import { useWorkspaceEscapeKey } from '../hooks/useWorkspaceEscapeKey';
+import { useWorkspaceShortcuts } from '../hooks/useWorkspaceShortcuts';
 import { useConversationDrafts } from '../hooks/useConversationDrafts';
 import {
   USER_SEARCH_DEBOUNCE_MS,
@@ -99,15 +95,10 @@ import AppHeader from '../components/chat/AppHeader';
 import ConversationSidebar from '../components/chat/ConversationSidebar';
 import RightConversationSidebar from '../components/chat/RightConversationSidebar';
 import { FriendsPanel, FriendRequestsPanel } from '../components/chat/PeoplePanels';
-import ProfileViewerModal from '../components/chat/ProfileViewerModal';
-import BlockedUsersModal from '../components/chat/BlockedUsersModal';
-import ProfileEditorModal from '../components/chat/ProfileEditorModal';
-import CreateGroupModal from '../components/chat/CreateGroupModal';
 import SidebarContent from '../components/chat/SidebarContent';
 import ConversationPane from '../components/chat/ConversationPane';
 import CallModalLayer from '../components/chat/CallModalLayer';
-import ChatDialogLayer from '../components/chat/ChatDialogLayer';
-import GlobalMessageSearchModal from '../components/chat/GlobalMessageSearchModal';
+import WorkspaceModals from '../components/chat/WorkspaceModals';
 import type { LightboxMediaItem } from '../components/chat/MediaLightbox';
 import type { ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
 import { buildLatestRoomSeenByMessageId, buildMessageListItems } from '../utils/messageListUtils';
@@ -163,7 +154,6 @@ export default function ChatPage() {
   const [friendRequestsLoading, setFriendRequestsLoading] = useState(true);
   const [mainView, setMainView] = useState<MainView>('chat');
   const [conversationFilter, setConversationFilter] = useState<ConversationFilter>('all');
-  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [incomingFriendRequests, setIncomingFriendRequests] = useState<Friendship[]>([]);
   const [friendSummary, setFriendSummary] = useState<FriendshipSummary>({
@@ -172,17 +162,6 @@ export default function ChatPage() {
   });
   const [friendActionKeys, setFriendActionKeys] = useState<string[]>([]);
   const [rightSidebarTab, setRightSidebarTab] = useState<'details' | 'search'>('details');
-  const {
-    messageSearchQuery, setMessageSearchQuery,
-    messageSearchSubmitted, setMessageSearchSubmitted,
-    messageSearchInputRef, messageSearchItems, setMessageSearchItems,
-    messageSearchLoading, setMessageSearchLoading,
-    messageSearchError, setMessageSearchError,
-    messageSearchHasMore, setMessageSearchHasMore,
-    messageSearchNextBefore, setMessageSearchNextBefore,
-    activeMessageSearchId, setActiveMessageSearchId,
-    clearMessageSearch,
-  } = useMessageSearch();
   const [roomSeenByByMessageId, setRoomSeenByByMessageId] = useState<Record<number, User[]>>({});
   const [seenByLoadingMessageIds, setSeenByLoadingMessageIds] = useState<number[]>([]);
   const [seenByPopupMessageId, setSeenByPopupMessageId] = useState<number | null>(null);
@@ -201,8 +180,6 @@ export default function ChatPage() {
   const remoteTypingTimeoutsRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const sendTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const userSearchQueryRef = useRef('');
-  const messageSearchQueryRef = useRef('');
-  const messageSearchRequestedQueryRef = useRef('');
   const optimisticMessageIdRef = useRef(-Date.now() * 1000);
   const hasConnectedRef = useRef(false);
   const realtimeActiveRef = useRef(false);
@@ -358,6 +335,44 @@ export default function ChatPage() {
   const selectedUserId = selectedUser?.id ?? null;
   const selectedRoomId = selectedRoom?.id ?? null;
   const {
+    globalSearchOpen,
+    setGlobalSearchOpen,
+    messageSearchQueryRef,
+    messageSearchQuery,
+    messageSearchSubmitted,
+    messageSearchInputRef,
+    messageSearchItems,
+    setMessageSearchItems,
+    messageSearchLoading,
+    messageSearchError,
+    messageSearchHasMore,
+    activeMessageSearchId,
+    messageSearchResultIds,
+    loadMessageSearch,
+    handleMessageSearchChange,
+    handleClearMessageSearch,
+    handleMessageSearchSubmit,
+    handleJumpToMessage,
+    handleJumpToSearchResult,
+    handleMessageSearchInputKeyDown,
+    createGlobalSearchResultHandler,
+  } = useConversationSearchWorkspace({
+    selectedUserId,
+    selectedRoomId,
+    selectedUserIdRef,
+    selectedRoomIdRef,
+    skipNextAutoScrollRef,
+    pendingInitialMessageScrollRef,
+    blockOlderMessagesAutoLoadRef,
+    applyMessagePagination,
+    clearMessageJumpEffects,
+    highlightMessageById,
+    releaseInitialScrollBlock,
+    setHighlightedMessageId,
+    setMessages,
+    setMessagesError,
+  });
+  const {
     sharedMediaExpanded,
     setSharedMediaExpanded,
     sharedFilesExpanded,
@@ -385,25 +400,6 @@ export default function ChatPage() {
     selectedRoomId,
     setMessageSearchItems,
   });
-  const activeMessageSearchIndex = useMemo(
-    () => {
-      if (messageSearchItems.length === 0) {
-        return -1;
-      }
-
-      const exactIndex =
-        activeMessageSearchId === null
-          ? -1
-          : messageSearchItems.findIndex((message) => message.id === activeMessageSearchId);
-
-      return exactIndex >= 0 ? exactIndex : 0;
-    },
-    [activeMessageSearchId, messageSearchItems]
-  );
-  const messageSearchResultIds = useMemo(
-    () => new Set(messageSearchItems.map((message) => message.id)),
-    [messageSearchItems]
-  );
 
   useEffect(() => {
     currentUserRef.current = currentUser;
@@ -515,14 +511,6 @@ export default function ChatPage() {
     setUsers,
   });
 
-  const resetMessageSearchState = useCallback(() => {
-    messageSearchQueryRef.current = '';
-    messageSearchRequestedQueryRef.current = '';
-    clearMessageSearch();
-    setActiveMessageSearchId(null);
-    setHighlightedMessageId(null);
-  }, [clearMessageSearch, setActiveMessageSearchId, setHighlightedMessageId]);
-
   const getNextOptimisticMessageId = useCallback(() => {
     optimisticMessageIdRef.current -= 1;
     return optimisticMessageIdRef.current;
@@ -600,42 +588,12 @@ export default function ChatPage() {
     setSeenByLoadingMessageIds,
   });
 
-  const loadMessageSearch = useMessageSearchLoader({
-    selectedUserIdRef, selectedRoomIdRef, queryRef: messageSearchQueryRef,
-    requestedQueryRef: messageSearchRequestedQueryRef, loading: messageSearchLoading,
-    hasMore: messageSearchHasMore, nextBefore: messageSearchNextBefore,
-    setItems: setMessageSearchItems, setLoading: setMessageSearchLoading,
-    setError: setMessageSearchError, setHasMore: setMessageSearchHasMore,
-    setNextBefore: setMessageSearchNextBefore, setActiveId: setActiveMessageSearchId,
-  });
-
   useEffect(() => {
     roomSeenByLoadedMessageIdsRef.current.clear();
     setRoomSeenByByMessageId({});
     setSeenByLoadingMessageIds([]);
     setSeenByPopupMessageId(null);
   }, [selectedRoomId, selectedUserId]);
-
-  useEffect(() => {
-    clearMessageJumpEffects();
-    resetMessageSearchState();
-  }, [clearMessageJumpEffects, resetMessageSearchState, selectedRoomId, selectedUserId]);
-
-  useEffect(() => {
-    if (messageSearchItems.length === 0) {
-      if (activeMessageSearchId !== null) {
-        setActiveMessageSearchId(null);
-      }
-      return;
-    }
-
-    if (
-      activeMessageSearchId === null ||
-      !messageSearchItems.some((message) => message.id === activeMessageSearchId)
-    ) {
-      setActiveMessageSearchId(messageSearchItems[0].id);
-    }
-  }, [activeMessageSearchId, messageSearchItems, setActiveMessageSearchId]);
 
   useEffect(() => {
     if (!authenticatedUser) {
@@ -781,9 +739,11 @@ export default function ChatPage() {
   });
 
   const {
+    showScrollToBottom,
     markMessagesScrollIntent,
     handleMessageAssetLoaded,
     handleMessagesScroll,
+    handleScrollToBottom,
   } = useMessageScrollLifecycle({
     selectedUserId,
     selectedRoomId,
@@ -1249,62 +1209,14 @@ export default function ChatPage() {
     setUsers, setFriends, setSelectedUser, setRooms, setSelectedRoom,
   });
 
-  const {
-    handleMessageSearchChange,
-    handleClearMessageSearch,
-    handleMessageSearchSubmit,
-  } = useMessageSearchControls({
-    query: messageSearchQuery, queryRef: messageSearchQueryRef,
-    requestedQueryRef: messageSearchRequestedQueryRef, inputRef: messageSearchInputRef,
-    loadMessageSearch, setQuery: setMessageSearchQuery, setSubmitted: setMessageSearchSubmitted,
-    setItems: setMessageSearchItems, setError: setMessageSearchError,
-    setHasMore: setMessageSearchHasMore, setNextBefore: setMessageSearchNextBefore,
-    setActiveId: setActiveMessageSearchId,
+  const handleOpenGlobalSearchResult = createGlobalSearchResultHandler({
+    rooms,
+    setRooms,
+    setUsers,
+    findKnownUserById,
+    handleRoomSelect,
+    handleUserSelect,
   });
-
-  const {
-    handleJumpToMessage,
-    handleJumpToSearchResult,
-    handleMessageSearchInputKeyDown,
-  } = useMessageNavigation({
-    selectedUserIdRef, selectedRoomIdRef, skipNextAutoScrollRef,
-    pendingInitialMessageScrollRef, blockOlderMessagesAutoLoadRef, messageSearchItems,
-    activeMessageSearchIndex, handleMessageSearchSubmit, applyMessagePagination,
-    highlightMessageById, releaseInitialScrollBlock, setMessages, setMessagesError,
-    setMessageSearchError, setActiveMessageSearchId,
-  });
-
-  const handleOpenGlobalSearchResult = async (item: GlobalMessageSearchItem) => {
-    if (item.roomId !== null && item.roomId !== undefined) {
-      const knownRoom = rooms.find((candidate) => candidate.id === item.roomId);
-      let room = knownRoom;
-      if (!room) {
-        const roomResponse = await apiClient.get<ChatRoom[]>('/rooms');
-        setRooms(roomResponse.data);
-        room = roomResponse.data.find((candidate) => candidate.id === item.roomId);
-      }
-      if (!room) throw new Error('The group conversation is no longer available.');
-      await handleRoomSelect(room);
-    } else if (item.otherUserId !== null && item.otherUserId !== undefined && item.otherUsername) {
-      const knownUser = findKnownUserById(item.otherUserId);
-      const user = knownUser ?? (await apiClient.get<User>(
-        `/users/${encodeURIComponent(item.otherUsername)}`
-      )).data;
-      if (!knownUser) {
-        setUsers((currentUsers) => currentUsers.some((currentUser) => currentUser.id === user.id)
-          ? currentUsers
-          : [...currentUsers, user]);
-      }
-      await handleUserSelect(user);
-    } else {
-      throw new Error('The conversation could not be resolved.');
-    }
-
-    if (!await handleJumpToMessage(item.message.id)) {
-      throw new Error('The message is no longer available.');
-    }
-    setGlobalSearchOpen(false);
-  };
 
   const applyUpdatedCurrentUserProfile = (updatedUser: User) => {
     const nextCurrentUser = currentUser
@@ -1405,6 +1317,12 @@ export default function ChatPage() {
       : '';
   const selectedConversationOpen = Boolean(selectedUser || selectedRoom);
   const sidebarBusy = hasUserSearch ? usersLoading : usersLoading || roomsLoading;
+
+  useWorkspaceShortcuts({
+    selectedConversationOpen,
+    setGlobalSearchOpen,
+    handleToggleMessageSearch,
+  });
   const messageListItems = useMemo(
     () => buildMessageListItems(
       messages,
@@ -1513,13 +1431,6 @@ export default function ChatPage() {
         }}
         onLogout={() => void handleLogout()}
       />
-
-      {globalSearchOpen ? (
-        <GlobalMessageSearchModal
-          onClose={() => setGlobalSearchOpen(false)}
-          onOpenResult={handleOpenGlobalSearchResult}
-        />
-      ) : null}
 
       <div className={`chat-container ${mainView === 'chat' && selectedConversationOpen ? 'conversation-open' : ''} ${mainView === 'chat' && selectedConversationOpen && detailsOpen ? 'details-open' : ''}`}>
         <ConversationSidebar
@@ -1695,6 +1606,9 @@ export default function ChatPage() {
                 }
               }}
               onUnpinMessage={canManagePinnedMessages ? () => void handleUnpinMessage() : undefined}
+              showScrollToBottom={showScrollToBottom}
+              unreadCount={(selectedUser?.unreadCount ?? selectedRoom?.unreadCount ?? 0)}
+              onScrollToBottom={handleScrollToBottom}
               typingIndicatorLabel={typingIndicatorLabel}
               roomSummaryRoomId={roomSummaryRoomId}
               selectedRoomId={selectedRoom?.id ?? null}
@@ -1856,21 +1770,24 @@ export default function ChatPage() {
         }}
       />
 
-      <ProfileViewerModal
-        user={activeViewedProfileUser}
-        loading={viewedProfileLoading}
-        error={viewedProfileError}
-        actionError={profileActionError}
-        pendingActionKeys={friendActionKeys}
+      <WorkspaceModals
+        globalSearchOpen={globalSearchOpen}
+        onCloseGlobalSearch={() => setGlobalSearchOpen(false)}
+        onOpenGlobalSearchResult={handleOpenGlobalSearchResult}
+        activeViewedProfileUser={activeViewedProfileUser}
+        viewedProfileLoading={viewedProfileLoading}
+        viewedProfileError={viewedProfileError}
+        profileActionError={profileActionError}
+        friendActionKeys={friendActionKeys}
         callActive={Boolean(activeCall)}
-        blockedByCurrentUser={activeProfileUserIsBlocked}
-        blockActionPending={blockActionPendingUserId === activeViewedProfileUser?.id}
-        onClose={handleCloseUserProfile}
-        onOpenChat={(user) => {
+        activeProfileUserIsBlocked={activeProfileUserIsBlocked}
+        blockActionPendingUserId={blockActionPendingUserId}
+        onCloseUserProfile={handleCloseUserProfile}
+        onOpenChatFromProfile={(user) => {
           handleCloseUserProfile();
-          handleUserSelect(user);
+          void handleUserSelect(user);
         }}
-        onStartCall={(user, callType) => {
+        onStartCallFromProfile={(user, callType) => {
           handleCloseUserProfile();
           openPreCallSetupForUser(user, callType);
         }}
@@ -1880,109 +1797,98 @@ export default function ChatPage() {
         onCancelFriendRequest={(user) => void handleCancelFriendRequest(user)}
         onUnfriend={(user) => void handleUnfriend(user)}
         onToggleBlock={(user) => void toggleUserBlock(user)}
-      />
-
-      <BlockedUsersModal
-        open={blockedUsersOpen}
-        users={blockedUsers}
-        loading={blockedUsersLoading}
-        error={blockedUsersError}
-        pendingUserId={blockActionPendingUserId}
-        onClose={closeBlockedUsers}
-        onUnblock={(user) => void toggleUserBlock(user)}
-      />
-
-      <ProfileEditorModal
-        open={profileEditorOpen}
+        blockedUsersOpen={blockedUsersOpen}
+        blockedUsers={blockedUsers}
+        blockedUsersLoading={blockedUsersLoading}
+        blockedUsersError={blockedUsersError}
+        onCloseBlockedUsers={closeBlockedUsers}
+        profileEditorOpen={profileEditorOpen}
         currentUser={currentUser}
-        fullName={profileFullName}
-        bio={profileBio}
-        avatarPreview={profileAvatarPreview}
-        saving={profileSaving}
-        error={profileError}
-        onClose={handleCloseProfileEditor}
-        onSubmit={handleUpdateProfile}
-        onAvatarChange={handleProfileAvatarChange}
-        onFullNameChange={(value) => {
+        profileFullName={profileFullName}
+        profileBio={profileBio}
+        profileAvatarPreview={profileAvatarPreview}
+        profileSaving={profileSaving}
+        profileError={profileError}
+        onCloseProfileEditor={handleCloseProfileEditor}
+        onUpdateProfile={handleUpdateProfile}
+        onProfileAvatarChange={handleProfileAvatarChange}
+        onProfileFullNameChange={(value) => {
           setProfileFullName(value);
           setProfileError('');
         }}
-        onBioChange={(value) => {
+        onProfileBioChange={(value) => {
           setProfileBio(value);
           setProfileError('');
         }}
-      />
-
-      <CreateGroupModal
-        open={createGroupOpen}
+        createGroupOpen={createGroupOpen}
         friends={friends}
+        rooms={rooms}
         groupName={groupName}
-        selectedMemberIds={selectedGroupMemberIds}
-        requirementText={groupMemberRequirementText}
-        creating={groupCreating}
-        canCreate={canCreateGroup}
-        error={groupError}
-        onClose={handleCloseCreateGroup}
-        onSubmit={handleCreateGroup}
+        selectedGroupMemberIds={selectedGroupMemberIds}
+        groupMemberRequirementText={groupMemberRequirementText}
+        groupCreating={groupCreating}
+        canCreateGroup={canCreateGroup}
+        groupError={groupError}
+        onCloseCreateGroup={handleCloseCreateGroup}
+        onCreateGroup={handleCreateGroup}
         onGroupNameChange={(value) => {
           setGroupName(value);
           setGroupError('');
         }}
-        onToggleMember={handleToggleGroupMember}
-      />
-
-      <ChatDialogLayer
-        mediaViewerMessage={mediaViewerMessage}
-        mediaViewerUrl={mediaViewerUrl}
-        mediaViewerType={mediaViewerType}
-        onCloseMediaViewer={() => setMediaViewerMessage(null)}
-        conversationDeleteTarget={conversationDeleteTarget}
-        conversationSettingPendingKey={conversationSettingPendingKey}
-        conversationSettingsError={conversationSettingsError}
-        onCloseConversationDelete={() => setConversationDeleteTarget(null)}
-        onDeleteConversation={() => void handleDeleteConversation()}
-        forwardingMessage={forwardingMessage}
-        messageActionError={messageActionError}
-        onDismissMessageActionError={clearMessageActionError}
-        editingMessage={editingMessage}
-        onCloseEditMessage={() => setEditingMessage(null)}
-        onSaveEditMessage={saveEditedMessage}
-        messageToDeleteForMe={messageToDeleteForMe}
-        onCloseDeleteForMe={() => setMessageToDeleteForMe(null)}
-        onConfirmDeleteForMe={deleteMessageForMe}
-        friends={friends}
-        rooms={rooms}
-        onCloseForward={() => setForwardingMessage(null)}
-        onForward={(targetUserId, targetRoomId) => void sendForwardMessage(targetUserId, targetRoomId)}
-        addMembersModalOpen={addMembersModalOpen}
-        selectedRoom={selectedRoom}
-        addMemberCandidates={addMemberCandidates}
-        selectedAddMemberIds={selectedAddMemberIds}
-        groupSettingsSaving={groupSettingsSaving}
-        groupSettingsError={groupSettingsError}
-        onCloseAddMembers={() => {
-          setSelectedAddMemberIds([]);
-          setAddMembersModalOpen(false);
+        onToggleGroupMember={handleToggleGroupMember}
+        dialogProps={{
+          mediaViewerMessage,
+          mediaViewerUrl,
+          mediaViewerType,
+          onCloseMediaViewer: () => setMediaViewerMessage(null),
+          conversationDeleteTarget,
+          conversationSettingPendingKey,
+          conversationSettingsError,
+          onCloseConversationDelete: () => setConversationDeleteTarget(null),
+          onDeleteConversation: () => void handleDeleteConversation(),
+          forwardingMessage,
+          messageActionError,
+          onDismissMessageActionError: clearMessageActionError,
+          editingMessage,
+          onCloseEditMessage: () => setEditingMessage(null),
+          onSaveEditMessage: saveEditedMessage,
+          messageToDeleteForMe,
+          onCloseDeleteForMe: () => setMessageToDeleteForMe(null),
+          onConfirmDeleteForMe: deleteMessageForMe,
+          friends,
+          rooms,
+          onCloseForward: () => setForwardingMessage(null),
+          onForward: sendForwardMessage,
+          addMembersModalOpen,
+          selectedRoom,
+          addMemberCandidates,
+          selectedAddMemberIds,
+          groupSettingsSaving,
+          groupSettingsError,
+          onCloseAddMembers: () => {
+            setSelectedAddMemberIds([]);
+            setAddMembersModalOpen(false);
+          },
+          onToggleAddMember: handleToggleAddRoomMember,
+          onAddMembers: handleAddRoomMembers,
+          inviteModalOpen,
+          inviteLoading,
+          inviteCopied,
+          inviteError,
+          inviteRevoking,
+          canManageInvite: currentUserCanManageSelectedRoom,
+          getInviteUrl: getGroupInviteUrl,
+          onCloseInvite: () => setInviteModalOpen(false),
+          onCopyInvite: () => void handleCopyInviteLink(),
+          onRevokeInvite: () => void handleRevokeInviteLink(),
+          lightboxState,
+          onCloseLightbox: () => setLightboxState(null),
+          onSelectLightboxIndex: (index) => setLightboxState((current) => current ? { ...current, index } : null),
+          groupSeenModalMessage,
+          onCloseGroupSeen: () => setGroupSeenModalMessage(null),
+          reactionModalGroups,
+          onCloseReactionSummary: () => setReactionModalGroups(null),
         }}
-        onToggleAddMember={handleToggleAddRoomMember}
-        onAddMembers={handleAddRoomMembers}
-        inviteModalOpen={inviteModalOpen}
-        inviteLoading={inviteLoading}
-        inviteCopied={inviteCopied}
-        inviteError={inviteError}
-        inviteRevoking={inviteRevoking}
-        canManageInvite={currentUserCanManageSelectedRoom}
-        getInviteUrl={getGroupInviteUrl}
-        onCloseInvite={() => setInviteModalOpen(false)}
-        onCopyInvite={() => void handleCopyInviteLink()}
-        onRevokeInvite={() => void handleRevokeInviteLink()}
-        lightboxState={lightboxState}
-        onCloseLightbox={() => setLightboxState(null)}
-        onSelectLightboxIndex={(index) => setLightboxState((current) => current ? { ...current, index } : null)}
-        groupSeenModalMessage={groupSeenModalMessage}
-        onCloseGroupSeen={() => setGroupSeenModalMessage(null)}
-        reactionModalGroups={reactionModalGroups}
-        onCloseReactionSummary={() => setReactionModalGroups(null)}
       />
 
     </div>

@@ -2,7 +2,7 @@ import type { ComponentProps, RefObject } from 'react';
 import type { ChatMessage, RoomSummaryResponse } from '../../types/chat.types';
 import type { Message } from '../../types';
 import { MESSAGE_SKELETON_KEYS } from '../../constants/chatConstants';
-import { CloseIcon, FriendsIcon, PaperclipIcon } from '../../icons/ChatIcons';
+import { ChevronDownIcon, CloseIcon, FriendsIcon, PaperclipIcon } from '../../icons/ChatIcons';
 import ConversationHeader from './ConversationHeader';
 import MessageInput, { type MessageInputProps } from './MessageInput';
 import MessageList from './MessageList';
@@ -35,6 +35,9 @@ export interface ConversationPaneProps {
   onLoadOlderMessages: () => void;
   onGoToPinnedMessage: () => void;
   onUnpinMessage?: () => void;
+  showScrollToBottom?: boolean;
+  unreadCount?: number;
+  onScrollToBottom?: () => void;
   typingIndicatorLabel: string;
   roomSummaryRoomId: number | null;
   selectedRoomId: number | null;
@@ -69,6 +72,9 @@ export function ConversationPane({
   onLoadOlderMessages,
   onGoToPinnedMessage,
   onUnpinMessage,
+  showScrollToBottom,
+  unreadCount,
+  onScrollToBottom,
   typingIndicatorLabel,
   roomSummaryRoomId,
   selectedRoomId,
@@ -120,6 +126,20 @@ export function ConversationPane({
       {!messagesLoading && typingIndicatorLabel ? <div className="typing-indicator">{typingIndicatorLabel}</div> : null}
       <div ref={messagesEndRef} />
     </div>
+    {showScrollToBottom && !messagesLoading && messages.length > 0 && onScrollToBottom ? (
+      <button
+        type="button"
+        className="scroll-to-bottom-btn"
+        onClick={onScrollToBottom}
+        aria-label="Scroll to latest messages"
+        title="Scroll to latest messages"
+      >
+        <ChevronDownIcon className="scroll-to-bottom-icon" />
+        {(unreadCount ?? 0) > 0 ? (
+          <span className="scroll-to-bottom-badge">{unreadCount} new</span>
+        ) : null}
+      </button>
+    ) : null}
     {showSummary ? <section className="room-summary-card" aria-live="polite" aria-label="Private chat summary">
       <div className="room-summary-card-header"><div><span>Private summary</span>{roomSummary ? <small>{roomSummary.messageCount} recent messages</small> : null}</div><button type="button" className="room-summary-close-btn" onClick={onDismissRoomSummary} disabled={roomSummaryLoading} aria-label="Close summary" title="Close summary"><CloseIcon className="room-summary-close-icon" /></button></div>
       {roomSummaryLoading ? <div className="room-summary-loading">Summarizing recent messages...</div> : null}

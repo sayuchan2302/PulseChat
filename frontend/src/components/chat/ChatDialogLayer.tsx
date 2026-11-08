@@ -35,7 +35,7 @@ export interface ChatDialogLayerProps {
   friends: User[];
   rooms: ChatRoom[];
   onCloseForward: () => void;
-  onForward: (targetUserId: number | null, targetRoomId: number | null) => void;
+  onForward: (targetUserId: number | null, targetRoomId: number | null) => boolean | void | Promise<boolean | void>;
   editingMessage: ChatMessage | null;
   onCloseEditMessage: () => void;
   onSaveEditMessage: (content: string) => Promise<void>;

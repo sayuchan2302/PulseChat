@@ -80,7 +80,7 @@ export function AppHeader({
           className="header-icon-btn"
           onClick={onOpenGlobalSearch}
           aria-label="Search all conversations"
-          title="Search all conversations"
+          title="Search all conversations (Ctrl+K)"
         >
           <SearchIcon className="header-icon" />
         </button>

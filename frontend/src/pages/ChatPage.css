@@ -246,6 +246,47 @@ html.theme-transitioning *::after {
   color: var(--text-primary);
 }
 
+.scroll-to-bottom-btn {
+  position: absolute;
+  right: 24px;
+  bottom: 72px;
+  z-index: 15;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.scroll-to-bottom-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.scroll-to-bottom-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.scroll-to-bottom-badge {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
 /* ==========================================================================
    Restored section: styles lost during the ChatPage.css split (behaviour 1:1)
    ========================================================================== */

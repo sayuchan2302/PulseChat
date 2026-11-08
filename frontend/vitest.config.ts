@@ -3,6 +3,7 @@ import viteConfig from './vite.config';
 
 export default mergeConfig(viteConfig, defineConfig({
   test: {
+    pool: 'vmThreads',
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     environment: 'jsdom',
     clearMocks: true,

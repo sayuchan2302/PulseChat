@@ -24,6 +24,7 @@ export interface MessageItemProps {
     highlightedMessageId: number | null;
     isTimeExpanded?: boolean;
     onToggleTime?: (id: number | string) => void;
+    onQuickReact?: (msg: ChatMessage, emoji: string) => void;
     renderCallMessageBody: (msg: ChatMessage) => React.ReactNode;
     findKnownUserById: (id: number) => User | null;
     handleOpenUserProfile: (user: User) => void;
@@ -51,6 +52,7 @@ function MessageItemComponent({
     highlightedMessageId,
     isTimeExpanded = false,
     onToggleTime,
+    onQuickReact,
     renderCallMessageBody,
     findKnownUserById,
     handleOpenUserProfile,
@@ -90,7 +92,7 @@ function MessageItemComponent({
     const handleBubbleClick = (event: React.MouseEvent) => {
         if (isCallEventMessage || message.deliveryStatus === 'failed') return;
         const target = event.target as HTMLElement | null;
-        if (target?.closest('button, a, input, textarea, video, audio, .reaction-pill, .message-actions, .message-retry-btn, .message-video-preview-wrap')) {
+        if (target?.closest('button, a, input, textarea, video, audio, .reaction-pill, .message-actions, .message-retry-btn, .message-video-preview-wrap, .message-reply-quote')) {
             return;
         }
         const selection = window.getSelection();
@@ -98,6 +100,15 @@ function MessageItemComponent({
             return;
         }
         onToggleTime?.(messageKey);
+    };
+
+    const handleBubbleDoubleClick = (event: React.MouseEvent) => {
+        if (isCallEventMessage || message.recalled || message.id <= 0 || message.deliveryStatus === 'failed') return;
+        const target = event.target as HTMLElement | null;
+        if (target?.closest('button, a, input, textarea, video, audio, .reaction-pill, .message-actions, .message-retry-btn, .message-video-preview-wrap, .message-reply-quote')) {
+            return;
+        }
+        onQuickReact?.(message, '❤️');
     };
     const isLatestSeenOutgoingMessage =
         Boolean(selectedUser) &&
@@ -182,7 +193,11 @@ function MessageItemComponent({
                     </div>
                 ) : null}
                 {isSentByCurrentUser && !isCallEventMessage ? renderMessageActions(message, isSentByCurrentUser) : null}
-                <div className={`message-bubble-wrap ${isCallEventMessage ? 'call-bubble-wrap' : ''}`} onClick={handleBubbleClick}>
+                <div
+                    className={`message-bubble-wrap ${isCallEventMessage ? 'call-bubble-wrap' : ''}`}
+                    onClick={handleBubbleClick}
+                    onDoubleClick={handleBubbleDoubleClick}
+                >
                     {isCallEventMessage ? renderCallMessageBody(message) : renderMessageBody(message)}
                     {!isCallEventMessage ? renderMessageReactions(message) : null}
                 </div>

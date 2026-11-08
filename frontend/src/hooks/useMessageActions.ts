@@ -80,8 +80,8 @@ export function useMessageActions(options: Options) {
     }
   }, [clearMessageActionError, setForwardingMessage]);
 
-  const sendForwardMessage = useCallback(async (targetUserId: number | null, targetRoomId: number | null) => {
-    if (!forwardingMessage) return;
+  const sendForwardMessage = useCallback(async (targetUserId: number | null, targetRoomId: number | null): Promise<boolean> => {
+    if (!forwardingMessage) return false;
     clearMessageActionError();
     try {
       const response = await apiClient.post<Message>('/messages/forward', {
@@ -92,11 +92,12 @@ export function useMessageActions(options: Options) {
       if ((targetUserId && selectedUser?.id === targetUserId) || (targetRoomId && selectedRoom?.id === targetRoomId)) {
         applyMessageUpdate(response.data);
       }
-      setForwardingMessage(null);
+      return true;
     } catch (error) {
       reportMessageActionError('Failed to forward message:', error, 'Unable to forward message.');
+      return false;
     }
-  }, [applyMessageUpdate, clearMessageActionError, forwardingMessage, reportMessageActionError, selectedRoom?.id, selectedUser?.id, setForwardingMessage]);
+  }, [applyMessageUpdate, clearMessageActionError, forwardingMessage, reportMessageActionError, selectedRoom?.id, selectedUser?.id]);
 
   return {
     handleReplyToMessage,

@@ -1,12 +1,13 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Component, Fragment, type ReactNode } from 'react';
-import AuthPage from './pages/AuthPage';
-import ChatPage from './pages/ChatPage';
-import InviteJoinPage from './pages/InviteJoinPage';
-import AdminPage from './pages/AdminPage';
+import { Component, Fragment, lazy, Suspense, type ReactNode } from 'react';
 import { ROUTES } from './config/constants';
 import { useAuth } from './context/useAuth';
 import './App.css';
+
+const AuthPage = lazy(() => import('./pages/AuthPage'));
+const ChatPage = lazy(() => import('./pages/ChatPage'));
+const InviteJoinPage = lazy(() => import('./pages/InviteJoinPage'));
+const AdminPage = lazy(() => import('./pages/AdminPage'));
 
 function AuthLoading() {
   return (
@@ -67,20 +68,22 @@ function App() {
   return (
     <AppErrorBoundary>
       <BrowserRouter>
-        <Routes>
-          <Route path={ROUTES.HOME} element={<GuestRoute />} />
-          <Route path="/invite/:inviteCode" element={<InviteJoinPage />} />
-          <Route path={`${ROUTES.ADMIN}/*`} element={<AdminRoute />} />
-          <Route
-            path={`${ROUTES.CHAT}/*`}
-            element={
-              <ProtectedRoute>
-                <ChatPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="*" element={<Navigate to={ROUTES.HOME} replace />} />
-        </Routes>
+        <Suspense fallback={<AuthLoading />}>
+          <Routes>
+            <Route path={ROUTES.HOME} element={<GuestRoute />} />
+            <Route path="/invite/:inviteCode" element={<InviteJoinPage />} />
+            <Route path={`${ROUTES.ADMIN}/*`} element={<AdminRoute />} />
+            <Route
+              path={`${ROUTES.CHAT}/*`}
+              element={
+                <ProtectedRoute>
+                  <ChatPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="*" element={<Navigate to={ROUTES.HOME} replace />} />
+          </Routes>
+        </Suspense>
       </BrowserRouter>
     </AppErrorBoundary>
   );

@@ -214,6 +214,10 @@ export function useMessageItemRenderers({
     />
   ), [seenByPopupMessageId, setGroupSeenModalMessage]);
 
+  const handleQuickReact = useCallback((message: ChatMessage, emoji: string) => {
+    void handleReactToMessage(message, emoji);
+  }, [handleReactToMessage]);
+
   const messageListProps = useMemo(() => ({
     items: messageListItems,
     currentUser,
@@ -229,6 +233,7 @@ export function useMessageItemRenderers({
     messageSearchQuery,
     messageSearchResultIds,
     highlightedMessageId,
+    onQuickReact: handleQuickReact,
     renderCallMessageBody,
     findKnownUserById,
     handleOpenUserProfile,
@@ -242,6 +247,7 @@ export function useMessageItemRenderers({
     detailsOpen,
     findKnownUserById,
     handleOpenUserProfile,
+    handleQuickReact,
     handleRetryMessage,
     highlightedMessageId,
     latestOutgoingMessageId,

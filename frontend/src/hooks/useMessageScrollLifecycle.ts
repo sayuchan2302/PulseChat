@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import type { MutableRefObject, RefObject } from 'react';
 import {
   AUTO_SCROLL_BOTTOM_THRESHOLD,
@@ -55,9 +55,21 @@ export function useMessageScrollLifecycle({
   completePendingReadIfAtBottom,
   loadOlderMessages,
 }: Options) {
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  useEffect(() => {
+    setShowScrollToBottom(false);
+  }, [selectedRoomId, selectedUserId]);
+
   const markMessagesScrollIntent = useCallback(() => {
     hasUserInteractedWithMessagesRef.current = true;
   }, [hasUserInteractedWithMessagesRef]);
+
+  const handleScrollToBottom = useCallback(() => {
+    scrollToLatestMessage('smooth');
+    setShowScrollToBottom(false);
+    completePendingReadIfAtBottom();
+  }, [completePendingReadIfAtBottom, scrollToLatestMessage]);
 
   const handleMessageAssetLoaded = useCallback(() => {
     if (
@@ -86,6 +98,8 @@ export function useMessageScrollLifecycle({
     const container = messagesContainerRef.current;
     if (container) {
       completePendingReadIfAtBottom();
+      const nearBottom = isMessagesContainerNearBottom(container, AUTO_SCROLL_BOTTOM_THRESHOLD);
+      setShowScrollToBottom(!nearBottom);
     }
 
     if (
@@ -189,9 +203,11 @@ export function useMessageScrollLifecycle({
   ]);
 
   return {
+    showScrollToBottom,
     markMessagesScrollIntent,
     handleMessageAssetLoaded,
     handleMessagesScroll,
+    handleScrollToBottom,
   };
 }
 
