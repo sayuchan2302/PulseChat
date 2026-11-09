@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -93,12 +95,18 @@ import {
 } from '../utils/routeUtils';
 import AppHeader from '../components/chat/AppHeader';
 import ConversationSidebar from '../components/chat/ConversationSidebar';
-import RightConversationSidebar from '../components/chat/RightConversationSidebar';
-import { FriendsPanel, FriendRequestsPanel } from '../components/chat/PeoplePanels';
 import SidebarContent from '../components/chat/SidebarContent';
 import ConversationPane from '../components/chat/ConversationPane';
 import CallModalLayer from '../components/chat/CallModalLayer';
 import WorkspaceModals from '../components/chat/WorkspaceModals';
+
+const RightConversationSidebar = lazy(() => import('../components/chat/RightConversationSidebar'));
+const FriendsPanel = lazy(() =>
+  import('../components/chat/PeoplePanels').then((module) => ({ default: module.FriendsPanel }))
+);
+const FriendRequestsPanel = lazy(() =>
+  import('../components/chat/PeoplePanels').then((module) => ({ default: module.FriendRequestsPanel }))
+);
 import type { LightboxMediaItem } from '../components/chat/MediaLightbox';
 import type { ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
 import { buildLatestRoomSeenByMessageId, buildMessageListItems } from '../utils/messageListUtils';
@@ -1488,34 +1496,38 @@ export default function ChatPage() {
 
         <main className={`chat-area ${mainView !== 'chat' ? 'main-view-open' : ''}`}>
           {mainView === 'friends' ? (
-            <FriendsPanel
-              friends={friends}
-              filteredFriends={filteredFriends}
-              searchQuery={friendSearchQuery}
-              loading={usersLoading}
-              error={usersError}
-              onSearchChange={handleFriendSearchChange}
-              onClearSearch={handleClearFriendSearch}
-              onRefresh={() => void loadUsers({ search: '', silent: true })}
-              onRetry={() => void loadUsers({ search: '' })}
-              onOpenProfile={(user) => void handleOpenUserProfile(user)}
-              onOpenChat={handleUserSelect}
-            />
+            <Suspense fallback={null}>
+              <FriendsPanel
+                friends={friends}
+                filteredFriends={filteredFriends}
+                searchQuery={friendSearchQuery}
+                loading={usersLoading}
+                error={usersError}
+                onSearchChange={handleFriendSearchChange}
+                onClearSearch={handleClearFriendSearch}
+                onRefresh={() => void loadUsers({ search: '', silent: true })}
+                onRetry={() => void loadUsers({ search: '' })}
+                onOpenProfile={(user) => void handleOpenUserProfile(user)}
+                onOpenChat={handleUserSelect}
+              />
+            </Suspense>
           ) : mainView === 'requests' ? (
-            <FriendRequestsPanel
-              incomingRequests={incomingFriendRequests}
-              pendingCount={friendRequestBadgeCount}
-              loading={friendRequestsLoading}
-              error={friendRequestsError}
-              pendingActionKeys={friendActionKeys}
-              onRefresh={() => void Promise.all([
-                loadIncomingFriendRequests(),
-                loadFriendSummary({ silent: true }),
-              ])}
-              onRetry={() => void loadIncomingFriendRequests()}
-              onAccept={(requestId, actionKey) => void handleAcceptFriendRequest(requestId, actionKey)}
-              onDecline={(requestId, actionKey) => void handleDeclineFriendRequest(requestId, actionKey)}
-            />
+            <Suspense fallback={null}>
+              <FriendRequestsPanel
+                incomingRequests={incomingFriendRequests}
+                pendingCount={friendRequestBadgeCount}
+                loading={friendRequestsLoading}
+                error={friendRequestsError}
+                pendingActionKeys={friendActionKeys}
+                onRefresh={() => void Promise.all([
+                  loadIncomingFriendRequests(),
+                  loadFriendSummary({ silent: true }),
+                ])}
+                onRetry={() => void loadIncomingFriendRequests()}
+                onAccept={(requestId, actionKey) => void handleAcceptFriendRequest(requestId, actionKey)}
+                onDecline={(requestId, actionKey) => void handleDeclineFriendRequest(requestId, actionKey)}
+              />
+            </Suspense>
           ) : (
             <ConversationPane
               open={selectedConversationOpen}
@@ -1624,84 +1636,88 @@ export default function ChatPage() {
           )}
         </main>
 
-        <RightConversationSidebar
-          open={mainView === 'chat' && selectedConversationOpen && detailsOpen}
-          rightSidebarTab={rightSidebarTab}
-          currentUserId={currentUser?.id ?? null}
-          selectedUser={selectedUser}
-          selectedRoom={selectedRoom}
-          handleCloseConversationDetails={handleCloseConversationDetails}
-          handleOpenUserProfile={handleOpenUserProfile}
-          findKnownUserById={findKnownUserById}
-          handleJumpToMessage={handleJumpToMessage}
-          handleOpenLightbox={handleOpenLightbox}
-          setMediaViewerMessage={setMediaViewerMessage}
-          messageSearchInputRef={messageSearchInputRef}
-          messageSearchQuery={messageSearchQuery}
-          messageSearchSubmitted={messageSearchSubmitted}
-          messageSearchLoading={messageSearchLoading}
-          messageSearchError={messageSearchError}
-          messageSearchItems={messageSearchItems}
-          messageSearchHasMore={messageSearchHasMore}
-          activeMessageSearchId={activeMessageSearchId}
-          handleMessageSearchSubmit={handleMessageSearchSubmit}
-          handleMessageSearchChange={handleMessageSearchChange}
-          handleMessageSearchInputKeyDown={handleMessageSearchInputKeyDown}
-          handleClearMessageSearch={handleClearMessageSearch}
-          loadMessageSearch={loadMessageSearch}
-          handleJumpToSearchResult={handleJumpToSearchResult}
-          sharedMediaExpanded={sharedMediaExpanded}
-          setSharedMediaExpanded={setSharedMediaExpanded}
-          sharedFilesExpanded={sharedFilesExpanded}
-          setSharedFilesExpanded={setSharedFilesExpanded}
-          sharedLinksExpanded={sharedLinksExpanded}
-          setSharedLinksExpanded={setSharedLinksExpanded}
-          sharedMediaItems={sharedMediaItems}
-          sharedLinkItems={sharedLinkItems}
-          sharedMediaLoading={sharedMediaLoading}
-          sharedLinksLoading={sharedLinksLoading}
-          sharedMediaError={sharedMediaError}
-          sharedLinksError={sharedLinksError}
-          sharedMediaHasMore={sharedMediaHasMore}
-          sharedLinksHasMore={sharedLinksHasMore}
-          loadSharedContent={loadSharedContent}
-          selectedRoomOwnerId={selectedRoomOwnerId}
-          selectedRoomOwnerName={selectedRoomOwnerName}
-          currentUserMemberRole={currentUserMemberRole}
-          isCurrentUserOwner={isCurrentUserOwner}
-          isCurrentUserModerator={isCurrentUserModerator}
-          currentUserCanManageSelectedRoom={currentUserCanManageSelectedRoom}
-          groupAvatarUploading={groupAvatarUploading}
-          groupSettingsSaving={groupSettingsSaving}
-          groupSettingsPendingAction={groupSettingsPendingAction}
-          groupSettingsName={groupSettingsName}
-          setGroupSettingsName={setGroupSettingsName}
-          isEditingGroupName={isEditingGroupName}
-          setIsEditingGroupName={setIsEditingGroupName}
-          canSaveGroupSettingsName={canSaveGroupSettingsName}
-          groupSettingsError={groupSettingsError}
-          setGroupSettingsError={setGroupSettingsError}
-          groupMembersExpanded={groupMembersExpanded}
-          setGroupMembersExpanded={setGroupMembersExpanded}
-          groupMemberNicknames={groupMemberNicknames}
-          openGroupMemberMenuId={openGroupMemberMenuId}
-          setOpenGroupMemberMenuId={setOpenGroupMemberMenuId}
-          editingGroupMemberNicknameId={editingGroupMemberNicknameId}
-          canKickMember={canKickMember}
-          handleGroupAvatarChange={handleGroupAvatarChange}
-          handleUpdateGroupSettingsName={handleUpdateGroupSettingsName}
-          handleOpenInviteModal={handleOpenInviteModal}
-          handleToggleGroupMemberMenu={handleToggleGroupMemberMenu}
-          handleStartEditGroupMemberNickname={handleStartEditGroupMemberNickname}
-          handleUpdateMemberRole={handleUpdateMemberRole}
-          handleTransferRoomOwner={handleTransferRoomOwner}
-          handleKickRoomMember={handleKickRoomMember}
-          handleGroupMemberNicknameChange={handleGroupMemberNicknameChange}
-          handleUpdateRoomMemberNickname={handleUpdateRoomMemberNickname}
-          handleCancelEditGroupMemberNickname={handleCancelEditGroupMemberNickname}
-          handleDeleteSelectedGroup={handleDeleteSelectedGroup}
-          handleLeaveSelectedGroup={handleLeaveSelectedGroup}
-        />
+        {mainView === 'chat' && selectedConversationOpen && detailsOpen ? (
+          <Suspense fallback={null}>
+            <RightConversationSidebar
+              open={true}
+              rightSidebarTab={rightSidebarTab}
+              currentUserId={currentUser?.id ?? null}
+              selectedUser={selectedUser}
+              selectedRoom={selectedRoom}
+              handleCloseConversationDetails={handleCloseConversationDetails}
+              handleOpenUserProfile={handleOpenUserProfile}
+              findKnownUserById={findKnownUserById}
+              handleJumpToMessage={handleJumpToMessage}
+              handleOpenLightbox={handleOpenLightbox}
+              setMediaViewerMessage={setMediaViewerMessage}
+              messageSearchInputRef={messageSearchInputRef}
+              messageSearchQuery={messageSearchQuery}
+              messageSearchSubmitted={messageSearchSubmitted}
+              messageSearchLoading={messageSearchLoading}
+              messageSearchError={messageSearchError}
+              messageSearchItems={messageSearchItems}
+              messageSearchHasMore={messageSearchHasMore}
+              activeMessageSearchId={activeMessageSearchId}
+              handleMessageSearchSubmit={handleMessageSearchSubmit}
+              handleMessageSearchChange={handleMessageSearchChange}
+              handleMessageSearchInputKeyDown={handleMessageSearchInputKeyDown}
+              handleClearMessageSearch={handleClearMessageSearch}
+              loadMessageSearch={loadMessageSearch}
+              handleJumpToSearchResult={handleJumpToSearchResult}
+              sharedMediaExpanded={sharedMediaExpanded}
+              setSharedMediaExpanded={setSharedMediaExpanded}
+              sharedFilesExpanded={sharedFilesExpanded}
+              setSharedFilesExpanded={setSharedFilesExpanded}
+              sharedLinksExpanded={sharedLinksExpanded}
+              setSharedLinksExpanded={setSharedLinksExpanded}
+              sharedMediaItems={sharedMediaItems}
+              sharedLinkItems={sharedLinkItems}
+              sharedMediaLoading={sharedMediaLoading}
+              sharedLinksLoading={sharedLinksLoading}
+              sharedMediaError={sharedMediaError}
+              sharedLinksError={sharedLinksError}
+              sharedMediaHasMore={sharedMediaHasMore}
+              sharedLinksHasMore={sharedLinksHasMore}
+              loadSharedContent={loadSharedContent}
+              selectedRoomOwnerId={selectedRoomOwnerId}
+              selectedRoomOwnerName={selectedRoomOwnerName}
+              currentUserMemberRole={currentUserMemberRole}
+              isCurrentUserOwner={isCurrentUserOwner}
+              isCurrentUserModerator={isCurrentUserModerator}
+              currentUserCanManageSelectedRoom={currentUserCanManageSelectedRoom}
+              groupAvatarUploading={groupAvatarUploading}
+              groupSettingsSaving={groupSettingsSaving}
+              groupSettingsPendingAction={groupSettingsPendingAction}
+              groupSettingsName={groupSettingsName}
+              setGroupSettingsName={setGroupSettingsName}
+              isEditingGroupName={isEditingGroupName}
+              setIsEditingGroupName={setIsEditingGroupName}
+              canSaveGroupSettingsName={canSaveGroupSettingsName}
+              groupSettingsError={groupSettingsError}
+              setGroupSettingsError={setGroupSettingsError}
+              groupMembersExpanded={groupMembersExpanded}
+              setGroupMembersExpanded={setGroupMembersExpanded}
+              groupMemberNicknames={groupMemberNicknames}
+              openGroupMemberMenuId={openGroupMemberMenuId}
+              setOpenGroupMemberMenuId={setOpenGroupMemberMenuId}
+              editingGroupMemberNicknameId={editingGroupMemberNicknameId}
+              canKickMember={canKickMember}
+              handleGroupAvatarChange={handleGroupAvatarChange}
+              handleUpdateGroupSettingsName={handleUpdateGroupSettingsName}
+              handleOpenInviteModal={handleOpenInviteModal}
+              handleToggleGroupMemberMenu={handleToggleGroupMemberMenu}
+              handleStartEditGroupMemberNickname={handleStartEditGroupMemberNickname}
+              handleUpdateMemberRole={handleUpdateMemberRole}
+              handleTransferRoomOwner={handleTransferRoomOwner}
+              handleKickRoomMember={handleKickRoomMember}
+              handleGroupMemberNicknameChange={handleGroupMemberNicknameChange}
+              handleUpdateRoomMemberNickname={handleUpdateRoomMemberNickname}
+              handleCancelEditGroupMemberNickname={handleCancelEditGroupMemberNickname}
+              handleDeleteSelectedGroup={handleDeleteSelectedGroup}
+              handleLeaveSelectedGroup={handleLeaveSelectedGroup}
+            />
+          </Suspense>
+        ) : null}
       </div>
 
       <CallModalLayer

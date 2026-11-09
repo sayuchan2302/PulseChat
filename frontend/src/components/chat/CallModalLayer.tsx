@@ -118,79 +118,83 @@ export default function CallModalLayer({
 
   return (
     <>
-      <Suspense fallback={null}>
-        <PreCallSetupModal
-          preCallSetup={preCall.setup}
-          previewStream={preCall.previewStream}
-          previewVideoRef={preCall.previewVideoRef}
-          previewLoading={preCall.previewLoading}
-          submitting={preCall.submitting}
-          canStart={preCall.canStart}
-          error={preCall.error}
-          micMuted={preCall.micMuted}
-          cameraOff={preCall.cameraOff}
-          audioInputDevices={preCall.audioInputDevices}
-          videoInputDevices={preCall.videoInputDevices}
-          selectedAudioInputId={preCall.selectedAudioInputId}
-          selectedVideoInputId={preCall.selectedVideoInputId}
-          callDevicesLoading={preCall.devicesLoading}
-          callDeviceError={preCall.deviceError}
-          getMediaDeviceLabel={getMediaDeviceLabel}
-          renderUserAvatar={renderUserAvatar}
-          renderCallPermissionStatus={renderCallPermissionStatus}
-          onClose={preCall.onClose}
-          onToggleMic={preCall.onToggleMic}
-          onToggleCamera={preCall.onToggleCamera}
-          onAudioInputChange={preCall.onAudioInputChange}
-          onVideoInputChange={preCall.onVideoInputChange}
-          onRetryPreview={preCall.onRetryPreview}
-          onStart={preCall.onStart}
-        />
-      </Suspense>
+      {preCall.setup ? (
+        <Suspense fallback={null}>
+          <PreCallSetupModal
+            preCallSetup={preCall.setup}
+            previewStream={preCall.previewStream}
+            previewVideoRef={preCall.previewVideoRef}
+            previewLoading={preCall.previewLoading}
+            submitting={preCall.submitting}
+            canStart={preCall.canStart}
+            error={preCall.error}
+            micMuted={preCall.micMuted}
+            cameraOff={preCall.cameraOff}
+            audioInputDevices={preCall.audioInputDevices}
+            videoInputDevices={preCall.videoInputDevices}
+            selectedAudioInputId={preCall.selectedAudioInputId}
+            selectedVideoInputId={preCall.selectedVideoInputId}
+            callDevicesLoading={preCall.devicesLoading}
+            callDeviceError={preCall.deviceError}
+            getMediaDeviceLabel={getMediaDeviceLabel}
+            renderUserAvatar={renderUserAvatar}
+            renderCallPermissionStatus={renderCallPermissionStatus}
+            onClose={preCall.onClose}
+            onToggleMic={preCall.onToggleMic}
+            onToggleCamera={preCall.onToggleCamera}
+            onAudioInputChange={preCall.onAudioInputChange}
+            onVideoInputChange={preCall.onVideoInputChange}
+            onRetryPreview={preCall.onRetryPreview}
+            onStart={preCall.onStart}
+          />
+        </Suspense>
+      ) : null}
 
-      <Suspense fallback={null}>
-        <ActiveCallOverlay
-          activeCall={active.call}
-          callMinimized={active.minimized}
-          callConnectionState={active.connectionState}
-          callElapsedSeconds={active.elapsedSeconds}
-          localCallStream={active.localStream}
-          remoteCallStream={active.remoteStream}
-          remoteAudioRef={active.remoteAudioRef}
-          remoteVideoRef={active.remoteVideoRef}
-          localVideoRef={active.localVideoRef}
-          isConversationOpen={active.isConversationOpen}
-          micMuted={active.micMuted}
-          cameraOff={active.cameraOff}
-          screenSharing={active.screenSharing}
-          remoteScreenSharing={active.remoteScreenSharing}
-          screenShareError={active.screenShareError}
-          callError={active.error}
-          audioInputDevices={active.audioInputDevices}
-          videoInputDevices={active.videoInputDevices}
-          selectedAudioInputId={active.selectedAudioInputId}
-          selectedVideoInputId={active.selectedVideoInputId}
-          callDevicesLoading={active.devicesLoading}
-          callDeviceError={active.deviceError}
-          formatCallTimer={formatCallTimer}
-          getMediaDeviceLabel={getMediaDeviceLabel}
-          renderUserAvatar={renderUserAvatar}
-          renderCallPermissionStatus={renderCallPermissionStatus}
-          onRestore={active.onRestore}
-          onMinimize={active.onMinimize}
-          onOpenConversation={active.onOpenConversation}
-          onToggleMic={active.onToggleMic}
-          onToggleCamera={active.onToggleCamera}
-          onStartScreenShare={active.onStartScreenShare}
-          onStopScreenShare={active.onStopScreenShare}
-          onEnd={active.onEnd}
-          onAccept={active.onAccept}
-          onReject={active.onReject}
-          onRetry={active.onRetry}
-          onAudioInputChange={active.onAudioInputChange}
-          onVideoInputChange={active.onVideoInputChange}
-        />
-      </Suspense>
+      {active.call ? (
+        <Suspense fallback={null}>
+          <ActiveCallOverlay
+            activeCall={active.call}
+            callMinimized={active.minimized}
+            callConnectionState={active.connectionState}
+            callElapsedSeconds={active.elapsedSeconds}
+            localCallStream={active.localStream}
+            remoteCallStream={active.remoteStream}
+            remoteAudioRef={active.remoteAudioRef}
+            remoteVideoRef={active.remoteVideoRef}
+            localVideoRef={active.localVideoRef}
+            isConversationOpen={active.isConversationOpen}
+            micMuted={active.micMuted}
+            cameraOff={active.cameraOff}
+            screenSharing={active.screenSharing}
+            remoteScreenSharing={active.remoteScreenSharing}
+            screenShareError={active.screenShareError}
+            callError={active.error}
+            audioInputDevices={active.audioInputDevices}
+            videoInputDevices={active.videoInputDevices}
+            selectedAudioInputId={active.selectedAudioInputId}
+            selectedVideoInputId={active.selectedVideoInputId}
+            callDevicesLoading={active.devicesLoading}
+            callDeviceError={active.deviceError}
+            formatCallTimer={formatCallTimer}
+            getMediaDeviceLabel={getMediaDeviceLabel}
+            renderUserAvatar={renderUserAvatar}
+            renderCallPermissionStatus={renderCallPermissionStatus}
+            onRestore={active.onRestore}
+            onMinimize={active.onMinimize}
+            onOpenConversation={active.onOpenConversation}
+            onToggleMic={active.onToggleMic}
+            onToggleCamera={active.onToggleCamera}
+            onStartScreenShare={active.onStartScreenShare}
+            onStopScreenShare={active.onStopScreenShare}
+            onEnd={active.onEnd}
+            onAccept={active.onAccept}
+            onReject={active.onReject}
+            onRetry={active.onRetry}
+            onAudioInputChange={active.onAudioInputChange}
+            onVideoInputChange={active.onVideoInputChange}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

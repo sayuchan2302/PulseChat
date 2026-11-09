@@ -110,5 +110,17 @@ describe('MessageInput', () => {
     const namedFile = new File(['bytes'], 'architecture-diagram.png', { type: 'image/png' });
     expect(normalizePastedFile(namedFile).name).toBe('architecture-diagram.png');
   });
+
+  it('lazy-loads EmojiPickerPanel and inserts an emoji when emojiPickerOpen is true', async () => {
+    const onInsertEmoji = vi.fn();
+    renderInput({ emojiPickerOpen: true, onInsertEmoji });
+
+    const dialog = await screen.findByRole('dialog', { name: 'Emoji picker' });
+    expect(dialog).toBeTruthy();
+
+    const grinButton = screen.getByRole('button', { name: 'Insert grinning face' });
+    fireEvent.click(grinButton);
+    expect(onInsertEmoji).toHaveBeenCalledWith('😀');
+  });
 });
 

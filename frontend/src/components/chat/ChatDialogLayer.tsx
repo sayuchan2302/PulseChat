@@ -5,12 +5,12 @@ import type { LightboxMediaItem } from './MediaLightbox';
 import type { ReactionDetailGroup } from './ReactionSummaryModal';
 import { CloseIcon, TrashIcon } from '../../icons/ChatIcons';
 import { getUserDisplayName } from '../../utils/userUtils';
-import ForwardPickerBody from './ForwardPickerBody';
-import EditMessageModal from './EditMessageModal';
-import DeleteMessageForMeModal from './DeleteMessageForMeModal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import './ChatDialogs.css';
 
+const ForwardPickerBody = lazy(() => import('./ForwardPickerBody'));
+const EditMessageModal = lazy(() => import('./EditMessageModal'));
+const DeleteMessageForMeModal = lazy(() => import('./DeleteMessageForMeModal'));
 const MediaLightbox = lazy(() => import('./MediaLightbox'));
 const GroupSeenByModal = lazy(() => import('./GroupSeenByModal'));
 const ReactionSummaryModal = lazy(() => import('./ReactionSummaryModal'));
@@ -126,8 +126,8 @@ export function ChatDialogLayer({
   const inviteModalRef = useFocusTrap<HTMLDivElement>(Boolean(inviteModalOpen && selectedRoom));
 
   return <>
-    {editingMessage ? <EditMessageModal message={editingMessage} onClose={onCloseEditMessage} onSave={onSaveEditMessage} /> : null}
-    {messageToDeleteForMe ? <DeleteMessageForMeModal message={messageToDeleteForMe} onClose={onCloseDeleteForMe} onConfirm={onConfirmDeleteForMe} /> : null}
+    {editingMessage ? <Suspense fallback={null}><EditMessageModal message={editingMessage} onClose={onCloseEditMessage} onSave={onSaveEditMessage} /></Suspense> : null}
+    {messageToDeleteForMe ? <Suspense fallback={null}><DeleteMessageForMeModal message={messageToDeleteForMe} onClose={onCloseDeleteForMe} onConfirm={onConfirmDeleteForMe} /></Suspense> : null}
 
     {mediaViewerUrl ? <div className="modal-backdrop media-viewer-backdrop" onClick={onCloseMediaViewer}>
       <div className="media-viewer-modal" ref={mediaViewerRef} role="dialog" aria-modal="true" aria-label={mediaViewerType === 'VIDEO' ? 'Video preview' : 'Image preview'} onClick={(event) => event.stopPropagation()}>
@@ -151,7 +151,7 @@ export function ChatDialogLayer({
       <div className="forward-picker-modal" ref={forwardPickerRef}>
         <div className="forward-picker-header"><span className="forward-picker-title">Forward to…</span><button type="button" className="forward-picker-close" onClick={onCloseForward} aria-label="Close">×</button></div>
         {messageActionError ? <div className="message-action-error" role="alert"><span>{messageActionError}</span><button type="button" onClick={onDismissMessageActionError} aria-label="Dismiss action error"><CloseIcon className="message-action-error-close-icon" /></button></div> : null}
-        <ForwardPickerBody friends={friends} rooms={rooms} onSelect={onForward} />
+        <Suspense fallback={null}><ForwardPickerBody friends={friends} rooms={rooms} onSelect={onForward} /></Suspense>
       </div>
     </div> : null}
 

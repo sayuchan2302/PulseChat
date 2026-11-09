@@ -30,6 +30,14 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             {
+              name: 'react-vendor',
+              test: /node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/,
+            },
+            {
+              name: 'realtime-vendor',
+              test: /node_modules[\\/](@stomp[\\/]stompjs|sockjs-client)[\\/]/,
+            },
+            {
               name: 'vendor',
               test: /node_modules[\\/]/,
             },

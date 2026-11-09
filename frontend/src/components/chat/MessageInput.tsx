@@ -1,12 +1,13 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import type React from 'react';
 import type { MessageReply } from '../../types';
 import type { MentionCandidate, PendingMedia } from '../../types/chat.types';
-import { EMOJI_CATEGORIES } from '../../constants/chatConstants';
 import { CloseIcon, DocumentIcon, EmojiIcon, MediaIcon, PaperclipIcon } from '../../icons/ChatIcons';
 import VoiceRecorderButton from '../VoiceRecorderButton';
 import { formatFileSize, getFileBadgeColor, getFileExtension } from '../../utils/mediaUtils';
 import './MessageInput.css';
+
+const EmojiPickerPanel = lazy(() => import('./EmojiPickerPanel'));
 
 export interface MessageInputProps {
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
@@ -237,31 +238,12 @@ export function MessageInput(props: MessageInputProps) {
           ) : null}
 
           {emojiPickerOpen ? (
-            <div ref={emojiPickerRef} id="emoji-picker-panel" className="emoji-picker-panel" role="dialog" aria-label="Emoji picker">
-              <div className="emoji-picker-header">Emoji</div>
-              <div className="emoji-category-list">
-                {EMOJI_CATEGORIES.map((category) => (
-                  <section key={category.name} className="emoji-category">
-                    <div className="emoji-category-title">{category.name}</div>
-                    <div className="emoji-grid">
-                      {category.emojis.map((emoji) => (
-                        <button
-                          key={`${category.name}-${emoji.symbol}`}
-                          type="button"
-                          className="emoji-option-btn"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => onInsertEmoji(emoji.symbol)}
-                          aria-label={`Insert ${emoji.label}`}
-                          title={emoji.label}
-                        >
-                          {emoji.symbol}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            </div>
+            <Suspense fallback={null}>
+              <EmojiPickerPanel
+                emojiPickerRef={emojiPickerRef}
+                onInsertEmoji={onInsertEmoji}
+              />
+            </Suspense>
           ) : null}
         </div>
         <button type="submit" className="send-btn" disabled={blocked || (!messageInput.trim() && !pendingMedia) || mediaUploading}>
