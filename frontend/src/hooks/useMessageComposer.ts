@@ -1,13 +1,15 @@
 import { useCallback, useMemo } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { ChatRoom, User } from '../types';
-import type { MentionCandidate } from '../types/chat.types';
+import type { ChatMessage, MentionCandidate } from '../types/chat.types';
 import { STOP_TYPING_DELAY_MS } from '../constants/chatConstants';
 
 interface Options {
   selectedUser: User | null;
   selectedRoom: ChatRoom | null;
   currentUser: User | null;
+  messages?: ChatMessage[];
+  onEditMessage?: (message: ChatMessage) => void;
   messageInput: string;
   mentionQuery: string | null;
   mentionStartIndex: number;
@@ -28,8 +30,21 @@ interface Options {
   stopRoomTyping: (roomId: number) => void;
 }
 
+const MARKDOWN_SHORTCUT_MARKERS: Record<string, string> = {
+  b: '**',
+  i: '*',
+  e: '`',
+};
+
 export function useMessageComposer(options: Options) {
-  const { selectedUser, selectedRoom, currentUser, messageInput, mentionQuery, mentionStartIndex, mentionActiveIndex, messageInputRef, messageInputSelectionRef, typingTimeoutRef, setMessageInput, setMentionQuery, setMentionStartIndex, setMentionActiveIndex, setSlashCommandQuery, setEmojiPickerOpen, canChatWithUser, publishTyping, publishRoomTyping, stopTyping, stopRoomTyping } = options;
+  const {
+    selectedUser, selectedRoom, currentUser, messages, onEditMessage,
+    messageInput, mentionQuery, mentionStartIndex, mentionActiveIndex,
+    messageInputRef, messageInputSelectionRef, typingTimeoutRef,
+    setMessageInput, setMentionQuery, setMentionStartIndex, setMentionActiveIndex,
+    setSlashCommandQuery, setEmojiPickerOpen, canChatWithUser,
+    publishTyping, publishRoomTyping, stopTyping, stopRoomTyping,
+  } = options;
   const mentionCandidates = useMemo<MentionCandidate[]>(() => {
     if (!selectedRoom || mentionQuery === null) return [];
     const query = mentionQuery.toLowerCase();
@@ -44,6 +59,70 @@ export function useMessageComposer(options: Options) {
   const insertSummaryCommand = useCallback(() => { setMessageInput('/summary'); setSlashCommandQuery(null); window.requestAnimationFrame(() => { messageInputRef.current?.focus(); messageInputRef.current?.setSelectionRange(8, 8); }); }, [messageInputRef, setMessageInput, setSlashCommandQuery]);
   const handleToggleEmojiPicker = useCallback(() => { const input = messageInputRef.current; if (input) messageInputSelectionRef.current = { start: input.selectionStart, end: input.selectionEnd }; setEmojiPickerOpen((open) => !open); }, [messageInputRef, messageInputSelectionRef, setEmojiPickerOpen]);
   const handleInsertEmoji = useCallback((emoji: string) => { const start = Math.min(messageInputSelectionRef.current.start, messageInput.length); const end = Math.min(Math.max(messageInputSelectionRef.current.end, start), messageInput.length); const next = messageInput.slice(0, start) + emoji + messageInput.slice(end); const cursor = start + emoji.length; messageInputSelectionRef.current = { start: cursor, end: cursor }; handleMessageInputChange(next); window.requestAnimationFrame(() => { messageInputRef.current?.focus(); messageInputRef.current?.setSelectionRange(cursor, cursor); }); }, [handleMessageInputChange, messageInput, messageInputRef, messageInputSelectionRef]);
-  const handleMessageInputKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>, slashCommandQuery: string | null) => { if (mentionQuery !== null && mentionCandidates.length > 0) { if (event.key === 'ArrowDown') { event.preventDefault(); setMentionActiveIndex((index) => (index + 1) % mentionCandidates.length); return; } if (event.key === 'ArrowUp') { event.preventDefault(); setMentionActiveIndex((index) => (index - 1 + mentionCandidates.length) % mentionCandidates.length); return; } if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); const candidate = mentionCandidates[mentionActiveIndex] || mentionCandidates[0]; if (candidate) insertMention(candidate); return; } if (event.key === 'Escape') { event.preventDefault(); setMentionQuery(null); setMentionStartIndex(-1); return; } } if (slashCommandQuery !== null) { if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); insertSummaryCommand(); return; } if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); return; } if (event.key === 'Escape') { event.preventDefault(); setSlashCommandQuery(null); return; } } if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }, [insertMention, insertSummaryCommand, mentionActiveIndex, mentionCandidates, mentionQuery, setMentionActiveIndex, setMentionQuery, setMentionStartIndex, setSlashCommandQuery]);
+  const handleMessageInputKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>, slashCommandQuery: string | null) => {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey) {
+      const marker = MARKDOWN_SHORTCUT_MARKERS[event.key.toLowerCase()];
+      if (marker) {
+        event.preventDefault();
+        const target = event.currentTarget;
+        const start = Math.min(target.selectionStart ?? messageInput.length, messageInput.length);
+        const end = Math.min(Math.max(target.selectionEnd ?? start, start), messageInput.length);
+        const selectedText = messageInput.slice(start, end);
+        const nextValue = messageInput.slice(0, start) + marker + selectedText + marker + messageInput.slice(end);
+        const nextSelectionStart = start + marker.length;
+        const nextSelectionEnd = nextSelectionStart + selectedText.length;
+        messageInputSelectionRef.current = { start: nextSelectionStart, end: nextSelectionEnd };
+        handleMessageInputChange(nextValue);
+        window.requestAnimationFrame(() => {
+          messageInputRef.current?.focus();
+          messageInputRef.current?.setSelectionRange(nextSelectionStart, nextSelectionEnd);
+        });
+        return;
+      }
+    }
+
+    if (mentionQuery !== null && mentionCandidates.length > 0) {
+      if (event.key === 'ArrowDown') { event.preventDefault(); setMentionActiveIndex((index) => (index + 1) % mentionCandidates.length); return; }
+      if (event.key === 'ArrowUp') { event.preventDefault(); setMentionActiveIndex((index) => (index - 1 + mentionCandidates.length) % mentionCandidates.length); return; }
+      if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); const candidate = mentionCandidates[mentionActiveIndex] || mentionCandidates[0]; if (candidate) insertMention(candidate); return; }
+      if (event.key === 'Escape') { event.preventDefault(); setMentionQuery(null); setMentionStartIndex(-1); return; }
+    }
+    if (slashCommandQuery !== null) {
+      if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); insertSummaryCommand(); return; }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); return; }
+      if (event.key === 'Escape') { event.preventDefault(); setSlashCommandQuery(null); return; }
+    }
+    if (
+      event.key === 'ArrowUp' &&
+      !event.shiftKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      !messageInput.trim() &&
+      onEditMessage &&
+      messages &&
+      currentUser
+    ) {
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const candidate = messages[index];
+        const candidateType = candidate.type ?? 'TEXT';
+        if (
+          candidate.senderId === currentUser.id &&
+          candidate.id > 0 &&
+          !candidate.recalled &&
+          candidateType === 'TEXT' &&
+          candidate.content?.trim()
+        ) {
+          event.preventDefault();
+          onEditMessage(candidate);
+          return;
+        }
+      }
+    }
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      event.currentTarget.form?.requestSubmit();
+    }
+  }, [currentUser, handleMessageInputChange, insertMention, insertSummaryCommand, mentionActiveIndex, mentionCandidates, mentionQuery, messageInput, messageInputRef, messageInputSelectionRef, messages, onEditMessage, setMentionActiveIndex, setMentionQuery, setMentionStartIndex, setSlashCommandQuery]);
   return { mentionCandidates, checkMentionTrigger, checkSlashCommandTrigger, handleMessageInputChange, insertMention, insertSummaryCommand, handleToggleEmojiPicker, handleInsertEmoji, handleMessageInputKeyDown };
 }

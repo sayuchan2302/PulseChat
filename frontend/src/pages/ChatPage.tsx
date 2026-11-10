@@ -18,26 +18,20 @@ import type {
 } from '../types';
 import { useAuth } from '../context/useAuth';
 import { wsService } from '../services/websocket';
-import { useChatRealtime, type ChatRealtimeHandlers } from '../hooks/useChatRealtime';
 import { useConversationDirectory } from '../hooks/useConversationDirectory';
 import { useMessageLoaders } from '../hooks/useMessageLoaders';
 import { useMessageActions } from '../hooks/useMessageActions';
 import { useMessageComposer } from '../hooks/useMessageComposer';
-import { useMediaPicker } from '../hooks/useMediaPicker';
-import { useMediaUpload } from '../hooks/useMediaUpload';
-import { useVoiceMessage } from '../hooks/useVoiceMessage';
+import { useMediaWorkspace } from '../hooks/useMediaWorkspace';
 import { useMessageSending } from '../hooks/useMessageSending';
 import { useMessageHistory } from '../hooks/useMessageHistory';
 import { useMessageTransport } from '../hooks/useMessageTransport';
 import { useProfileEditor } from '../hooks/useProfileEditor';
-import { useRealtimeEventHandlers } from '../hooks/useRealtimeEventHandlers';
-import { useIncomingMessageRecovery } from '../hooks/useIncomingMessageRecovery';
-import { useIncomingMessageHandler } from '../hooks/useIncomingMessageHandler';
 import { useFriendshipActions } from '../hooks/useFriendshipActions';
 import { useCallFeature } from '../hooks/useCallFeature';
 import { useRoomSummary } from '../hooks/useRoomSummary';
 import { useChatNotifications } from '../hooks/useChatNotifications';
-import { useChatInteractionSignals } from '../hooks/useChatInteractionSignals';
+import { useChatRealtimeWorkspace } from '../hooks/useChatRealtimeWorkspace';
 import { useConversationSearchWorkspace } from '../hooks/useConversationSearchWorkspace';
 import { useSharedContentManager } from '../hooks/useSharedContentManager';
 import { useMessageViewport } from '../hooks/useMessageViewport';
@@ -55,25 +49,20 @@ import { useWorkspaceShortcuts } from '../hooks/useWorkspaceShortcuts';
 import { useConversationDrafts } from '../hooks/useConversationDrafts';
 import {
   USER_SEARCH_DEBOUNCE_MS,
-  READ_BOTTOM_THRESHOLD, AUTO_SCROLL_BOTTOM_THRESHOLD,
   MEDIA_ACCEPT,
   CONVERSATION_FILTERS,
 } from '../constants/chatConstants';
 import type {
   ChatMessage,
-  PendingMedia,
   MainView, ConversationFilter,
 } from '../types/chat.types';
 import {
-  getMessageType,
   createReplyFromMessage,
-  getPendingMediaType, cloudinaryResultToMedia,
   getLatestSeenOutgoingMessageId, getLatestOutgoingMessageId,
-  isMessagesContainerNearBottom,
 } from '../utils/messageUtils';
 import {
   getUserDisplayName,
-  getAvatarUrl, getMediaUrl,
+  getAvatarUrl,
   applyProfileToUser, applyProfileToRoom,
   canChatWithUser,
   getTypingIndicatorLabel,
@@ -84,11 +73,6 @@ import {
   hasPrivateConversation,
   buildSidebarConversationItems,
 } from '../utils/conversationUtils';
-import { getBrowserAwareConnectionStatus } from '../utils/callUtils';
-import {
-  getMediaSizeError,
-  getFileFormat,
-} from '../utils/mediaUtils';
 import {
   getChatRoute, getFriendsRoute, getRequestsRoute,
   getUserChatRoute, getRoomChatRoute,
@@ -107,7 +91,6 @@ const FriendsPanel = lazy(() =>
 const FriendRequestsPanel = lazy(() =>
   import('../components/chat/PeoplePanels').then((module) => ({ default: module.FriendRequestsPanel }))
 );
-import type { LightboxMediaItem } from '../components/chat/MediaLightbox';
 import type { ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
 import { buildLatestRoomSeenByMessageId, buildMessageListItems } from '../utils/messageListUtils';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
@@ -135,10 +118,6 @@ export default function ChatPage() {
   const [mentionStartIndex, setMentionStartIndex] = useState<number>(-1);
   const [mentionActiveIndex, setMentionActiveIndex] = useState<number>(0);
   const [slashCommandQuery, setSlashCommandQuery] = useState<string | null>(null);
-  const [pendingMedia, setPendingMedia] = useState<PendingMedia | null>(null);
-  const [mediaUploading, setMediaUploading] = useState(false);
-  const [mediaError, setMediaError] = useState('');
-  const [mediaViewerMessage, setMediaViewerMessage] = useState<ChatMessage | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const {
     soundMuted,
@@ -184,13 +163,8 @@ export default function ChatPage() {
   const roomsRef = useRef<ChatRoom[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]);
   const roomSeenByLoadedMessageIdsRef = useRef<Set<number>>(new Set());
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const remoteTypingTimeoutsRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
-  const sendTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const userSearchQueryRef = useRef('');
   const optimisticMessageIdRef = useRef(-Date.now() * 1000);
-  const hasConnectedRef = useRef(false);
-  const realtimeActiveRef = useRef(false);
   const hasLoadedInitialUsersRef = useRef(false);
   const {
     roomSummary,
@@ -245,9 +219,6 @@ export default function ChatPage() {
   );
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const messageInputSelectionRef = useRef({ start: 0, end: 0 });
-  const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
-  const docFileInputRef = useRef<HTMLInputElement | null>(null);
-  const [isDraggingFile, setIsDraggingFile] = useState(false);
   const { emojiPickerOpen, setEmojiPickerOpen, emojiPickerRef, emojiButtonRef } = useEmojiPicker({
     messageInputRef,
   });
@@ -444,7 +415,6 @@ export default function ChatPage() {
     setProfileMenuOpen,
   });
 
-  const [lightboxState, setLightboxState] = useState<{ items: LightboxMediaItem[]; index: number } | null>(null);
   const [groupSeenModalMessage, setGroupSeenModalMessage] = useState<{ message: Message; seenUsers: User[] } | null>(null);
   const [reactionModalGroups, setReactionModalGroups] = useState<ReactionDetailGroup[] | null>(null);
 
@@ -456,42 +426,38 @@ export default function ChatPage() {
     setMessageInput,
   });
 
-  const conversationMediaGalleryItems = useMemo<LightboxMediaItem[]>(() => {
-    const seenUrls = new Set<string>();
-    const items: LightboxMediaItem[] = [];
-    const candidates = [...messages, ...[...sharedMediaItems].reverse()];
-
-    for (const message of candidates) {
-      if (message.recalled) continue;
-      const msgType = getMessageType(message);
-      if (msgType !== 'IMAGE' && msgType !== 'VIDEO') continue;
-      const url = getMediaUrl(message.mediaUrl);
-      if (!url || seenUrls.has(url)) continue;
-      seenUrls.add(url);
-      items.push({
-        url,
-        type: msgType,
-        fileName: message.content || (msgType === 'VIDEO' ? 'video' : 'image'),
-      });
-    }
-
-    return items;
-  }, [messages, sharedMediaItems]);
-
-  const handleOpenLightbox = useCallback((url: string, type: 'IMAGE' | 'VIDEO', fileName?: string) => {
-    const matchedIndex = conversationMediaGalleryItems.findIndex((item) => item.url === url);
-    if (matchedIndex >= 0) {
-      setLightboxState({
-        items: conversationMediaGalleryItems,
-        index: matchedIndex,
-      });
-      return;
-    }
-    setLightboxState({
-      items: [{ url, type, fileName }],
-      index: 0,
-    });
-  }, [conversationMediaGalleryItems]);
+  const {
+    pendingMedia,
+    mediaUploading,
+    setMediaUploading,
+    mediaError,
+    setMediaError,
+    mediaViewerMessage,
+    setMediaViewerMessage,
+    mediaViewerUrl,
+    mediaViewerType,
+    lightboxState,
+    setLightboxState,
+    isDraggingFile,
+    setIsDraggingFile,
+    mediaFileInputRef,
+    docFileInputRef,
+    clearPendingMedia,
+    handleOpenLightbox,
+    handleOpenMediaPicker,
+    handleOpenDocPicker,
+    handleFileSelected,
+    handleMediaFileChange,
+    handleClipboardPaste,
+    handleVoiceRecorded,
+    uploadPendingMedia,
+  } = useMediaWorkspace({
+    selectedRoomId,
+    selectedUserId,
+    messages,
+    sharedMediaItems,
+    setEmojiPickerOpen,
+  });
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -534,17 +500,6 @@ export default function ChatPage() {
       start: input.selectionStart,
       end: input.selectionEnd,
     };
-  };
-
-  const clearPendingMedia = () => {
-    setPendingMedia(null);
-    setMediaError('');
-    if (mediaFileInputRef.current) {
-      mediaFileInputRef.current.value = '';
-    }
-    if (docFileInputRef.current) {
-      docFileInputRef.current.value = '';
-    }
   };
 
   const {
@@ -615,18 +570,9 @@ export default function ChatPage() {
     currentUserIdRef.current = authenticatedUser.id;
   }, [authenticatedUser]);
 
-  useEffect(() => () => {
-    if (pendingMedia?.previewUrl) {
-      URL.revokeObjectURL(pendingMedia.previewUrl);
-    }
-  }, [pendingMedia?.previewUrl]);
-
   useEffect(() => {
     setEmojiPickerOpen(false);
     setReplyingToMessage(null);
-    clearPendingMedia();
-    setMediaUploading(false);
-    setMediaViewerMessage(null);
   }, [selectedRoomId, selectedUserId, setEmojiPickerOpen]);
 
   const selectedUserMessageRequest = selectedUser?.messageRequest;
@@ -679,42 +625,6 @@ export default function ChatPage() {
   }, [currentUser?.id, loadFriendSummary, loadIncomingFriendRequests]);
 
   const {
-    clearTypingTimeout,
-    clearRemoteTypingTimeout,
-    clearOptimisticSendTimeout,
-    clearOptimisticSendTimeouts,
-    scheduleOptimisticSendTimeout,
-    showRemoteTyping,
-    hideRemoteTyping,
-    publishTyping,
-    stopTyping,
-    publishRoomTyping,
-    stopRoomTyping,
-    markConversationAsRead,
-    markRoomAsRead,
-    applyRoomReadReceipt,
-    completePendingReadIfAtBottom,
-  } = useChatInteractionSignals({
-    currentUserIdRef,
-    selectedRoomIdRef,
-    messagesRef,
-    messagesContainerRef,
-    pendingReadConversationRef,
-    typingTimeoutRef,
-    remoteTypingTimeoutsRef,
-    sendTimeoutsRef,
-    setMessages,
-    setUsers,
-    setFriends,
-    setRooms,
-    setSelectedRoom,
-    setRemoteTypingUserIds,
-    setRoomSeenByByMessageId,
-    setUnreadDividerMessageId,
-    findKnownUserById,
-  });
-
-  const {
     applyRoomMembershipUpdate,
     applyMessageUpdate,
     applyMessageHidden,
@@ -747,6 +657,58 @@ export default function ChatPage() {
   });
 
   const {
+    typingTimeoutRef,
+    clearOptimisticSendTimeout,
+    scheduleOptimisticSendTimeout,
+    hideRemoteTyping,
+    publishTyping,
+    stopTyping,
+    publishRoomTyping,
+    stopRoomTyping,
+    completePendingReadIfAtBottom,
+  } = useChatRealtimeWorkspace({
+    currentUserId: currentUser?.id ?? null,
+    currentUserIdRef,
+    selectedUserIdRef,
+    selectedRoomIdRef,
+    userSearchQueryRef,
+    usersRef,
+    friendsRef,
+    roomsRef,
+    messagesRef,
+    messagesContainerRef,
+    pendingReadConversationRef,
+    setCurrentUser,
+    setUsers,
+    setFriends,
+    setRooms,
+    setSelectedUser,
+    setSelectedRoom,
+    setMessages,
+    setRemoteTypingUserIds,
+    setRoomSeenByByMessageId,
+    setUnreadDividerMessageId,
+    findKnownUserById,
+    loadUsers,
+    loadRooms,
+    loadIncomingFriendRequests,
+    loadFriendSummary,
+    loadMessages,
+    loadRoomMessages,
+    applyRoomMembershipUpdate,
+    applyMessageUpdate,
+    applyMessageHidden,
+    addIncomingSharedContent,
+    addPendingUnreadMessage,
+    buildMessageNotification,
+    buildFriendshipNotification,
+    notifyWithBrowserNotification,
+    handleCallSignal,
+    sendActiveCallCloseSignal,
+    stopCallMedia,
+  });
+
+  const {
     showScrollToBottom,
     markMessagesScrollIntent,
     handleMessageAssetLoaded,
@@ -776,52 +738,6 @@ export default function ChatPage() {
     completePendingReadIfAtBottom,
     loadOlderMessages,
   });
-
-  const realtimeEventHandlers = useRealtimeEventHandlers({
-    realtimeActiveRef, hasConnectedRef, currentUserIdRef, selectedUserIdRef, selectedRoomIdRef,
-    messagesContainerRef, isMessagesContainerNearBottom, readBottomThreshold: READ_BOTTOM_THRESHOLD,
-    setCurrentUser, setUsers, setFriends, setSelectedUser, setMessages, showRemoteTyping,
-    hideRemoteTyping, getBrowserAwareConnectionStatus, loadUsers, loadRooms,
-    loadIncomingFriendRequests, loadFriendSummary, loadMessages, loadRoomMessages,
-    markConversationAsRead, markRoomAsRead, applyRoomMembershipUpdate,
-    buildFriendshipNotification, notifyWithBrowserNotification, applyMessageUpdate,
-    applyMessageHidden,
-    applyRoomReadReceipt, handleCallSignal, clearTypingTimeout, clearRemoteTypingTimeout,
-    clearOptimisticSendTimeouts, sendActiveCallCloseSignal, stopCallMedia,
-  });
-
-  const { restoreMissingRoom, restoreMissingDirectSender } = useIncomingMessageRecovery({
-    realtimeActiveRef, usersRef, roomsRef, userSearchQueryRef, setUsers, setRooms,
-  });
-
-  const handleIncomingMessage = useIncomingMessageHandler({
-    realtimeActiveRef, currentUserIdRef, selectedUserIdRef, selectedRoomIdRef, userSearchQueryRef,
-    usersRef, friendsRef, roomsRef, messagesContainerRef, pendingReadConversationRef,
-    autoScrollBottomThreshold: AUTO_SCROLL_BOTTOM_THRESHOLD,
-    setMessages, setUsers, setFriends, setRooms, setSelectedUser, setSelectedRoom,
-    isMessagesContainerNearBottom, addIncomingSharedContent, clearOptimisticSendTimeout,
-    buildMessageNotification, notifyWithBrowserNotification, restoreMissingRoom,
-    restoreMissingDirectSender, markConversationAsRead, markRoomAsRead, addPendingUnreadMessage,
-  });
-
-  const realtimeHandlers = useMemo<ChatRealtimeHandlers>(() => ({
-    onConnect: () => {
-      realtimeActiveRef.current = true;
-      currentUserIdRef.current = currentUser?.id ?? null;
-    },
-    onMessage: handleIncomingMessage,
-    ...realtimeEventHandlers,
-  }), [
-    currentUser?.id,
-    handleIncomingMessage,
-    realtimeEventHandlers,
-  ]);
-
-  useChatRealtime(currentUser?.id, realtimeHandlers);
-
-  const { uploadPendingMedia } = useMediaUpload(
-    getMediaUrl, getFileFormat, cloudinaryResultToMedia,
-  );
 
   const { sendOptimisticMessage, sendOptimisticRoomMessage } = useMessageTransport({
     currentUserId: currentUser?.id, selectedUserIdRef, uploadPendingMedia,
@@ -1185,25 +1101,13 @@ export default function ChatPage() {
     mentionCandidates, insertMention, insertSummaryCommand,
     handleMessageInputChange, handleToggleEmojiPicker, handleInsertEmoji, handleMessageInputKeyDown: handleComposerKeyDown,
   } = useMessageComposer({
-    selectedUser, selectedRoom, currentUser, messageInput, mentionQuery, mentionStartIndex, mentionActiveIndex,
+    selectedUser, selectedRoom, currentUser, messages, onEditMessage: handleEditMessage,
+    messageInput, mentionQuery, mentionStartIndex, mentionActiveIndex,
     messageInputRef, messageInputSelectionRef, typingTimeoutRef,
     setMessageInput, setMentionQuery, setMentionStartIndex, setMentionActiveIndex,
     setSlashCommandQuery, setEmojiPickerOpen, canChatWithUser, publishTyping,
     publishRoomTyping, stopTyping, stopRoomTyping,
   });
-
-  const {
-    handleOpenMediaPicker,
-    handleOpenDocPicker,
-    handleFileSelected,
-    handleMediaFileChange,
-    handleClipboardPaste,
-  } = useMediaPicker({
-    mediaFileInputRef, docFileInputRef, setEmojiPickerOpen, setMediaError, setPendingMedia,
-    getPendingMediaType, getMediaSizeError,
-  });
-
-  const handleVoiceRecorded = useVoiceMessage(setPendingMedia);
 
   const handleMessageInputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) =>
     handleComposerKeyDown(event, slashCommandQuery);
@@ -1305,14 +1209,23 @@ export default function ChatPage() {
   const normalizedUserSearchQuery = userSearchQuery.trim();
   const normalizedFriendSearchQuery = friendSearchQuery.trim();
   const hasUserSearch = Boolean(normalizedUserSearchQuery);
-  const conversationUsers = users.filter(hasPrivateConversation);
-  const sidebarConversationItems = buildSidebarConversationItems(
-    conversationUsers,
-    rooms,
-    conversationFilter
+  const conversationUsers = useMemo(
+    () => users.filter(hasPrivateConversation),
+    [users]
   );
-  const filteredFriends = friends.filter((friend) =>
-    matchesFriendSearch(friend, normalizedFriendSearchQuery)
+  const sidebarConversationItems = useMemo(
+    () => buildSidebarConversationItems(
+      conversationUsers,
+      rooms,
+      conversationFilter
+    ),
+    [conversationFilter, conversationUsers, rooms]
+  );
+  const filteredFriends = useMemo(
+    () => friends.filter((friend) =>
+      matchesFriendSearch(friend, normalizedFriendSearchQuery)
+    ),
+    [friends, normalizedFriendSearchQuery]
   );
   const friendRequestBadgeCount = friendSummary.incomingCount;
   const usersEmptyMessage = normalizedUserSearchQuery
@@ -1370,8 +1283,6 @@ export default function ChatPage() {
     }
     return buildLatestRoomSeenByMessageId(messages, roomSeenByByMessageId);
   }, [messages, roomSeenByByMessageId, selectedRoom]);
-  const mediaViewerUrl = getMediaUrl(mediaViewerMessage?.mediaUrl);
-  const mediaViewerType = mediaViewerMessage ? getMessageType(mediaViewerMessage) : 'IMAGE';
   const activeReplyPreview = createReplyFromMessage(replyingToMessage);
 
   const { messageListProps } = useMessageItemRenderers({

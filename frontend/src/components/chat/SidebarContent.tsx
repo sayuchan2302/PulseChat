@@ -1,4 +1,4 @@
-import type { MouseEvent } from 'react';
+import { memo, type MouseEvent } from 'react';
 import type { ChatRoom, ConversationSetting, User } from '../../types';
 import type { ConversationFilter, ConversationTarget, SidebarConversationItem } from '../../types/chat.types';
 import { USER_SKELETON_KEYS } from '../../constants/chatConstants';
@@ -115,7 +115,7 @@ function SidebarSkeletons() {
   return <>{USER_SKELETON_KEYS.map((key) => <div key={key} className="user-item user-item-skeleton" aria-hidden="true"><div className="skeleton-avatar" /><div className="skeleton-user-info"><div className="skeleton-line name" /><div className="skeleton-line status" /></div></div>)}</>;
 }
 
-export function SidebarContent(props: SidebarContentProps) {
+function SidebarContentComponent(props: SidebarContentProps) {
   const {
     hasUserSearch, users, usersLoading, usersError, userSearchQuery, usersEmptyMessage, rooms, roomsError,
     sidebarBusy, conversationFilter, conversationItems, currentUser, selectedUserId, selectedRoomId,
@@ -188,5 +188,59 @@ export function SidebarContent(props: SidebarContentProps) {
     {conversationItems.map((item) => item.type === 'user' ? renderUser(item.user) : renderRoom(item.room))}
   </>;
 }
+
+function areInactiveDraftsEqual(
+  prevDrafts: Record<string, string> | undefined,
+  nextDrafts: Record<string, string> | undefined,
+  selectedUserId: number | null,
+  selectedRoomId: number | null,
+): boolean {
+  if (prevDrafts === nextDrafts) return true;
+  const activeKey = selectedRoomId !== null
+    ? `room-${selectedRoomId}`
+    : selectedUserId !== null
+      ? `user-${selectedUserId}`
+      : null;
+  const prevKeys = Object.keys(prevDrafts ?? {}).filter((key) => key !== activeKey);
+  const nextKeys = Object.keys(nextDrafts ?? {}).filter((key) => key !== activeKey);
+  if (prevKeys.length !== nextKeys.length) return false;
+  for (const key of prevKeys) {
+    if ((prevDrafts?.[key] ?? '') !== (nextDrafts?.[key] ?? '')) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areSidebarContentPropsEqual(prev: SidebarContentProps, next: SidebarContentProps): boolean {
+  return (
+    prev.hasUserSearch === next.hasUserSearch &&
+    prev.users === next.users &&
+    prev.usersLoading === next.usersLoading &&
+    prev.usersError === next.usersError &&
+    prev.userSearchQuery === next.userSearchQuery &&
+    prev.usersEmptyMessage === next.usersEmptyMessage &&
+    prev.rooms === next.rooms &&
+    prev.roomsError === next.roomsError &&
+    prev.sidebarBusy === next.sidebarBusy &&
+    prev.conversationFilter === next.conversationFilter &&
+    prev.conversationItems === next.conversationItems &&
+    prev.currentUser === next.currentUser &&
+    prev.selectedUserId === next.selectedUserId &&
+    prev.selectedRoomId === next.selectedRoomId &&
+    prev.friendActionKeys === next.friendActionKeys &&
+    prev.blockedUserIds === next.blockedUserIds &&
+    prev.openConversationMenuKey === next.openConversationMenuKey &&
+    prev.pendingConversationKey === next.pendingConversationKey &&
+    areInactiveDraftsEqual(
+      prev.conversationDrafts,
+      next.conversationDrafts,
+      next.selectedUserId,
+      next.selectedRoomId,
+    )
+  );
+}
+
+export const SidebarContent = memo(SidebarContentComponent, areSidebarContentPropsEqual);
 
 export default SidebarContent;

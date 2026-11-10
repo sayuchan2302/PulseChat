@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 import type { MessageListItem } from '../../types/chat.types';
 import MessageItem, { type MessageItemProps } from './MessageItem';
 
@@ -7,7 +7,7 @@ interface MessageListProps extends Omit<MessageItemProps, 'item' | 'isTimeExpand
 }
 
 /** Keeps message DOM ordering and the scroll container unchanged while composing item renderers. */
-export default function MessageList({ items, ...itemProps }: MessageListProps) {
+function MessageListComponent({ items, ...itemProps }: MessageListProps) {
   const [expandedTimeMessageId, setExpandedTimeMessageId] = useState<number | string | null>(null);
 
   const conversationKey = itemProps.selectedUser
@@ -51,3 +51,7 @@ export default function MessageList({ items, ...itemProps }: MessageListProps) {
     </>
   );
 }
+
+export const MessageList = memo(MessageListComponent);
+
+export default MessageList;
