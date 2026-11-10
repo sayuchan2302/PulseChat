@@ -5,6 +5,9 @@ import { escapeRegExp, trimUrlToken } from './formatUtils';
 import { TEXT_URL_REGEX } from '../constants/chatConstants';
 
 const MENTION_TOKEN_REGEX = /@([a-zA-Z0-9_.-]+)/g;
+const CODE_BLOCK_REGEX = /```([a-zA-Z0-9_-]*)\r?\n?([\s\S]*?)```/g;
+const INLINE_CODE_REGEX = /`([^`\n]+)`/g;
+const INLINE_MARKDOWN_REGEX = /\*\*([^*\n]+)\*\*|~~([^~\n]+)~~|\*([^*\n]+)\*/g;
 
 function isSafeHttpUrl(url?: string | null): url is string {
     if (!url) {
@@ -88,7 +91,47 @@ export function renderTextWithMentions(text: string): React.ReactNode {
     return parts.length > 0 ? parts : text;
 }
 
-export function renderLinkedText(text: string): React.ReactNode {
+function renderFormattedTextWithMentions(text: string, keyPrefix: string): React.ReactNode {
+    if (!text) {
+        return null;
+    }
+
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    INLINE_MARKDOWN_REGEX.lastIndex = 0;
+
+    for (const match of text.matchAll(INLINE_MARKDOWN_REGEX)) {
+        const rawMatch = match[0];
+        const matchIndex = match.index ?? 0;
+
+        if (matchIndex > lastIndex) {
+            parts.push(renderTextWithMentions(text.slice(lastIndex, matchIndex)));
+        }
+
+        const boldText = match[1];
+        const strikeText = match[2];
+        const italicText = match[3];
+        const key = `${keyPrefix}-md-${matchIndex}`;
+
+        if (boldText !== undefined) {
+            parts.push(<strong key={key}>{renderTextWithMentions(boldText)}</strong>);
+        } else if (strikeText !== undefined) {
+            parts.push(<del key={key}>{renderTextWithMentions(strikeText)}</del>);
+        } else if (italicText !== undefined) {
+            parts.push(<em key={key}>{renderTextWithMentions(italicText)}</em>);
+        }
+
+        lastIndex = matchIndex + rawMatch.length;
+    }
+
+    if (lastIndex < text.length) {
+        parts.push(renderTextWithMentions(text.slice(lastIndex)));
+    }
+
+    return parts.length > 0 ? parts : renderTextWithMentions(text);
+}
+
+function renderUrlsAndFormattedText(text: string, keyPrefix: string): React.ReactNode {
     if (!text) {
         return null;
     }
@@ -106,12 +149,12 @@ export function renderLinkedText(text: string): React.ReactNode {
         }
 
         if (matchIndex > lastIndex) {
-            nodes.push(renderTextWithMentions(text.slice(lastIndex, matchIndex)));
+            nodes.push(renderFormattedTextWithMentions(text.slice(lastIndex, matchIndex), `${keyPrefix}-u-${matchIndex}`));
         }
 
         nodes.push(
             <a
-                key={`link-${matchIndex}-${url}`}
+                key={`${keyPrefix}-link-${matchIndex}-${url}`}
                 className="message-text-link"
                 href={url}
                 target="_blank"
@@ -123,14 +166,109 @@ export function renderLinkedText(text: string): React.ReactNode {
 
         const trailingText = rawUrl.slice(url.length);
         if (trailingText) {
-            nodes.push(renderTextWithMentions(trailingText));
+            nodes.push(renderFormattedTextWithMentions(trailingText, `${keyPrefix}-ut-${matchIndex}`));
         }
 
         lastIndex = matchIndex + rawUrl.length;
     }
 
     if (lastIndex < text.length) {
-        nodes.push(renderTextWithMentions(text.slice(lastIndex)));
+        nodes.push(renderFormattedTextWithMentions(text.slice(lastIndex), `${keyPrefix}-u-end`));
+    }
+
+    return nodes.length > 0 ? nodes : text;
+}
+
+function renderInlineCodeAndText(text: string, keyPrefix: string): React.ReactNode {
+    if (!text) {
+        return null;
+    }
+
+    const nodes: React.ReactNode[] = [];
+    let lastIndex = 0;
+    INLINE_CODE_REGEX.lastIndex = 0;
+
+    for (const match of text.matchAll(INLINE_CODE_REGEX)) {
+        const rawMatch = match[0];
+        const codeContent = match[1] ?? '';
+        const matchIndex = match.index ?? 0;
+
+        if (matchIndex > lastIndex) {
+            nodes.push(renderUrlsAndFormattedText(text.slice(lastIndex, matchIndex), `${keyPrefix}-ic-${matchIndex}`));
+        }
+
+        nodes.push(
+            <code key={`${keyPrefix}-code-${matchIndex}`} className="message-inline-code">
+                {codeContent}
+            </code>
+        );
+
+        lastIndex = matchIndex + rawMatch.length;
+    }
+
+    if (lastIndex < text.length) {
+        nodes.push(renderUrlsAndFormattedText(text.slice(lastIndex), `${keyPrefix}-ic-end`));
+    }
+
+    return nodes.length > 0 ? nodes : text;
+}
+
+function renderCodeBlock(codeContent: string, language: string, key: string): React.ReactNode {
+    const normalizedCode = codeContent.replace(/\r?\n$/, '');
+    const langLabel = language.trim() || 'code';
+
+    return (
+        <div key={key} className="message-code-block-wrap">
+            <div className="message-code-block-header">
+                <span className="message-code-lang">{langLabel}</span>
+                <button
+                    type="button"
+                    className="message-code-copy-btn"
+                    onClick={(event) => {
+                        const button = event.currentTarget;
+                        void navigator.clipboard?.writeText(normalizedCode);
+                        button.textContent = 'Copied ✓';
+                        window.setTimeout(() => {
+                            button.textContent = 'Copy';
+                        }, 1500);
+                    }}
+                    aria-label="Copy code"
+                >
+                    Copy
+                </button>
+            </div>
+            <pre className="message-code-block">
+                <code>{normalizedCode}</code>
+            </pre>
+        </div>
+    );
+}
+
+export function renderLinkedText(text: string): React.ReactNode {
+    if (!text) {
+        return null;
+    }
+
+    const nodes: React.ReactNode[] = [];
+    let lastIndex = 0;
+    CODE_BLOCK_REGEX.lastIndex = 0;
+
+    for (const match of text.matchAll(CODE_BLOCK_REGEX)) {
+        const rawMatch = match[0];
+        const language = match[1] ?? '';
+        const codeContent = match[2] ?? '';
+        const matchIndex = match.index ?? 0;
+
+        if (matchIndex > lastIndex) {
+            nodes.push(renderInlineCodeAndText(text.slice(lastIndex, matchIndex), `cb-${matchIndex}`));
+        }
+
+        nodes.push(renderCodeBlock(codeContent, language, `codeblock-${matchIndex}`));
+        lastIndex = matchIndex + rawMatch.length;
+    }
+
+    if (lastIndex < text.length) {
+        nodes.push(renderInlineCodeAndText(text.slice(lastIndex), 'cb-end'));
     }
 
     return nodes.length > 0 ? nodes : text;

@@ -10,6 +10,8 @@ interface Options {
   currentUser: User | null;
   messages?: ChatMessage[];
   onEditMessage?: (message: ChatMessage) => void;
+  hasActiveReply?: boolean;
+  onCancelReply?: () => void;
   messageInput: string;
   mentionQuery: string | null;
   mentionStartIndex: number;
@@ -39,6 +41,7 @@ const MARKDOWN_SHORTCUT_MARKERS: Record<string, string> = {
 export function useMessageComposer(options: Options) {
   const {
     selectedUser, selectedRoom, currentUser, messages, onEditMessage,
+    hasActiveReply, onCancelReply,
     messageInput, mentionQuery, mentionStartIndex, mentionActiveIndex,
     messageInputRef, messageInputSelectionRef, typingTimeoutRef,
     setMessageInput, setMentionQuery, setMentionStartIndex, setMentionActiveIndex,
@@ -92,6 +95,11 @@ export function useMessageComposer(options: Options) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); return; }
       if (event.key === 'Escape') { event.preventDefault(); setSlashCommandQuery(null); return; }
     }
+    if (event.key === 'Escape' && hasActiveReply && onCancelReply) {
+      event.preventDefault();
+      onCancelReply();
+      return;
+    }
     if (
       event.key === 'ArrowUp' &&
       !event.shiftKey &&
@@ -123,6 +131,6 @@ export function useMessageComposer(options: Options) {
       event.preventDefault();
       event.currentTarget.form?.requestSubmit();
     }
-  }, [currentUser, handleMessageInputChange, insertMention, insertSummaryCommand, mentionActiveIndex, mentionCandidates, mentionQuery, messageInput, messageInputRef, messageInputSelectionRef, messages, onEditMessage, setMentionActiveIndex, setMentionQuery, setMentionStartIndex, setSlashCommandQuery]);
+  }, [currentUser, handleMessageInputChange, hasActiveReply, insertMention, insertSummaryCommand, mentionActiveIndex, mentionCandidates, mentionQuery, messageInput, messageInputRef, messageInputSelectionRef, messages, onCancelReply, onEditMessage, setMentionActiveIndex, setMentionQuery, setMentionStartIndex, setSlashCommandQuery]);
   return { mentionCandidates, checkMentionTrigger, checkSlashCommandTrigger, handleMessageInputChange, insertMention, insertSummaryCommand, handleToggleEmojiPicker, handleInsertEmoji, handleMessageInputKeyDown };
 }

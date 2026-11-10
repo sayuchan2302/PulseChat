@@ -6,6 +6,7 @@ import type { ReactionDetailGroup } from './ReactionSummaryModal';
 import { CloseIcon, TrashIcon } from '../../icons/ChatIcons';
 import { getUserDisplayName } from '../../utils/userUtils';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import './GroupModals.css';
 import './ChatDialogs.css';
 
 const ForwardPickerBody = lazy(() => import('./ForwardPickerBody'));

@@ -1,14 +1,14 @@
 import { lazy, Suspense } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import type { CallType, ChatRoom, GlobalMessageSearchItem, User } from '../../types';
-import ChatDialogLayer, { type ChatDialogLayerProps } from './ChatDialogLayer';
-import './GroupModals.css';
+import type { ChatDialogLayerProps } from './ChatDialogLayer';
 
 const GlobalMessageSearchModal = lazy(() => import('./GlobalMessageSearchModal'));
 const ProfileViewerModal = lazy(() => import('./ProfileViewerModal'));
 const BlockedUsersModal = lazy(() => import('./BlockedUsersModal'));
 const ProfileEditorModal = lazy(() => import('./ProfileEditorModal'));
 const CreateGroupModal = lazy(() => import('./CreateGroupModal'));
+const ChatDialogLayer = lazy(() => import('./ChatDialogLayer'));
 
 export interface WorkspaceModalsProps {
   globalSearchOpen: boolean;
@@ -208,7 +208,22 @@ export function WorkspaceModals({
         </Suspense>
       ) : null}
 
-      <ChatDialogLayer {...dialogProps} />
+      {(
+        dialogProps.editingMessage ||
+        dialogProps.messageToDeleteForMe ||
+        dialogProps.mediaViewerUrl ||
+        dialogProps.conversationDeleteTarget ||
+        dialogProps.forwardingMessage ||
+        (dialogProps.addMembersModalOpen && dialogProps.selectedRoom) ||
+        (dialogProps.inviteModalOpen && dialogProps.selectedRoom) ||
+        dialogProps.lightboxState ||
+        dialogProps.groupSeenModalMessage ||
+        dialogProps.reactionModalGroups
+      ) ? (
+        <Suspense fallback={null}>
+          <ChatDialogLayer {...dialogProps} />
+        </Suspense>
+      ) : null}
     </>
   );
 }

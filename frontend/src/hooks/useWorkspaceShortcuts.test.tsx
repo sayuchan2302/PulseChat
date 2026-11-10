@@ -35,5 +35,24 @@ describe('useWorkspaceShortcuts', () => {
     fireEvent.keyDown(window, { key: 'F', ctrlKey: true, shiftKey: true });
     expect(handleToggleMessageSearch).toHaveBeenCalledTimes(1);
   });
+
+  it('navigates conversations with Alt+ArrowUp and Alt+ArrowDown', () => {
+    const onNavigateConversation = vi.fn();
+
+    renderHook(() =>
+      useWorkspaceShortcuts({
+        selectedConversationOpen: true,
+        setGlobalSearchOpen: vi.fn(),
+        handleToggleMessageSearch: vi.fn(),
+        onNavigateConversation,
+      }),
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowUp', altKey: true });
+    expect(onNavigateConversation).toHaveBeenCalledWith('prev');
+
+    fireEvent.keyDown(window, { key: 'ArrowDown', altKey: true });
+    expect(onNavigateConversation).toHaveBeenCalledWith('next');
+  });
 });
 

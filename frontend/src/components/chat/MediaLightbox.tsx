@@ -43,9 +43,9 @@ export function MediaLightbox({
         }
     }, [currentIndex, onSelectIndex, resetTransform]);
 
-    const handleZoomIn = () => setZoom((z) => Math.min(z + 0.25, 4));
-    const handleZoomOut = () => setZoom((z) => Math.max(z - 0.25, 0.5));
-    const handleRotate = () => setRotation((r) => (r + 90) % 360);
+    const handleZoomIn = useCallback(() => setZoom((z) => Math.min(z + 0.25, 4)), []);
+    const handleZoomOut = useCallback(() => setZoom((z) => Math.max(z - 0.25, 0.5)), []);
+    const handleRotate = useCallback(() => setRotation((r) => (r + 90) % 360), []);
 
     const handleDownload = () => {
         if (!currentItem) return;
@@ -66,12 +66,18 @@ export function MediaLightbox({
                 handleNext();
             } else if (e.key === 'ArrowLeft') {
                 handlePrev();
+            } else if (e.key === '+' || e.key === '=') {
+                handleZoomIn();
+            } else if (e.key === '-') {
+                handleZoomOut();
+            } else if (e.key === '0') {
+                resetTransform();
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose, handleNext, handlePrev]);
+    }, [onClose, handleNext, handlePrev, handleZoomIn, handleZoomOut, resetTransform]);
 
     if (!currentItem) return null;
 
@@ -101,7 +107,22 @@ export function MediaLightbox({
             </div>
 
             <div className="lightbox-body" onClick={onClose}>
-                <div className="lightbox-media-wrapper" onClick={(e) => e.stopPropagation()}>
+                <div
+                    className="lightbox-media-wrapper"
+                    onClick={(e) => e.stopPropagation()}
+                    onWheel={(e) => {
+                        e.stopPropagation();
+                        if (e.deltaY < 0) {
+                            handleZoomIn();
+                        } else if (e.deltaY > 0) {
+                            handleZoomOut();
+                        }
+                    }}
+                    onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        setZoom((z) => (z === 1 ? 2 : 1));
+                    }}
+                >
                     {currentItem.type === 'VIDEO' ? (
                         <video
                             src={currentItem.url}
@@ -152,6 +173,34 @@ export function MediaLightbox({
                     </button>
                 ) : null}
             </div>
+
+            {items.length > 1 ? (
+                <div className="lightbox-thumbnails" role="tablist" aria-label="Media thumbnails">
+                    {items.map((item, idx) => (
+                        <button
+                            key={`${item.url}-${idx}`}
+                            type="button"
+                            role="tab"
+                            aria-selected={idx === currentIndex}
+                            aria-label={`View media ${idx + 1} of ${items.length}`}
+                            className={`lightbox-thumb-btn ${idx === currentIndex ? 'active' : ''}`}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (idx !== currentIndex) {
+                                    onSelectIndex(idx);
+                                    resetTransform();
+                                }
+                            }}
+                        >
+                            {item.type === 'VIDEO' ? (
+                                <video src={item.url} className="lightbox-thumb-media" muted preload="metadata" />
+                            ) : (
+                                <img src={item.url} alt="" className="lightbox-thumb-media" loading="lazy" />
+                            )}
+                        </button>
+                    ))}
+                </div>
+            ) : null}
         </div>
     );
 }

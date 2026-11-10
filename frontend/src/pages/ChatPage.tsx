@@ -11,14 +11,12 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ROUTES } from '../config/constants';
 import type {
   ChatRoom,
-  Friendship,
-  FriendshipSummary,
   Message,
   User,
 } from '../types';
 import { useAuth } from '../context/useAuth';
 import { wsService } from '../services/websocket';
-import { useConversationDirectory } from '../hooks/useConversationDirectory';
+import { useDirectoryWorkspace } from '../hooks/useDirectoryWorkspace';
 import { useMessageLoaders } from '../hooks/useMessageLoaders';
 import { useMessageActions } from '../hooks/useMessageActions';
 import { useMessageComposer } from '../hooks/useMessageComposer';
@@ -26,7 +24,6 @@ import { useMediaWorkspace } from '../hooks/useMediaWorkspace';
 import { useMessageSending } from '../hooks/useMessageSending';
 import { useMessageHistory } from '../hooks/useMessageHistory';
 import { useMessageTransport } from '../hooks/useMessageTransport';
-import { useProfileEditor } from '../hooks/useProfileEditor';
 import { useFriendshipActions } from '../hooks/useFriendshipActions';
 import { useCallFeature } from '../hooks/useCallFeature';
 import { useRoomSummary } from '../hooks/useRoomSummary';
@@ -36,7 +33,7 @@ import { useConversationSearchWorkspace } from '../hooks/useConversationSearchWo
 import { useSharedContentManager } from '../hooks/useSharedContentManager';
 import { useMessageViewport } from '../hooks/useMessageViewport';
 import { useConversationNavigation } from '../hooks/useConversationNavigation';
-import { useProfileViewer } from '../hooks/useProfileViewer';
+import { useUserProfileWorkspace } from '../hooks/useUserProfileWorkspace';
 import { useTheme } from '../hooks/useTheme';
 import { useHeaderPreferences } from '../hooks/useHeaderPreferences';
 import { useConversationSettings } from '../hooks/useConversationSettings';
@@ -48,13 +45,12 @@ import { useWorkspaceEscapeKey } from '../hooks/useWorkspaceEscapeKey';
 import { useWorkspaceShortcuts } from '../hooks/useWorkspaceShortcuts';
 import { useConversationDrafts } from '../hooks/useConversationDrafts';
 import {
-  USER_SEARCH_DEBOUNCE_MS,
   MEDIA_ACCEPT,
   CONVERSATION_FILTERS,
 } from '../constants/chatConstants';
 import type {
   ChatMessage,
-  MainView, ConversationFilter,
+  MainView,
 } from '../types/chat.types';
 import {
   createReplyFromMessage,
@@ -62,17 +58,11 @@ import {
 } from '../utils/messageUtils';
 import {
   getUserDisplayName,
-  getAvatarUrl,
-  applyProfileToUser, applyProfileToRoom,
   canChatWithUser,
   getTypingIndicatorLabel,
 
-  shouldOpenConversationDetailsByDefault, matchesFriendSearch,
+  shouldOpenConversationDetailsByDefault,
 } from '../utils/userUtils';
-import {
-  hasPrivateConversation,
-  buildSidebarConversationItems,
-} from '../utils/conversationUtils';
 import {
   getChatRoute, getFriendsRoute, getRequestsRoute,
   getUserChatRoute, getRoomChatRoute,
@@ -93,7 +83,6 @@ const FriendRequestsPanel = lazy(() =>
 );
 import type { ReactionDetailGroup } from '../components/chat/ReactionSummaryModal';
 import { buildLatestRoomSeenByMessageId, buildMessageListItems } from '../utils/messageListUtils';
-import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { useEmojiPicker } from '../hooks/useEmojiPicker';
 import { useOfflineCache } from '../hooks/useOfflineCache';
 import './ChatPage.layout.css';
@@ -102,9 +91,6 @@ import './ChatPage.css';
 export default function ChatPage() {
   const { isDark, toggleTheme } = useTheme();
   const { user: authenticatedUser, logout, updateCurrentUser } = useAuth();
-  const [users, setUsers] = useState<User[]>([]);
-  const [friends, setFriends] = useState<User[]>([]);
-  const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -129,25 +115,9 @@ export default function ChatPage() {
     handleToggleProfileMenu,
   } = useHeaderPreferences(currentUser);
   const [remoteTypingUserIds, setRemoteTypingUserIds] = useState<number[]>([]);
-  const [usersLoading, setUsersLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
-  const [usersError, setUsersError] = useState('');
-  const [roomsError, setRoomsError] = useState('');
   const [messagesError, setMessagesError] = useState('');
-  const [friendRequestsError, setFriendRequestsError] = useState('');
-  const [userSearchQuery, setUserSearchQuery] = useState('');
-  const [friendSearchQuery, setFriendSearchQuery] = useState('');
-  const [roomsLoading, setRoomsLoading] = useState(true);
-  const [friendRequestsLoading, setFriendRequestsLoading] = useState(true);
   const [mainView, setMainView] = useState<MainView>('chat');
-  const [conversationFilter, setConversationFilter] = useState<ConversationFilter>('all');
-  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
-  const [incomingFriendRequests, setIncomingFriendRequests] = useState<Friendship[]>([]);
-  const [friendSummary, setFriendSummary] = useState<FriendshipSummary>({
-    incomingCount: 0,
-    outgoingCount: 0,
-  });
-  const [friendActionKeys, setFriendActionKeys] = useState<string[]>([]);
   const [rightSidebarTab, setRightSidebarTab] = useState<'details' | 'search'>('details');
   const [roomSeenByByMessageId, setRoomSeenByByMessageId] = useState<Record<number, User[]>>({});
   const [seenByLoadingMessageIds, setSeenByLoadingMessageIds] = useState<number[]>([]);
@@ -157,15 +127,11 @@ export default function ChatPage() {
   const currentUserIdRef = useRef<number | null>(null);
   const selectedUserIdRef = useRef<number | null>(null);
   const selectedRoomIdRef = useRef<number | null>(null);
-  const selectedMessageRequestStateRef = useRef<{ userId: number; isRequest: boolean } | null>(null);
-  const usersRef = useRef<User[]>([]);
-  const friendsRef = useRef<User[]>([]);
-  const roomsRef = useRef<ChatRoom[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]);
   const roomSeenByLoadedMessageIdsRef = useRef<Set<number>>(new Set());
-  const userSearchQueryRef = useRef('');
   const optimisticMessageIdRef = useRef(-Date.now() * 1000);
-  const hasLoadedInitialUsersRef = useRef(false);
+  const selectedUserId = selectedUser?.id ?? null;
+  const selectedRoomId = selectedRoom?.id ?? null;
   const {
     roomSummary,
     roomSummaryRoomId,
@@ -176,7 +142,7 @@ export default function ChatPage() {
     setRoomSummaryRoomId,
     setRoomSummaryError,
   } = useRoomSummary({
-    selectedRoomId: selectedRoom?.id ?? null,
+    selectedRoomId,
     selectedRoomIdRef,
   });
   const {
@@ -225,6 +191,62 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const {
+    users,
+    setUsers,
+    friends,
+    setFriends,
+    rooms,
+    setRooms,
+    usersLoading,
+    roomsLoading,
+    friendRequestsLoading,
+    usersError,
+    setUsersError,
+    roomsError,
+    friendRequestsError,
+    setFriendRequestsError,
+    userSearchQuery,
+    setUserSearchQuery,
+    friendSearchQuery,
+    conversationFilter,
+    setConversationFilter,
+    incomingFriendRequests,
+    friendActionKeys,
+    setFriendActionKeys,
+    usersRef,
+    friendsRef,
+    roomsRef,
+    userSearchQueryRef,
+    loadUsers,
+    loadIncomingFriendRequests,
+    loadFriendSummary,
+    loadRooms,
+    handleUserSearchChange,
+    handleClearUserSearch,
+    handleFriendSearchChange,
+    handleClearFriendSearch,
+    mutedPrivateConversationUserIds,
+    hasUserSearch,
+    sidebarConversationItems,
+    filteredFriends,
+    friendRequestBadgeCount,
+    usersEmptyMessage,
+    sidebarBusy,
+  } = useDirectoryWorkspace({
+    currentUserId: currentUser?.id ?? null,
+    selectedUser,
+    selectedUserId,
+    selectedUserIdRef,
+    selectedRoomIdRef,
+    canOpenDirectConversation,
+    resetMessagePagination,
+    navigate,
+    setSelectedUser,
+    setSelectedRoom,
+    setMessages,
+    setMessageInput,
+  });
+  const {
     findKnownUserById,
     startIncomingCallRingtone,
     stopIncomingCallRingtone,
@@ -240,11 +262,6 @@ export default function ChatPage() {
     roomsRef,
     navigate,
   });
-  const mutedPrivateConversationUserIds = useMemo(() => Array.from(new Set(
-    [...users, ...friends]
-      .filter((user) => user.muted)
-      .map((user) => user.id)
-  )), [friends, users]);
   const {
     activeCall,
     activeCallRef,
@@ -311,8 +328,6 @@ export default function ChatPage() {
     startIncomingCallRingtone,
     stopIncomingCallRingtone,
   });
-  const selectedUserId = selectedUser?.id ?? null;
-  const selectedRoomId = selectedRoom?.id ?? null;
   const {
     globalSearchOpen,
     setGlobalSearchOpen,
@@ -384,36 +399,6 @@ export default function ChatPage() {
     currentUserRef.current = currentUser;
     currentUserIdRef.current = currentUser?.id ?? null;
   }, [currentUser]);
-
-  useEffect(() => {
-    usersRef.current = users;
-  }, [users]);
-
-  useEffect(() => {
-    friendsRef.current = friends;
-  }, [friends]);
-
-  useEffect(() => {
-    roomsRef.current = rooms;
-  }, [rooms]);
-
-  const {
-    setViewedProfileUser,
-    viewedProfileLoading,
-    viewedProfileError,
-    profileActionError,
-    setProfileActionError,
-    activeViewedProfileUser,
-    clearViewedProfile,
-    handleOpenUserProfile,
-    handleCloseUserProfile,
-  } = useProfileViewer({
-    users,
-    friends,
-    selectedUser,
-    selectedRoom,
-    setProfileMenuOpen,
-  });
 
   const [groupSeenModalMessage, setGroupSeenModalMessage] = useState<{ message: Message; seenUsers: User[] } | null>(null);
   const [reactionModalGroups, setReactionModalGroups] = useState<ReactionDetailGroup[] | null>(null);
@@ -503,32 +488,57 @@ export default function ChatPage() {
   };
 
   const {
+    profileEditorOpen,
+    setViewedProfileUser,
+    viewedProfileLoading,
+    viewedProfileError,
+    profileActionError,
+    setProfileActionError,
+    activeViewedProfileUser,
+    clearViewedProfile,
+    handleOpenUserProfile,
+    handleCloseUserProfile,
+    blockedUsers,
+    blockedUserIds,
+    blockedUsersOpen,
+    closeBlockedUsers,
+    blockedUsersLoading,
+    blockedUsersError,
+    blockActionPendingUserId,
+    toggleUserBlock,
+    handleOpenBlockedUsers,
+    profileFullName,
+    setProfileFullName,
+    profileBio,
+    setProfileBio,
+    profileAvatarPreview,
+    profileSaving,
+    profileError,
+    setProfileError,
+    handleOpenProfileEditor,
+    handleCloseProfileEditor,
+    handleProfileAvatarChange,
+    handleUpdateProfile,
+    activeProfileUserIsBlocked,
+    selectedUserIsBlocked,
+  } = useUserProfileWorkspace({
+    currentUser,
+    currentUserIdRef,
+    users,
+    friends,
+    selectedUser,
+    selectedRoom,
+    updateCurrentUser,
+    setCurrentUser,
+    setUsers,
+    setFriends,
+    setSelectedUser,
+    setRooms,
+    setSelectedRoom,
+    setProfileMenuOpen,
     loadUsers,
     loadIncomingFriendRequests,
     loadFriendSummary,
-    loadRooms,
-  } = useConversationDirectory({
-    userSearchQueryRef,
-    selectedUserIdRef,
-    selectedRoomIdRef,
-    canOpenDirectConversation,
-    resetMessagePagination,
-    navigate,
-    setUsers,
-    setFriends,
-    setRooms,
-    setSelectedUser,
-    setSelectedRoom,
-    setMessages,
-    setMessageInput,
-    setIncomingFriendRequests,
-    setFriendSummary,
-    setUsersLoading,
-    setRoomsLoading,
-    setFriendRequestsLoading,
-    setUsersError,
-    setRoomsError,
-    setFriendRequestsError,
   });
 
   const { loadMessages, loadRoomMessages } = useMessageLoaders({
@@ -574,55 +584,6 @@ export default function ChatPage() {
     setEmojiPickerOpen(false);
     setReplyingToMessage(null);
   }, [selectedRoomId, selectedUserId, setEmojiPickerOpen]);
-
-  const selectedUserMessageRequest = selectedUser?.messageRequest;
-
-  useEffect(() => {
-    const previousState = selectedMessageRequestStateRef.current;
-    if (
-      conversationFilter === 'requests' &&
-      selectedUserMessageRequest === false &&
-      previousState?.userId === selectedUserId &&
-      previousState.isRequest
-    ) {
-      setConversationFilter('all');
-    }
-    selectedMessageRequestStateRef.current = selectedUserId
-      ? { userId: selectedUserId, isRequest: Boolean(selectedUserMessageRequest) }
-      : null;
-  }, [conversationFilter, selectedUserId, selectedUserMessageRequest]);
-
-  useEffect(() => {
-    if (!currentUser?.id) {
-      return;
-    }
-
-    userSearchQueryRef.current = userSearchQuery;
-    const isInitialLoad = !hasLoadedInitialUsersRef.current;
-    const timeout = setTimeout(() => {
-      hasLoadedInitialUsersRef.current = true;
-      void loadUsers({ search: userSearchQuery });
-    }, isInitialLoad ? 0 : USER_SEARCH_DEBOUNCE_MS);
-
-    return () => clearTimeout(timeout);
-  }, [currentUser?.id, loadUsers, userSearchQuery]);
-
-  useEffect(() => {
-    if (!currentUser?.id) {
-      return;
-    }
-
-    void loadRooms();
-  }, [currentUser?.id, loadRooms]);
-
-  useEffect(() => {
-    if (!currentUser?.id) {
-      return;
-    }
-
-    void loadIncomingFriendRequests();
-    void loadFriendSummary();
-  }, [currentUser?.id, loadFriendSummary, loadIncomingFriendRequests]);
 
   const {
     applyRoomMembershipUpdate,
@@ -839,26 +800,6 @@ export default function ChatPage() {
     handleMinimizeActiveCall();
   };
 
-  const handleUserSearchChange = (value: string) => {
-    userSearchQueryRef.current = value;
-    setUserSearchQuery(value);
-    setUsersError('');
-  };
-
-  const handleClearUserSearch = () => {
-    userSearchQueryRef.current = '';
-    setUserSearchQuery('');
-    setUsersError('');
-  };
-
-  const handleFriendSearchChange = (value: string) => {
-    setFriendSearchQuery(value);
-  };
-
-  const handleClearFriendSearch = () => {
-    setFriendSearchQuery('');
-  };
-
   const handleOpenFriendsPanel = () => {
     navigateIfNeeded(getFriendsRoute());
     setMainView('friends');
@@ -869,45 +810,6 @@ export default function ChatPage() {
     }
 
     void loadUsers({ silent: true, search: '' });
-  };
-
-  const handleUserBlocked = useCallback(async (blockedUser: User) => {
-    setFriends((current) => current.filter((friend) => friend.id !== blockedUser.id));
-    setUsers((current) => current.map((listedUser) => listedUser.id === blockedUser.id
-      ? { ...listedUser, friendshipStatus: 'none', friendshipId: undefined }
-      : listedUser));
-    setSelectedUser((current) => current?.id === blockedUser.id
-      ? { ...current, friendshipStatus: 'none', friendshipId: undefined }
-      : current);
-    setViewedProfileUser((current) => current?.id === blockedUser.id
-      ? { ...current, friendshipStatus: 'none', friendshipId: undefined }
-      : current);
-    await Promise.all([
-      loadUsers({ search: '', silent: true }),
-      loadIncomingFriendRequests({ silent: true }),
-      loadFriendSummary({ silent: true }),
-    ]);
-  }, [loadFriendSummary, loadIncomingFriendRequests, loadUsers, setViewedProfileUser]);
-
-  const {
-    blockedUsers,
-    blockedUserIds,
-    blockedUsersOpen,
-    openBlockedUsers,
-    closeBlockedUsers,
-    blockedUsersLoading,
-    blockedUsersError,
-    blockActionPendingUserId,
-    toggleUserBlock,
-  } = useBlockedUsers({
-    currentUserId: currentUser?.id ?? null,
-    onUserBlocked: handleUserBlocked,
-    onActionError: setProfileActionError,
-  });
-
-  const handleOpenBlockedUsers = () => {
-    setProfileMenuOpen(false);
-    openBlockedUsers();
   };
 
   const handleToggleConversationDetails = () => {
@@ -1102,6 +1004,7 @@ export default function ChatPage() {
     handleMessageInputChange, handleToggleEmojiPicker, handleInsertEmoji, handleMessageInputKeyDown: handleComposerKeyDown,
   } = useMessageComposer({
     selectedUser, selectedRoom, currentUser, messages, onEditMessage: handleEditMessage,
+    hasActiveReply: Boolean(replyingToMessage), onCancelReply: handleCancelReply,
     messageInput, mentionQuery, mentionStartIndex, mentionActiveIndex,
     messageInputRef, messageInputSelectionRef, typingTimeoutRef,
     setMessageInput, setMentionQuery, setMentionStartIndex, setMentionActiveIndex,
@@ -1130,52 +1033,6 @@ export default function ChatPage() {
     handleUserSelect,
   });
 
-  const applyUpdatedCurrentUserProfile = (updatedUser: User) => {
-    const nextCurrentUser = currentUser
-      ? { ...applyProfileToUser(currentUser, updatedUser), online: currentUser.online }
-      : updatedUser;
-
-    setCurrentUser(nextCurrentUser);
-    currentUserIdRef.current = nextCurrentUser.id;
-    updateCurrentUser(nextCurrentUser);
-    setUsers((currentUsers) =>
-      currentUsers.map((user) => applyProfileToUser(user, nextCurrentUser))
-    );
-    setFriends((currentFriends) =>
-      currentFriends.map((friend) => applyProfileToUser(friend, nextCurrentUser))
-    );
-    setSelectedUser((currentSelectedUser) =>
-      currentSelectedUser ? applyProfileToUser(currentSelectedUser, nextCurrentUser) : null
-    );
-    setRooms((currentRooms) =>
-      currentRooms.map((room) => applyProfileToRoom(room, nextCurrentUser))
-    );
-    setSelectedRoom((currentSelectedRoom) =>
-      currentSelectedRoom ? applyProfileToRoom(currentSelectedRoom, nextCurrentUser) : null
-    );
-  };
-
-  const {
-    profileFullName,
-    setProfileFullName,
-    profileBio,
-    setProfileBio,
-    profileAvatarPreview,
-    profileSaving,
-    profileError,
-    setProfileError,
-    handleOpenProfileEditor,
-    handleCloseProfileEditor,
-    handleProfileAvatarChange,
-    handleUpdateProfile,
-  } = useProfileEditor({
-    currentUser,
-    getAvatarUrl,
-    applyUpdatedCurrentUserProfile,
-    setProfileMenuOpen,
-    setProfileEditorOpen,
-  });
-
   const handleLogout = async () => {
     if (selectedUserIdRef.current !== null) {
       stopTyping(selectedUserIdRef.current);
@@ -1194,10 +1051,6 @@ export default function ChatPage() {
   };
 
   const currentUserDisplayName = getUserDisplayName(currentUser) || 'Profile';
-  const activeProfileUserIsBlocked = Boolean(activeViewedProfileUser &&
-    blockedUsers.some((blockedUser) => blockedUser.id === activeViewedProfileUser.id));
-  const selectedUserIsBlocked = Boolean(selectedUser &&
-    blockedUsers.some((blockedUser) => blockedUser.id === selectedUser.id));
   const currentUserOnline = Boolean(currentUser?.online);
   const activeCallConversationOpen = Boolean(
     activeCall &&
@@ -1206,43 +1059,37 @@ export default function ChatPage() {
     mainView === 'chat'
   );
   const canStartPrivateCall = Boolean(selectedUser && canChatWithUser(selectedUser) && !activeCall);
-  const normalizedUserSearchQuery = userSearchQuery.trim();
-  const normalizedFriendSearchQuery = friendSearchQuery.trim();
-  const hasUserSearch = Boolean(normalizedUserSearchQuery);
-  const conversationUsers = useMemo(
-    () => users.filter(hasPrivateConversation),
-    [users]
-  );
-  const sidebarConversationItems = useMemo(
-    () => buildSidebarConversationItems(
-      conversationUsers,
-      rooms,
-      conversationFilter
-    ),
-    [conversationFilter, conversationUsers, rooms]
-  );
-  const filteredFriends = useMemo(
-    () => friends.filter((friend) =>
-      matchesFriendSearch(friend, normalizedFriendSearchQuery)
-    ),
-    [friends, normalizedFriendSearchQuery]
-  );
-  const friendRequestBadgeCount = friendSummary.incomingCount;
-  const usersEmptyMessage = normalizedUserSearchQuery
-    ? `No username matches "${normalizedUserSearchQuery}".`
-    : 'No friends yet. Search username to add friends.';
   const selectedConversationName = selectedRoom
     ? selectedRoom.name
     : selectedUser
       ? getUserDisplayName(selectedUser)
       : '';
   const selectedConversationOpen = Boolean(selectedUser || selectedRoom);
-  const sidebarBusy = hasUserSearch ? usersLoading : usersLoading || roomsLoading;
+
+  const handleNavigateConversation = (direction: 'prev' | 'next') => {
+    if (sidebarConversationItems.length === 0) return;
+    const currentIndex = sidebarConversationItems.findIndex((item) =>
+      item.type === 'user'
+        ? item.user.id === selectedUserId
+        : item.room.id === selectedRoomId
+    );
+    const nextIndex = currentIndex < 0
+      ? (direction === 'next' ? 0 : sidebarConversationItems.length - 1)
+      : (currentIndex + (direction === 'next' ? 1 : -1) + sidebarConversationItems.length) % sidebarConversationItems.length;
+    const targetItem = sidebarConversationItems[nextIndex];
+    if (!targetItem) return;
+    if (targetItem.type === 'user') {
+      void handleUserSelect(targetItem.user);
+    } else {
+      void handleRoomSelect(targetItem.room);
+    }
+  };
 
   useWorkspaceShortcuts({
     selectedConversationOpen,
     setGlobalSearchOpen,
     handleToggleMessageSearch,
+    onNavigateConversation: handleNavigateConversation,
   });
   const messageListItems = useMemo(
     () => buildMessageListItems(

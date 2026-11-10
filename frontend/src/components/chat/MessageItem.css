@@ -241,6 +241,72 @@
   text-underline-offset: 2px;
 }
 
+.message-inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.88em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+.dark .message-inline-code {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.message-code-block-wrap {
+  margin: 6px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+}
+
+.message-code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.message-code-lang {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-transform: lowercase;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.message-code-copy-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.message-code-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.message-code-block {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+}
+
 /* --------------------------------------------------------------------------
    Timestamp & Read Status
    -------------------------------------------------------------------------- */
@@ -1747,4 +1813,28 @@ background: rgba(147, 51, 234, 0.25);
   background: rgba(239, 68, 68, 0.3);
   border-color: rgba(239, 68, 68, 0.6);
   color: #fecaca;
+}
+
+.forwarded-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--gray-500);
+  margin-bottom: 4px;
+  opacity: 0.9;
+}
+
+.forwarded-header strong {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--gray-600);
+}
+
+.forwarded-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  opacity: 0.7;
 }

@@ -205,4 +205,65 @@ describe('useMessageComposer', () => {
     triggerShortcut('e', len, len);
     expect(result.current.messageInput).toBe('*Hello* **world**``');
   });
+
+  it('cancels active reply when Escape is pressed in composer', () => {
+    const onCancelReply = vi.fn();
+    const { result } = renderHook(() => {
+      const [messageInput, setMessageInput] = useState('Drafting reply');
+      const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+      const [mentionStartIndex, setMentionStartIndex] = useState(-1);
+      const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+      const [, setSlashCommandQuery] = useState<string | null>(null);
+      const [, setEmojiPickerOpen] = useState(false);
+      const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
+      const messageInputSelectionRef = useRef({ start: 0, end: 0 });
+      const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+      return useMessageComposer({
+        selectedUser: peerUser,
+        selectedRoom: null,
+        currentUser,
+        hasActiveReply: true,
+        onCancelReply,
+        messageInput,
+        mentionQuery,
+        mentionStartIndex,
+        mentionActiveIndex,
+        messageInputRef,
+        messageInputSelectionRef,
+        typingTimeoutRef,
+        setMessageInput,
+        setMentionQuery,
+        setMentionStartIndex,
+        setMentionActiveIndex,
+        setSlashCommandQuery,
+        setEmojiPickerOpen,
+        canChatWithUser: () => true,
+        publishTyping: vi.fn(),
+        publishRoomTyping: vi.fn(),
+        stopTyping: vi.fn(),
+        stopRoomTyping: vi.fn(),
+      });
+    });
+
+    const preventDefault = vi.fn();
+    act(() => {
+      result.current.handleMessageInputKeyDown(
+        {
+          key: 'Escape',
+          ctrlKey: false,
+          metaKey: false,
+          altKey: false,
+          shiftKey: false,
+          preventDefault,
+          currentTarget: { selectionStart: 0, selectionEnd: 0 } as HTMLTextAreaElement,
+          nativeEvent: { isComposing: false } as KeyboardEvent,
+        } as unknown as React.KeyboardEvent<HTMLTextAreaElement>,
+        null,
+      );
+    });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(onCancelReply).toHaveBeenCalledTimes(1);
+  });
 });

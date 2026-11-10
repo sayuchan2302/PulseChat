@@ -3,6 +3,7 @@ import { renderUserAvatar } from '../../utils/renderUtils';
 import { getUserDisplayName } from '../../utils/userUtils';
 import { useModalEscape } from '../../hooks/useModalEscape';
 import { CloseIcon, ProfileIcon } from '../../icons/ChatIcons';
+import './ChatDialogs.css';
 
 export interface BlockedUsersModalProps {
   open: boolean;

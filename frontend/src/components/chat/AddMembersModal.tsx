@@ -1,6 +1,8 @@
 import type { User } from '../../types';
 import { getUserDisplayName } from '../../utils/userUtils';
 import { renderUserAvatar } from '../../utils/renderUtils';
+import './GroupModals.css';
+import './ChatDialogs.css';
 
 export interface AddMembersModalProps {
   roomName: string;
