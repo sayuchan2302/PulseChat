@@ -403,17 +403,6 @@ flex: 0 0 auto;
 color: var(--gray-500);
 }
 
-.user-item.unread .user-name,
-.user-item.unread .user-preview {
-color: var(--gray-800);
-  font-weight: 800;
-}
-
-.user-item.unread .user-time {
-color: var(--purple-700);
-  font-weight: 800;
-}
-
 .message.received.has-visible-time {
 width: 100%;
   max-width: none;

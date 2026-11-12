@@ -3,7 +3,6 @@ package com.chatapp.service;
 import com.chatapp.dto.request.CallSignalRequest;
 import com.chatapp.dto.request.CallSignalRequest.CallSignalType;
 import com.chatapp.dto.response.CallSignalResponse;
-import com.chatapp.dto.response.MessageResponse;
 import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.CallSession;

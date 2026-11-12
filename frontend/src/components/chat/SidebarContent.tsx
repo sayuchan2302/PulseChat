@@ -53,6 +53,31 @@ function ConversationStatusIcons({ target }: { target: ConversationTarget }) {
   </div>;
 }
 
+function ConversationRightMeta({
+  target,
+  unreadCount,
+  mentioned = false,
+}: {
+  target: ConversationTarget;
+  unreadCount: number;
+  mentioned?: boolean;
+}) {
+  const item = target.type === 'user' ? target.user : target.room;
+  const hasStatusIcons = Boolean(item.pinned || item.muted || item.archived);
+  if (!hasStatusIcons && unreadCount <= 0) return null;
+  return (
+    <div className="conversation-item-meta">
+      <ConversationStatusIcons target={target} />
+      {unreadCount > 0 ? (
+        <div className="unread-badge-wrap">
+          {mentioned ? <span className="mention-unread-indicator" title="You were mentioned">@</span> : null}
+          <div className="unread-badge">{unreadCount > 99 ? '99+' : unreadCount}</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function FriendshipAction({
   user,
   blocked,
@@ -140,8 +165,7 @@ function SidebarContentComponent(props: SidebarContentProps) {
     if (preview) {
       const target: ConversationTarget = { type: 'user', user };
       return <div key={user.id} className={`conversation-list-row ${selectedUserId === user.id ? 'active' : ''}`}>
-        <button type="button" className={`user-item conversation-trigger ${selectedUserId === user.id ? 'active' : ''} ${unreadCount > 0 ? 'unread' : ''}`} onClick={() => onSelectUser(user)}>{renderUserIdentity(user, true)}<ConversationStatusIcons target={target} /></button>
-        {unreadCount > 0 ? <div className="unread-badge">{unreadCount}</div> : null}
+        <button type="button" className={`user-item conversation-trigger ${selectedUserId === user.id ? 'active' : ''} ${unreadCount > 0 ? 'unread' : ''}`} onClick={() => onSelectUser(user)}>{renderUserIdentity(user, true)}<ConversationRightMeta target={target} unreadCount={unreadCount} /></button>
         <ConversationMenu target={target} openKey={openConversationMenuKey} pendingKey={pendingConversationKey} onToggle={onToggleConversationMenu} onUpdate={onUpdateConversationSetting} onOpenProfile={onOpenProfile} onRequestDelete={onRequestDelete} />
       </div>;
     }
@@ -160,9 +184,8 @@ function SidebarContentComponent(props: SidebarContentProps) {
     const mentioned = Boolean(room.lastMessageContent && (/@all\b/i.test(room.lastMessageContent) || (currentUser && room.lastMessageContent.toLowerCase().includes(`@${currentUser.username.toLowerCase()}`))));
     return <div key={`room-${room.id}`} className={`conversation-list-row ${selectedRoomId === room.id ? 'active' : ''}`}>
       <button type="button" className={`user-item room-item conversation-trigger ${selectedRoomId === room.id ? 'active' : ''} ${unreadCount > 0 ? 'unread' : ''}`} onClick={() => onSelectRoom(room)}>
-        <div className="user-avatar room-avatar">{getRoomInitial(room)}</div><div className="user-info"><div className="user-title-row"><div className="user-name">{room.name}</div></div><div className="user-preview-row"><span className="user-preview">{draftText ? <><span className="conversation-draft-prefix">Draft: </span>{draftText}</> : <>{getRoomPreviewText(room, currentUser?.id ?? null)}{sidebarTime ? ` · ${sidebarTime}` : ''}</>}</span></div></div><ConversationStatusIcons target={target} />
+        <div className="user-avatar room-avatar">{getRoomInitial(room)}</div><div className="user-info"><div className="user-title-row"><div className="user-name">{room.name}</div></div><div className="user-preview-row"><span className="user-preview">{draftText ? <><span className="conversation-draft-prefix">Draft: </span>{draftText}</> : <>{getRoomPreviewText(room, currentUser?.id ?? null)}{sidebarTime ? ` · ${sidebarTime}` : ''}</>}</span></div></div><ConversationRightMeta target={target} unreadCount={unreadCount} mentioned={mentioned} />
       </button>
-      {unreadCount > 0 ? <div className="unread-badge-wrap">{mentioned ? <span className="mention-unread-indicator" title="You were mentioned">@</span> : null}<div className="unread-badge">{unreadCount}</div></div> : null}
       <ConversationMenu target={target} openKey={openConversationMenuKey} pendingKey={pendingConversationKey} onToggle={onToggleConversationMenu} onUpdate={onUpdateConversationSetting} onOpenProfile={onOpenProfile} onRequestDelete={onRequestDelete} />
     </div>;
   };

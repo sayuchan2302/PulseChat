@@ -7,7 +7,6 @@ import com.chatapp.exception.AppException;
 import com.chatapp.exception.ErrorCode;
 import com.chatapp.model.CallSession;
 import com.chatapp.model.CallSession.CallStatus;
-import com.chatapp.model.Friendship;
 import com.chatapp.model.User;
 import com.chatapp.model.UserBlock;
 import com.chatapp.repository.CallSessionRepository;

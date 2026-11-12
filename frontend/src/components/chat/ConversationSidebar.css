@@ -334,6 +334,30 @@
   flex-shrink: 0;
 }
 
+.user-item.unread .user-name {
+  color: var(--text-primary);
+  font-weight: var(--weight-bold);
+}
+
+.user-item.unread .user-preview {
+  color: var(--text-primary);
+  font-weight: var(--weight-semi);
+}
+
+.user-item.unread .user-time {
+  color: var(--accent);
+  font-weight: var(--weight-bold);
+}
+
+.conversation-item-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+  transition: opacity 0.15s ease;
+}
+
 .conversation-status-icons {
   display: inline-flex;
   align-items: center;
@@ -346,6 +370,47 @@
   height: 14px;
 }
 
+.unread-badge-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.conversation-item-meta .unread-badge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: var(--weight-bold);
+  line-height: 1;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(91, 95, 199, 0.24);
+}
+
+.mention-unread-indicator {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-surface);
+  color: var(--accent);
+  border: 1px solid var(--purple-200);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: var(--weight-bold);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
 /* --------------------------------------------------------------------------
    Hover Actions Menu in Row
    -------------------------------------------------------------------------- */
@@ -355,7 +420,7 @@
 
 .conversation-menu-wrap {
   position: absolute;
-  right: 8px;
+  right: var(--space-lg);
   top: 50%;
   transform: translateY(-50%);
   z-index: 10;
@@ -369,6 +434,12 @@
 .conversation-menu-wrap:has([aria-expanded='true']) {
   opacity: 1;
   pointer-events: auto;
+}
+
+.conversation-list-row:hover .conversation-item-meta,
+.conversation-list-row:has(.conversation-menu-wrap:focus-within) .conversation-item-meta,
+.conversation-list-row:has([aria-expanded='true']) .conversation-item-meta {
+  opacity: 0;
 }
 
 .conversation-menu-btn {
@@ -534,10 +605,6 @@ background: #ECFDF5;
   color: #047857;
 }
 
-.conversation-trigger {
-  padding-right: 8px;
-}
-
 .relationship-item {
 cursor: default;
 }
@@ -610,12 +677,6 @@ grid-column: 2;
     .request-main-item .request-actions {
 justify-content: flex-start;
     }
-}
-
-.unread-badge-wrap {
-display: flex;
-  align-items: center;
-  gap: 4px;
 }
 
 [data-theme='dark'] .conversation-menu,
